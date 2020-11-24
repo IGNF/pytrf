@@ -3138,7 +3138,7 @@ class ggm(noise):
             dc_da.append(c[1]/a + a/2*phi*mpmath.diff(lambda a: mpmath.hyp2f1(a/2+1, a/2, 2, phi2), a))
             for k in range(1, nf-1):
                 dc_da.append((c[k+1] + 2*k*(1+phi2)/phi*dc_da[-1] - 2*(k+a/2-1)*dc_da[-2] - c[k-1]) / (2*(k+1-a/2)))
-                if (np.abs(dc_da[-1]) < 1e-8):
+                if (np.abs(dc_da[-1]) < 1e-5):
                     break
             dc_da = np.pad(np.array(dc_da, dtype='float'), (0, nf-len(dc_da)))
 
@@ -3150,7 +3150,7 @@ class ggm(noise):
             dc_dt.append((c[1]/phi + (phi*a/2)**2*(a/2+1)*mpmath.hyp2f1(a/2+2, a/2+1, 3, phi2)) * dp_dt)
             for k in range(1, nf-1):
                 dc_dt.append((k*(1-1/phi2)*c[k]*dp_dt + k*(1+phi2)/phi*dc_dt[-1] - (k+a/2-1)*dc_dt[-2]) / (k+1-a/2))
-                if (np.abs(dc_dt[-1]) < 1e-8):
+                if (np.abs(dc_dt[-1]) < 1e-5):
                     break
             dc_dt = np.pad(np.array(dc_dt, dtype='float'), (0, nf-len(dc_dt)))
         
@@ -3174,6 +3174,11 @@ class ggm(noise):
         # Partial derivative wrt correlation time
         if (set_dcov) and not(n.par[2].fixed):
             dc.append(s2*dc_dt)
+
+        #if (set_dcov):
+            #for i in range(len(dc)):
+                #pp.plot(dc[i])
+            #pp.show()
 
         # Set n.Q and n.dQ given c and dc
         n.set_cov_from_c(m, c, dc)
@@ -3255,10 +3260,10 @@ class ggm(noise):
             if (set_dpsd) and not(n.par[2].fixed):
                 n.dP.append(-a*dt/tau**2 * phi * (phi-cf) * n.P / df)
 
-            #if (set_dpsd):
-                #for k in range(len(n.dP)):
-                    #pp.plot(n.dP[k])
-                #pp.show()
+            ##if (set_dpsd):
+                ##for k in range(len(n.dP)):
+                    ##pp.plot(n.dP[k])
+                ##pp.show()
 
 
 # model class
@@ -5415,7 +5420,22 @@ class model:
                         # Update noise parameters
                         br = br + db
                         m[d].set_br(br)
+                    
+                    
+                    
+                    #def vpv(br):
+                        #m[d].set_br(br)
+                        #print(m.get_b())
+                        #m[d].set_psd()
+                        #pp.loglog(m[d].fr, m[d].pv, 'k')
+                        #pp.loglog(m[d].fr, m[d].pn, 'r', linewidth=2)
+                        #pp.show()
+                        #return np.sum(((m[d].pv-m[d].pn))**2)
+                    
+                    #br = optimize.fmin(vpv, x0=m[d].get_br(), xtol=1e-5, disp=False)
                 
+
+
                     # Message
                     if not(quiet) and not(verbose):
                         print('\x1b[2K', end='\r', file=out)
@@ -5439,8 +5459,11 @@ class model:
                 #---------------------------------------
 
                 # Covariance matrix and formal errors of predicted observations
-                m[d].Qc = np.dot(m[d].A, np.dot(m[d].Qx, m[d].A.T))
-                m[d].sc = np.sqrt(np.diag(m[d].Qc))
+                m[d].Qc = np.zeros((m[d].r.n, m[d].r.n))
+                m[d].sc = np.zeros((m[d].r.n))
+                if (m[d].nx > 0):
+                    m[d].Qc = np.dot(m[d].A, np.dot(m[d].Qx, m[d].A.T))
+                    m[d].sc = np.sqrt(np.diag(m[d].Qc))
 
                 # Covariance matrix and formal errors of residuals
                 m[d].Qv = m[d].Q - m[d].Qc
@@ -5625,6 +5648,8 @@ class model:
             # Clean outliers
             if (len(ind) > 0):
                 m.r.del_points(ind)
+                for d in range(m.nd):
+                    m[d].r = m.r[d]
                 
             # Or exit
             else:
