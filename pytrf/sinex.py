@@ -4012,7 +4012,7 @@ class sinex:
         if len(indx)>0:
             if reject1by1 == True:
                 r3D = np.sqrt(snx.vn[ix[indx,0]]**2 + snx.vn[ix[indx,1]]**2 + snx.vn[ix[indx,2]]**2)
-                indx = [indx[np.nonzero(r3D == np.max(r3D))[0]]]
+                indx = [indx[np.nonzero(r3D == np.max(r3D))[0][0]]]
         
         # Print station position outliers
         if (len(indx) > 0) and not(quiet):
