@@ -6,12 +6,12 @@
 #-----------------
 import os
 import sys
-#import mkl
-#mkl.set_num_threads(1)
+import mkl
+mkl.set_num_threads(1)
 import copy
 import pickle
 import numpy as np
-from scipy import sparse
+from scipy import sparse, linalg
 from math import sqrt
 
 # Internal imports
@@ -698,7 +698,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     # Change a priori coordinates of RF stations
     if (datum):
         combsnx.prior2ref(datum)
-                
+    
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])
     combsnx.sta = [combsnx.sta[i] for i in ind]
@@ -767,7 +767,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         dyi = np.zeros(snx.npar)
         dyi[isnx] = snx.x[isnx] - combsnx.x0[icmb] 
         dy.append(dyi)
-
+        
         # Initialize design matrix with ones for all parameters in snx
         A_rows = isnx
         A_cols = icmb
@@ -792,7 +792,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         A_vals.extend(H[ind].tolist())
 
         # Build sparse design matrix of current solution
-        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))        
+        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
         # Get weight matrix of solution isol
         if (snx.N is not None):
@@ -803,7 +803,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         # Divide weight matrix by a priori variance factor if provided
         if (hasattr(sol, 'sf')):
             P = P / sol.sf**2
-                    
+        
         # Update normal equation
         AtP = A[isol].T.dot(P)
         combsnx.N = combsnx.N + A[isol].T.dot(AtP.T)
@@ -812,8 +812,8 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         # Make room if needed
         if not(store_inputs):
             del sol.snx
-            
-        
+
+
 
     # 3 - ADD CONSTRAINTS
     #--------------------

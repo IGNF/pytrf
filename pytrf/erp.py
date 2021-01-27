@@ -388,21 +388,27 @@ class erp:
         # Fill missing fields with zeros if necessary
         if (r.xpo is None):
             r.xpo  = np.zeros(len(r.mjd))
+        if (r.sxpo is None):
             r.sxpo = np.zeros(len(r.mjd))
         if (r.ypo is None):
             r.ypo  = np.zeros(len(r.mjd))
+        if (r.sypo is None):
             r.sypo = np.zeros(len(r.mjd))
         if (r.xpor is None):
             r.xpor  = np.zeros(len(r.mjd))
+        if (r.sxpor is None):
             r.sxpor = np.zeros(len(r.mjd))
         if (r.ypor is None):
             r.ypor  = np.zeros(len(r.mjd))
+        if (r.sypor is None):
             r.sypor = np.zeros(len(r.mjd))
         if (r.ut1 is None):
             r.ut1  = np.zeros(len(r.mjd))
+        if (r.sut1 is None):
             r.sut1 = np.zeros(len(r.mjd))
         if (r.lod is None):
             r.lod  = np.zeros(len(r.mjd))
+        if (r.slod is None):
             r.slod = np.zeros(len(r.mjd))
 
         # Print header

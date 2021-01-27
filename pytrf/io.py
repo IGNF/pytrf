@@ -479,11 +479,13 @@ def get_sitelog(sta, logsource, X=None, dmax=100):
             Xlog = sitelog_coord(logsource[i].localdir+'/'+file)
             
             # Distance wrt input station coordinates (km)
-            d = np.sqrt(np.sum((X-Xlog)**2)) / 1000
+            d = 0
+            if (X is not None) and (Xlog[0] != 0):
+                d = np.sqrt(np.sum((X-Xlog)**2)) / 1000
 
             # If site log coordinates match station coordinates within tolerance
             # or if no coordinates are available in sitelog,
-            if ((d < dmax) or (Xlog[0] == 0)):
+            if (d < dmax):
                 f = True
 
             # Else, try next directory.
@@ -616,9 +618,11 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
             i = line.index(':')
             r.type = line[i+2:].strip()[0:20].upper()
             while (len(r.type) < 20):
-              r.type = r.type + ' '
+                r.type = r.type + ' '
+            r.system = 'GPS'
             r.serie = '-----'
             r.firmware = '-----------'
+            r.cutoff = 'n/a'
             r.start = '00:000:00000'
             r.end = '00:000:00000'
             rec.append(r)
@@ -640,7 +644,13 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
             r.dx = ['  0.0000']*3
             r.daz = '   0'
             ant.append(r)
-          
+        
+        # Satellite systems
+        elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
+            i = line.index(':')
+            if (line[i+2:].strip()):
+                rec[-1].system = line[i+2:].strip()
+        
         # Serial number
         elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
             i = line.index(':')
@@ -658,6 +668,14 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                 if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
                     rec[-1].firmware = line[i+2:].strip()
               
+        # Cutoff angle
+        elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
+            i = line.index(':')
+            if (line[i+2:].strip()):
+                tab = line[i+2:].strip().split()
+                if (isfloat(tab[0])):
+                    rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
+
         # Date installed
         elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
             i = line.index(':')
@@ -716,7 +734,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                 tab[0] = re.subn('deg', '', tab[0])[0]
                 if (isfloat(tab[0])):
                     ant[-1].daz = '{0:4d}'.format(round(float(tab[0])))
-            
+        
         # Default receiver or default antenna or new section
         elif ((line[0:3] == '3.x') or (line[0:3] == '4.x') or (line[0:2] == '5.')):
             receiver = False

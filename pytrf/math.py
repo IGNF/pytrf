@@ -10,8 +10,8 @@ This subpackage contains several useful math routines.
 # External imports
 #-----------------
 import sys
-#import mkl
-#mkl.set_num_threads(1)
+import mkl
+mkl.set_num_threads(1)
 import numpy as np
 from scipy import linalg, signal, special, sparse
 from astropy.timeseries import LombScargle
@@ -394,13 +394,19 @@ def vondrak(t, x, fc):
     d2 = a[3:-2] * c[3:-2] + b[2:-3] * d[2:-3]
     d3 = a[3:-3] * d[3:-3]
 
-    A  = np.diag(d0) + np.diag(d1,1) + np.diag(d1,-1) + np.diag(d2,2) + np.diag(d2,-2) + np.diag(d3,3) + np.diag(d3,-3)
+    #A = np.diag(d0) + np.diag(d1,1) + np.diag(d1,-1) + np.diag(d2,2) + np.diag(d2,-2) + np.diag(d3,3) + np.diag(d3,-3)
+    #return linalg.solve(A, eps*x)
 
-    return linalg.solve(A, eps*x)
+    A = np.zeros((4, len(d0)))
+    A[0,:] = d0
+    A[1,:-1] = d1
+    A[2,:-2] = d2
+    A[3,:-3] = d3
+    return linalg.solveh_banded(A, eps*x, lower=True)
 
 # Lomb-Scargle periodogram
 #-------------------------
-def lombscargle(t, x, sf=4, f=None, dtrd=1, normalize=False):
+def lombscargle(t, x, sf=4, f=None, dtrd=0, normalize=False):
     
     """
     Lomb-Scargle periodogram
@@ -427,7 +433,7 @@ def lombscargle(t, x, sf=4, f=None, dtrd=1, normalize=False):
         - If 0, then an average is removed from the time series before computing the periodogram.
         - If 1, then a linear trend is removed from the time series before computing the periodogram.
         - If anything else, the time series is not detrended.
-        Default is 1.
+        Default is 0.
     normalize : bool, optional
         True for a normalized periodogram. Default is False.
     """
@@ -454,7 +460,7 @@ def lombscargle(t, x, sf=4, f=None, dtrd=1, normalize=False):
         f = np.arange(f0, fc+df, df)
 
     # Compute periodogram
-    p = LombScargle(t, x, normalization='psd').power(f)
+    p = LombScargle(t, x, normalization='psd', fit_mean=False, center_data=False).power(f)
       
     return (f, p)
 

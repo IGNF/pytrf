@@ -12,14 +12,13 @@ eps = sys.float_info.epsilon
 import copy
 import pickle
 from math import pi, sqrt, exp, log, ceil, factorial
-import mpmath
-mpmath.mp.dps = 60
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
 import matplotlib.pyplot as pp
 pp.rcParams['font.family'] = 'monospace'
 pp.rcParams['font.size'] = 12
 from traceback import print_exc
+from astropy.timeseries.periodograms.lombscargle.implementations.utils import trig_sum
 
 # Internal imports
 #-----------------
@@ -143,12 +142,15 @@ class ts:
         r.Qdel = None
         
         # Set time series values (y) in function of a possible non-keyword argument
+        # or of argument t
         if (len(args) == 1) and (y is None):
             if isinstance(args[0], (int, tuple)):
                 y = np.zeros(args[0])
             elif isinstance(args[0], np.ndarray):
                 y = args[0]
-                
+        elif (t is not None) and (y is None):
+            y = np.zeros(len(t))
+        
         # If any values can be attributed to the time series
         if (y is not None):
         
@@ -178,7 +180,10 @@ class ts:
             
             # Set integration intervals
             if (T is not None):
-                r.T = T.copy()
+                if np.isscalar(T):
+                    r.T = T
+                else:
+                    r.T = T.copy()
             else:
                 r.T = np.min(r.t[1:]-r.t[:-1])
 
@@ -1250,7 +1255,7 @@ class sine(function):
             Parameter values. Default is None.
         fix_x : bool or array of bool, optional
             Whether the provided parameter values should be fixed (or only used as a priori)
-            Default is Flase.
+            Default is False.
         yunit : str, optional
             Time series unit. Default is 'm'.
             
@@ -1596,30 +1601,34 @@ class noise:
 
     Once initialized, each noise instance has the following attributes:
 
-        dt       : Original noise sampling
-        par      : List of param instances (initialized to [])
-        Q        : Covariance matrix or vector (initialized to None)
-        dQ       : Partial derivatives of Q wrt noise parameters (initialized to None)
-        dQd      : [Differenced] partial derivatives of Q wrt noise parameters (initialized to None)
-        centered : Whether covariance matrix is centered, i.e. does not include uncertainty of noise average
-        P        : Power spectral density (initialized to None)
-        dP       : Partial derivatives of P wrt noise parameters (initialized to None)
-        xi       : Estimated noise values (initialized to None)
-        Qxi      : Covariance matrix of estimated noise values (initialized to None)
-        sxi      : Formal errors of estimated noise values (initialized to None)
+        dt   : Original noise sampling
+        per  : Period of possible modulating sine wave
+        flow : Keyword indicating how the noise is assumed to propagate
+        par  : List of param instances (initialized to [])
+        c    : Covariance vector (in case of stationary noise - initialized to None)
+        dc   : Partial derivatives of c wrt noise parameters (initialized to None)
+        h    : Coefficients of MA representation (in case of non-stationary noise - initialized to None)
+        dh   : Partial derivatives of h wrt noise parameters (initialized to None)
+        Q    : Covariance matrix or its diagonal (initialized to None)
+        dQ   : Partial derivatives of Q wrt noise parameters (initialized to None)
+        P    : Power spectral density (initialized to None)
+        dP   : Partial derivatives of P wrt noise parameters (initialized to None)
+        xi   : Estimated noise values (initialized to None)
+        Qxi  : Covariance matrix of estimated noise values (initialized to None)
+        sxi  : Formal errors of estimated noise values (initialized to None)
         
     Each noise instance has the following methods:
     
-        get_dt()           : Get original noise sampling
-        get_dates()        : Get dates of original noise (covering the whole time series at original noise sampling)
-        set_cov_from_c()   : Set covariance matrix at observation dates from covariance vector of original noise
-        set_psd_from_cov() : Compute power spectral density [and its partial derivatives] based on covariance matrix
+        get_dt()    : Get original noise sampling
+        get_dates() : Get dates of original noise (covering the whole time series at original noise sampling)
+        set_cov()   : Set covariance matrix [and its partial derivatives]
+        set_psd()   : Set power spectral density [and its partial derivatives]
         
     """
 
     # Initialize a noise instance
     #----------------------------
-    def __init__(n, dt=None, centered=False):
+    def __init__(n, dt=None, per=None, flow=None):
       
         """
         Initialize a noise instance
@@ -1632,18 +1641,19 @@ class noise:
         ----------
         dt : float, optional
             Original noise sampling
-        centered : bool, optional
-            Whether covariance matrix is centered, i.e. does not include uncertainty of noise average.
-            Default is False.
         
         """
 
         n.dt = dt
+        n.per = per
+        n.flow = flow
         n.par = []
+        n.c = None
+        n.dc = None
+        n.h = None
+        n.dh = None
         n.Q = None
         n.dQ = None
-        n.dQd = None
-        n.centered = centered
         n.P = None
         n.dP = None
         n.xi = None
@@ -1699,7 +1709,7 @@ class noise:
         
         # Noise sampling
         dt = n.get_dt(m)
-        
+            
         # Dates of original noise
         if np.isscalar(T):
             tf = np.arange(t[0]-(T-dt)/2, t[-1]+T/2, dt)
@@ -1708,26 +1718,21 @@ class noise:
 
         return tf
 
-    # Set covariance matrix at observation dates from covariance vector of original noise
-    #------------------------------------------------------------------------------------
-    def set_cov_from_c(n, m, c, dc=None, integrate=False, center=False):
+    # Set covariance matrix [and its partial derivatives]
+    #----------------------------------------------------
+    def set_cov(n, m, set_dcov=False):
 
         """
-        Set covariance matrix at observation dates from covariance vector of original noise
+        Set covariance matrix [and its partial derivatives]
 
-        set_cov_from_c() does not return anything, but sets attributes Q [and dQ] of the noise instance.
+        set_cov() does not return anything, but sets attributes Q [and dQ] of the noise instance.
         
         Parameters
         ----------
         m : model instance
             The parent model
-        c : array
-            Covariance vector of original noise
-        dc : list, optional
-            Partial derivatives of c wrt unknown noise parameters
-        integrate : bool, optional
-            Whether c is not the covariance of the original noise itself, but of its first differences.
-            Default is False.
+        set_dcov : bool, optional
+            Whether to compute partial derivatives of Q wrt unknown noise parameters
             
         """  
         
@@ -1738,118 +1743,187 @@ class noise:
         # Original noise sampling and dates
         dt = n.get_dt(m)
         tf = n.get_dates(m)
+        nf = len(tf)
+        
+        # Set either covariance vector or MA coefficients of original noise
+        if (n.flow == 'stationary'):
+            n.set_c(m, set_dc=set_dcov)                        
+        else:
+            n.set_h(m, set_dh=set_dcov)
 
         # Initialize partial derivatives of covariance matrix
-        if (dc is not None):
+        if (set_dcov):
             n.dQ = []
         else:
             n.dQ = None
-
+        
         # Simple case : T is a constant and a multiple of dt
         #---------------------------------------------------
         if np.isscalar(T) and (T/dt).is_integer():
             
             # Dates of averaged noise
             td = np.arange(t[0], t[-1]+T, T)
+            nd = len(td)
 
             # Averaging factor
             d = round(T/dt)
             
-            # If both averaging and integration are needed,
-            if (d > 1) and (integrate):
+            # If averaging of original noise is needed
+            if (d > 1):
                 
-                # Convolution kernel
-                w = signal.triang(2*d-1)
-                w = signal.convolve(w, w)
-                
-                # Initializations
-                cd = np.zeros(len(td)-1)
-                if (dc is not None):
-                    dcd = []
-                    for k in range(len(dc)):
-                        dcd.append(np.zeros(len(td)-1))
+                # Case of stationary noise
+                if (n.flow == 'stationary'):
+                    
+                    # Covariance vector of averaged noise
+                    w = signal.triang(2*d-1) / d
+                    cd = signal.convolve(np.hstack((n.c[d-1:0:-1], n.c)), w, mode='valid')[0::d]                        
+                    
+                    # And its partial derivatives
+                    if (set_dcov):
+                        dcd = []
+                        for k in range(len(n.dc)):
+                            dcd.append(signal.convolve(np.hstack((n.dc[k][d-1:0:-1], n.dc[k])), w, mode='valid')[0::d])
                         
-                # Covariance vector of [differenced] averaged noise [and its partial derivatives]
-                for i in range(len(cd)):
-                    cd[i] = np.sum(w*c[np.abs(np.arange((i-2)*d+2, (i+2)*d-1))])
-                    if (dc is not None):
-                        for k in range(len(dc)):
-                            dcd[k][i] = np.sum(w*dc[k][np.abs(np.arange((i-2)*d+2, (i+2)*d-1))])
+                    # Covariance matrix of averaged noise
+                    n.Q = linalg.toeplitz(cd)
+                    
+                    # And its partial derivatives
+                    if (set_dcov):
+                        for k in range(len(dcd)):
+                            n.dQ.append(linalg.toeplitz(dcd[k]))
 
-            # Else, if only averaging is needed
-            elif (d > 1):
-                
-                # Convolution kernel
-                w = signal.triang(2*d-1) / d
-                
-                # Initializations
-                cd = np.zeros(len(td))
-                if (dc is not None):
-                    dcd = []
-                    for k in range(len(dc)):
-                        dcd.append(np.zeros(len(td)))
-                        
-                # Covariance vector of averaged noise [and its partial derivatives]
-                for i in range(len(cd)):
-                    cd[i] = np.sum(w*c[np.abs(np.arange((i-1)*d+1, (i+1)*d))])
-                    if (dc is not None):
-                        for k in range(len(dc)):
-                            dcd[k][i] = np.sum(w*dc[k][np.abs(np.arange((i-1)*d+1, (i+1)*d))])
-            
+                # Case of 1-way or 2-way noise
+                else:
+                    
+                    # MA coefficients of averaged noise
+                    hd = signal.convolve(n.h[::-1], np.ones(d))[d-1:] / d
+
+                    # And their partial derivatives
+                    if (set_dcov):
+                        dhd = []
+                        for k in range(len(n.dh)):
+                            dhd.append(signal.convolve(n.dh[k][::-1], np.ones(d))[d-1:] / d)
+                    
+                    # Covariance matrix of averaged noise
+                    L = np.zeros((nd, nf))
+                    for i in range(nd):
+                        L[i,:(i+1)*d] = hd[-(i+1)*d:]
+                    n.Q = np.dot(L, L.T)
+                    if (n.flow == '2-way'):
+                        n.Q = (n.Q + n.Q[::-1,::-1]) / 2
+                    
+                    # And its partial derivatives
+                    if (set_dcov):
+                        for k in range(len(dhd)):
+                            dL = np.zeros((nd, nf))
+                            for i in range(nd):
+                                dL[i,:(i+1)*d] = dhd[k][-(i+1)*d:]
+                            dLLt = np.dot(dL, L.T)
+                            n.dQ.append(dLLt + dLLt.T)
+                            if (n.flow == '2-way'):
+                                n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2
+                            
             # Else (no averaging needed),
             else:
-                cd = c
-                dcd = dc
-            
-            # Covariance matrix of [differenced] averaged noise [and its derivatives]
-            n.Q = linalg.toeplitz(cd)
-            if (dc is not None):
-                for k in range(len(dc)):
-                    n.dQ.append(linalg.toeplitz(dcd[k]))
-            
-            # If needed, integrate covariance matrix of differenced averaged noise [and its derivatives]
-            if (integrate):
-                n.Q = np.pad(n.Q, ((1, 0), (1, 0)))
-                n.Q = np.cumsum(np.cumsum(n.Q, axis=0, out=n.Q), axis=1, out=n.Q)
-                if (dc is not None):
-                    for k in range(len(n.dQ)):
-                        n.dQ[k] = np.pad(n.dQ[k], ((1, 0), (1, 0)))
-                        n.dQ[k] = np.cumsum(np.cumsum(n.dQ[k], axis=0, out=n.dQ[k]), axis=1, out=n.dQ[k])
-                        
-            # Indices of observation dates within averaged noise dates
-            ind = []
-            j = 0
-            for i in range(len(t)):
-                while (td[j] < t[i]):
-                    j = j+1
-                ind.append(j)
+                
+                # Case of stationary noise
+                if (n.flow == 'stationary'):
+                    
+                    # Covariance matrix
+                    n.Q = linalg.toeplitz(n.c)
+                    
+                    # And its partial derivatives
+                    if (set_dcov):
+                        for k in range(len(n.dc)):
+                            n.dQ.append(linalg.toeplitz(n.dc[k]))
 
-            # Covariance matrix of averaged noise [and its derivatives] at observation dates
-            n.Q = n.Q[np.ix_(ind,ind)]
-            if (dc is not None):
-                for k in range(len(n.dQ)):
-                    n.dQ[k] = n.dQ[k][np.ix_(ind,ind)]
+                # Case of 1-way or 2-way noise
+                else:
+                    
+                    # Covariance matrix
+                    L = linalg.toeplitz(n.h, np.zeros(nf))
+                    n.Q = np.dot(L, L.T)
+                    if (n.flow == '2-way'):
+                        n.Q = (n.Q + n.Q[::-1,::-1]) / 2
+                    
+                    # And its partial derivatives
+                    if (set_dcov):
+                        for k in range(len(n.dh)):
+                            dL = linalg.toeplitz(n.dh[k], np.zeros(nf))
+                            dLLt = np.dot(dL, L.T)
+                            n.dQ.append(dLLt + dLLt.T)                
+                            if (n.flow == '2-way'):
+                                n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2
+
+            # Modulate covariance matrix and partial derivatives with sine wave if needed
+            if (n.per is not None):
+                C = linalg.toeplitz(np.cos(2*pi*np.arange(nd)*T/n.per))
+                n.Q = n.Q * C
+                if (n.dQ is not None):
+                    for k in range(len(n.dQ)):
+                        n.dQ[k] = n.dQ[k] * C
+
+            # If there are gaps in the series,
+            if (m.r.n < nd):
+            
+                # Indices of observation dates within averaged noise dates
+                ind = []
+                j = 0
+                for i in range(len(t)):
+                    while (td[j] < t[i]):
+                        j = j+1
+                    ind.append(j)
+
+                # Covariance matrix of averaged noise at observation dates
+                n.Q = n.Q[np.ix_(ind,ind)]
+                
+                # And its partial derivatives
+                if (n.dQ is not None):
+                    for k in range(len(n.dQ)):
+                        n.dQ[k] = n.dQ[k][np.ix_(ind,ind)]
 
         # Other cases
         #------------
         else:
-            
-            # Covariance matrix of [differenced] noise [and its derivatives]
-            n.Q = linalg.toeplitz(c)
-            if (dc is not None):
-                for k in range(len(dc)):
-                    n.dQ.append(linalg.toeplitz(dc[k]))
-            
-            # If necessary, integrate covariance matrix of differenced noise [and its derivatives]
-            if (integrate):
-                n.Q = np.pad(n.Q, ((1, 0), (1, 0)))
-                n.Q = np.cumsum(np.cumsum(n.Q, axis=0), axis=1)
-                if (dc is not None):
-                    for k in range(len(n.dQ)):
-                        n.dQ[k] = np.pad(n.dQ[k], ((1, 0), (1, 0)))
-                        n.dQ[k] = np.cumsum(np.cumsum(n.dQ[k], axis=0, out=n.dQ[k]), axis=1, out=n.dQ[k])
 
-            # Set noise dates -> observation dates matrix
+            # Case of stationary noise
+            if (n.flow == 'stationary'):
+
+                # Covariance matrix of original noise
+                n.Q = linalg.toeplitz(n.c)
+                
+                # And its partial derivatives
+                if (set_dcov):
+                    for k in range(len(n.dc)):
+                        n.dQ.append(linalg.toeplitz(n.dc[k]))
+                        
+            # Case of 1-way or 2-way noise
+            else:
+                
+                # Covariance matrix of original noise
+                L = linalg.toeplitz(n.h, np.zeros(nf))
+                n.Q = np.dot(L, L.T)
+                if (n.flow == '2-way'):
+                    n.Q = (n.Q + n.Q[::-1,::-1]) / 2
+                
+                # And its partial derivatives
+                if (set_dcov):
+                    for k in range(len(n.dh)):
+                        dL = linalg.toeplitz(n.dh[k], np.zeros(nf))
+                        dLLt = np.dot(dL, L.T)
+                        n.dQ.append(dLLt + dLLt.T)
+                        if (n.flow == '2-way'):
+                            n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2
+            
+            # Modulate covariance matrix and partial derivatives with sine wave if needed
+            if (n.per is not None):
+                C = linalg.toeplitz(np.cos(2*pi*np.arange(nf)*dt/n.per))
+                n.Q = n.Q * C
+                if (n.dQ is not None):
+                    for k in range(len(n.dQ)):
+                        n.dQ[k] = n.dQ[k] * C
+
+            # Set original noise dates -> observation dates matrix
             A_rows = []
             A_cols = []
             A_vals = []
@@ -1873,34 +1947,26 @@ class noise:
                 j = k
             A = sparse.csr_matrix((A_vals, (A_rows, A_cols)))
                 
-            # Covariance matrix of averaged noise [and its derivatives] at observation dates
+            # Covariance matrix of averaged noise
             n.Q = A.dot((A.dot(n.Q)).T)
-            if (dc is not None):
+            
+            # And its partial derivatives
+            if (n.dQ is not None):
                 for k in range(len(n.dQ)):
                     n.dQ[k] = A.dot((A.dot(n.dQ[k])).T)
 
-        # If needed, remove uncertainty of noise average
-        #-----------------------------------------------
-        if (n.centered):
-            n.Q = n.Q - np.mean(n.Q, axis=0)
-            n.Q = n.Q - np.mean(n.Q, axis=1).reshape(len(t), 1)
-            if (dc is not None):
-                for k in range(len(n.dQ)):
-                    n.dQ[k] = n.dQ[k] - np.mean(n.dQ[k], axis=0)
-                    n.dQ[k] = n.dQ[k] - np.mean(n.dQ[k], axis=1).reshape(len(t), 1)
-
-    # Compute power spectral density [and its partial derivatives] based on covariance matrix
-    #----------------------------------------------------------------------------------------
-    def set_psd_from_cov(n, m, fr, set_dpsd=False):
+    # Set power spectral density [and its partial derivatives]
+    #---------------------------------------------------------
+    def set_psd(n, m, fr, set_dpsd=False, from_cov=False):
 
         """
-        Compute power spectral density [and its partial derivatives] based on covariance matrix
+        Set power spectral density [and its partial derivatives]
 
-        set_psd_from_cov() does not return anything, but sets attributes P [and dP] of the noise instance.
+        set_psd() does not return anything, but sets attributes P [and dP] of the noise instance.
 
-        Warning: n.set_cov() must be called before n.set_psd_from_cov(). If the PSD partial derivatives
-        should additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made
-        with argument set_dcov=True.
+        Warning: If from_cov is True, then set_cov() must be called before calling set_psd().
+        If the partial derivatives of the power spectral density additionally need to be computed
+        (set_dpsd=True), then the prior call to set_cov() must be made with argument set_dcov=True.
 
         Parameters
         ----------
@@ -1911,41 +1977,103 @@ class noise:
         set_dpsd : bool, optional
             Whether to compute and set partial derivatives of power spectral density
             with respect to unknown noise parameters. Default is False.
+        from_cov : bool, optional
+            Whether PSD should be computed from the noise covariance matrix, i.e.,
+            accounting for possible irregular integration intervals and gaps in the series
             
-        """  
+        """
         
-        # Initializations
-        n.P = np.zeros(len(fr))
-        if (set_dpsd):
-            n.dP = [np.zeros(len(fr)) for k in range(len(n.dQ))]
-        else:
-            n.dP = None
+        # If PSD should be computed from the covariance matrix,
+        if (from_cov):
+
+            # Array of lags
+            dt = n.get_dt(m)
+            tau = np.arange(0, m.r.t[-1]-m.r.t[0]+dt, dt)
             
-        # Loop over frequencies
-        for i in range(len(fr)):
-            o = 2*pi*fr[i]
+            # Number of points used to compute total covariance
+            nf = m.r.n
+
+            # Average integration factor
+            f = 1
             
-            # Design matrix
-            A = np.zeros((m.r.n, 2))
-            A[:,0] = np.cos(o*m.r.t)
-            A[:,1] = np.sin(o*m.r.t)
-            
-            # Compute expected power at current frequency
-            AtAi = invspd(np.dot(A.T, A))
-            if (n.Q.ndim == 1):
-                AtQA = np.dot(A.T*n.Q, A)
-            else:
-                AtQA = np.dot(A.T, np.dot(n.Q, A))
-            n.P[i] = trdot(AtQA, AtAi) / 2
-            
-            # If needed, compute partial derivatives of expected power at current frequency
+            # Compute total covariance [and its partial derivatives] at each lag
+            q = np.zeros(len(tau))
+            if (set_dpsd):
+                dq = [np.zeros(len(tau)) for k in range(len(n.dQ))]
+                
+            for i in range(m.r.n):
+                ind = ((m.r.t[i] - m.r.t[:i+1]) / dt).astype(int)
+                q[ind] = q[ind] + n.Q[i,:i+1]
+                if (set_dpsd):
+                    for k in range(len(n.dQ)):
+                        dq[k][ind] = dq[k][ind] + n.dQ[k][i,:i+1]
+                        
+            q[1:] = 2*q[1:]
             if (set_dpsd):
                 for k in range(len(n.dQ)):
-                    if (n.dQ[k].ndim == 1):
-                        AtdQA = np.dot(A.T*n.dQ[k], A)
-                    else:
-                        AtdQA = np.dot(A.T, np.dot(n.dQ[k], A))
-                    n.dP[k][i] = trdot(AtdQA, AtAi) / 2
+                    dq[k][1:] = 2*dq[k][1:]
+
+        # Else (PSD is computed from the covariance vector or MA representation of original noise,
+        # assuming constant integration intervals and ignoring gaps in the series),
+        else:
+
+            # Noise sampling
+            dt = n.get_dt(m)
+
+            # Array of lags
+            tau = n.get_dates(m)
+            tau = tau - tau[0]
+
+            # Number of points used to compute total covariance
+            nf = len(tau)
+
+            # Average integration factor
+            if np.isscalar(m.r.T):
+                f = m.r.T / dt
+            else:
+                f = np.mean(m.r.T) / dt
+                
+            # Set either covariance vector or MA coefficients of original noise
+            if (n.flow == 'stationary'):
+                n.set_c(m, set_dc=set_dpsd)                        
+            else:
+                n.set_h(m, set_dh=set_dpsd)
+            
+            # Compute total covariance [and its partial derivatives] at each lag
+            if (n.flow == 'stationary'):
+                q = n.c * np.arange(nf, 0, -1)
+                if (set_dpsd):
+                    dq = n.dc * np.arange(nf, 0, -1)
+                    
+            else:
+                q = signal.convolve(n.h, np.arange(1, nf+1)*n.h[::-1])[nf-1::-1]
+                if (set_dpsd):
+                    dq = []
+                    for k in range(len(n.dh)):
+                        dq.append(signal.convolve(n.dh[k], np.arange(1, nf+1)*n.h[::-1])[nf-1::-1] + signal.convolve(n.h, np.arange(1, nf+1)*n.dh[k][::-1])[nf-1::-1])
+            
+            q[1:] = 2*q[1:]
+            if (set_dpsd):
+                for k in range(len(dq)):
+                    dq[k][1:] = 2*dq[k][1:]
+
+            # Modulate total covariance with sine wave if needed
+            if (n.per is not None):
+                q = q * np.cos(2*pi*tau/n.per)
+                if (set_dpsd):
+                    for k in range(len(dq)):
+                        dq[k] = dq[k] * np.cos(2*pi*tau/n.per)                
+
+        # Compute PSD
+        n.P = trig_sum(tau, q/(f*nf), fr[1]-fr[0], len(fr), f0=fr[0], Mfft=24)[1]
+        
+        # And its partial derivatives
+        if (set_dpsd):
+            n.dP = []
+            for k in range(len(dq)):
+                n.dP.append(trig_sum(tau, dq[k]/nf, fr[1]-fr[0], len(fr), f0=fr[0], Mfft=24)[1])
+        else:
+            n.dP = None
 
 
 
@@ -1965,8 +2093,10 @@ class wn(noise):
     Each wn instance additionally has the following methods:
 
         set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute variance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
+        set_cov() : Set variance vector [and its partial derivatives]
+                    (overrides default noise.set_cov() method)
+        set_psd() : Set power spectral density [and its partial derivatives]
+                    (overrides default noise.set_psd() method)
 
     """
 
@@ -2019,12 +2149,13 @@ class wn(noise):
             n.set_cov(m)
             n.par[0].x = v0 / np.mean(n.Q)
 
-    # Compute variance vector [and its partial derivatives]
-    #------------------------------------------------------
+    # Set variance vector [and its partial derivatives]
+    #--------------------------------------------------
     def set_cov(n, m, set_dcov=False):
 
         """
-        Compute variance vector [and its partial derivatives]
+        Set variance vector [and its partial derivatives]
+        This method overrides the default noise.set_cov() method.
 
         set_cov() does not return anything, but sets attributes Q [and dQ] of the wn instance.
 
@@ -2037,46 +2168,18 @@ class wn(noise):
             
         """
         
-        # Shortcuts to time series dates and integration interval[s]
-        t = m.r.t
-        T = m.r.T
-
         # Noise sampling
         dt = n.get_dt(m)
         
         # Variance factor
         s2 = n.par[0].x
         
-        # If T is constant and a multiple of dt, set n.Q as vector of dt/T's.
-        if np.isscalar(T) and (T/dt).is_integer():
-            n.Q = s2 * dt/T * np.ones(len(t))
-            
-        # Otherwise,
+        # Variance vector
+        if np.isscalar(m.r.T):
+            n.Q = s2 * dt/m.r.T * np.ones(m.r.n)
         else:
-            
-            # Dates of original noise
-            tf = n.get_dates(m)
-
-            # Initialize variance vector
-            n.Q = np.zeros(len(t))
-            
-            # Loop over dates
-            j = 0
-            for i in range(len(t)):
-                while (tf[j] < t[i]-T[i]/2):
-                    j = j+1
-                k = j
-                end = False
-                while not(end):
-                    if (k >= len(tf)):
-                        end = True
-                    elif (tf[k] > t[i]+T[i]/2):
-                        end = True
-                    else:
-                        k = k+1
-                n.Q[i] = s2 / (k-j)
-                j = k
-                
+            n.Q = s2 * dt/m.r.T
+        
         # Initialize n.dQ
         if (set_dcov):
             n.dQ = []
@@ -2087,19 +2190,15 @@ class wn(noise):
         if (set_dcov) and not(n.par[0].fixed):
             n.dQ.append(n.Q/s2)
 
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
+    # Set power spectral density [and its partial derivatives]
+    #---------------------------------------------------------
+    def set_psd(n, m, fr, set_dpsd=False, from_cov=False):
 
         """
-        Compute power spectral density [and its partial derivatives]
+        Set power spectral density [and its partial derivatives]
+        This method overrides the default noise.set_psd() method.
 
-        set_psd() does not return anything, but sets attributes P [and dP] of the wn instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
+        set_cov() does not return anything, but sets attributes P [and dP] of the wn instance.
 
         Parameters
         ----------
@@ -2107,50 +2206,31 @@ class wn(noise):
             The parent model
         fr : array
             Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
         set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
+            Whether to compute partial derivatives of P wrt unknown parameters
+        from_cov : bool, optional
+            Dummy argument necessary for consistency with noise.set_psd() but not used
             
         """
 
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
+        # Noise sampling
+        dt = n.get_dt(m)
         
-        # Otherwise,
+        # Variance factor
+        s2 = n.par[0].x
+
+        # Power spectral density
+        n.P = np.mean(s2 * dt/m.r.T) * np.ones(len(m.fr))
+
+        # Initialize n.dP
+        if (set_dpsd):
+            n.dP = []
         else:
-            
-            # Average integration interval
-            if np.isscalar(m.r.T):
-                T = m.r.T
-            else:
-                T = np.mean(m.r.T)
-                
-            # Noise sampling
-            dt = n.get_dt(m)
+            n.dP = None
 
-            # Variance factor
-            s2 = n.par[0].x
-
-            # PSD
-            n.P = s2 * dt/T * np.ones(len(fr))
-
-            # Initialize n.dP
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-
-            # If needed, set partial derivative of PSD wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
+        # If needed, set partial derivative of PSD wrt variance factor
+        if (set_dpsd) and not(n.par[0].fixed):
+            n.dP.append(n.P/s2)
 
 
 
@@ -2170,8 +2250,10 @@ class vw(noise):
     Each vw instance additionally has the following methods:
 
         set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute variance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
+        set_cov() : Set variance vector [and its partial derivatives]
+                    (overrides default noise.set_cov() method)
+        set_psd() : Set power spectral density [and its partial derivatives]
+                    (overrides default noise.set_psd() method)
 
     """
 
@@ -2253,19 +2335,15 @@ class vw(noise):
         if (set_dcov) and not(n.par[0].fixed):
             n.dQ.append(m.r.Q)
 
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
+    # Set power spectral density [and its partial derivatives]
+    #---------------------------------------------------------
+    def set_psd(n, m, fr, set_dpsd=False, from_cov=False):
 
         """
-        Compute power spectral density [and its partial derivatives]
+        Set power spectral density [and its partial derivatives]
+        This method overrides the default noise.set_psd() method.
 
-        set_psd() does not return anything, but sets attributes P [and dP] of the vw instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
+        set_cov() does not return anything, but sets attributes P [and dP] of the vw instance.
 
         Parameters
         ----------
@@ -2273,41 +2351,28 @@ class vw(noise):
             The parent model
         fr : array
             Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
         set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
+            Whether to compute partial derivatives of P wrt unknown parameters
+        from_cov : bool, optional
+            Dummy argument necessary for consistency with noise.set_psd() but not used
             
         """
-
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
         
-        # Otherwise,
+        # Variance factor
+        s2 = n.par[0].x
+
+        # Power spectral density
+        n.P = np.mean(s2 * m.r.Q) * np.ones(len(m.fr))
+
+        # Initialize n.dP
+        if (set_dpsd):
+            n.dP = []
         else:
+            n.dP = None
 
-            # Variance factor
-            s2 = n.par[0].x
-            
-            # PSD
-            n.P = s2 * np.mean(m.r.Q) * np.ones(len(fr))
-            
-            # Initialize n.dP
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-
-            # If needed, set partial derivative of PSD wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
+        # If needed, set partial derivative of PSD wrt variance factor
+        if (set_dpsd) and not(n.par[0].fixed):
+            n.dP.append(n.P/s2)
 
 
 
@@ -2326,15 +2391,15 @@ class ar1(noise):
     
     Each ar1 instance additionally has the following methods:
 
-        set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute covariance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
+        set_x0() : Set default a priori values for unknown parameters
+        set_c()  : Compute covariance vector [and its partial derivatives] (in case of stationary noise)
+        set_h()  : Compute coefficients of MA representation [and their partial derivatives] (in case of stationary noise)
 
     """
 
     # Initialize an ar1 instance
     #---------------------------
-    def __init__(n, dt=None, s2=None, fix_s2=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
+    def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
 
         """
         Initialize an ar1 instance
@@ -2347,6 +2412,17 @@ class ar1(noise):
         ----------
         dt : float, optional
             Noise sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            - 'stationary' means that the noise is assumed to have started infinitely long ago.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -2364,10 +2440,10 @@ class ar1(noise):
 
         """
         
-        super().__init__(dt=dt)
+        super().__init__(dt=dt, per=per, flow=flow)
         n.par.append(scale_param(type='AR(1) variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
         n.par.append(scale_param(type='AR(1) correlation time', x=tau, fixed=fix_tau, unit=tunit))
-
+        
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
     def set_x0(n, m, v0):
@@ -2389,7 +2465,10 @@ class ar1(noise):
         
         # Set a priori correlation time if needed
         if (n.par[1].x is None):
-            n.par[1].x = -dt/log(0.9)
+            if (n.per is None):
+                n.par[1].x = -dt/log(0.9)
+            else:
+                n.par[1].x = 5*n.per
         
         # Set a priori variance factor if needed
         if (n.par[0].x is None):
@@ -2398,353 +2477,99 @@ class ar1(noise):
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
             
-    # Compute covariance matrix [and its partial derivatives]
+    # Compute covariance vector [and its partial derivatives]
     #--------------------------------------------------------
-    def set_cov(n, m, set_dcov=False):
+    def set_c(n, m, set_dc=False):
 
         """
-        Compute covariance matrix [and its partial derivatives]
+        Compute covariance vector [and its partial derivatives]
 
-        set_cov() does not return anything, but sets attributes Q [and dQ] of the ar1 instance.
+        set_c() does not return anything, but sets attributes c [and dc] of the ar1 instance.
 
         Parameters
         ----------
         m : model instance
             The parent model
-        set_dcov : bool, optional
-            Whether to compute partial derivatives of Q wrt unknown parameters
+        set_dc : bool, optional
+            Whether to compute partial derivatives of c wrt unknown parameters
             
         """
-        
-        # Shortcuts to time series dates and integration interval[s]
-        t = m.r.t
-        T = m.r.T
 
         # Original noise sampling and dates
         dt = n.get_dt(m)
         tf = n.get_dates(m)
         nf = len(tf)
-
+        
         # Get noise parameters
         s2 = n.par[0].x
         tau = n.par[1].x
         phi = exp(-dt/tau)
-        phi2 = phi**2
+        phik = phi**np.arange(nf)
+        phi2 = np.abs(phik[2])
         
-        # Covariance vector of original noise
-        c = s2 * phi**np.arange(nf) / (1 - phi2)
-        
-        # Initialize partial derivatives of covariance vector
-        if (set_dcov):
-            dc = []
+        # Covariance vector
+        n.c = s2 * phik / (1 - phi2)
+
+        # Initialize partial derivatives
+        if (set_dc):
+            n.dc = []
         else:
-            dc = None
-        
+            n.dc = None
+            
         # Partial derivative wrt variance factor
-        if (set_dcov) and not(n.par[0].fixed):
-            dc.append(c/s2)
-        
+        if (set_dc) and not(n.par[0].fixed):
+            n.dc.append(n.c/s2)
+            
         # Partial derivative wrt correlation time
-        if (set_dcov) and not(n.par[1].fixed):
-            dc.append(dt/tau**2 * (np.arange(nf) + 2*phi2/(1-phi2)) * c)
+        if (set_dc) and not(n.par[1].fixed):
+            n.dc.append(dt/tau**2 * (np.arange(nf) + 2*phi2/(1-phi2)) * n.c)
 
-        # Set n.Q and n.dQ given c and dc
-        n.set_cov_from_c(m, c, dc)
-
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
+    # Compute coefficients of MA representation [and their partial derivatives]
+    #-------------------------------------------------------------------------
+    def set_h(n, m, set_dh=False):
 
         """
-        Compute power spectral density [and its partial derivatives]
+        Compute coefficients of MA representation [and their partial derivatives]
 
-        set_psd() does not return anything, but sets attributes P [and dP] of the ar1 instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
+        set_h() does not return anything, but sets attributes h [and dh] of the ar1 instance.
 
         Parameters
         ----------
         m : model instance
             The parent model
-        fr : array
-            Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
-        set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
+        set_dh : bool, optional
+            Whether to compute partial derivatives of h wrt unknown parameters
             
         """
-
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
-        
-        # Otherwise,
-        else:
-            
-            # Average integration interval
-            if np.isscalar(m.r.T):
-                T = m.r.T
-            else:
-                T = np.mean(m.r.T)
-                
-            # Get noise parameters
-            dt = n.get_dt(m)
-            s2 = n.par[0].x
-            tau = n.par[1].x
-            phi = exp(-dt/tau)
-            phi2 = phi**2
-            cf = np.cos(2*pi*fr*dt)
-            df = 1 + phi2 - 2*phi*cf
-                
-            # PSD
-            n.P = s2 * dt/T / df
-            
-            # Initialize partial derivatives
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-            
-            # Partial derivative wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
-                
-            # Partial derivative wrt correlation time
-            if (set_dpsd) and not(n.par[1].fixed):
-                n.dP.append(-2*dt/tau**2 * phi * (phi-cf) * n.P / df)
-
-
-
-# ar1sine class
-#--------------
-class ar1sine(noise):
-
-    """
-    Sub-class of the noise class for AR(1)*sine processes
-
-    An ar1sine instance is initialized by:
-    
-        n = ar1sine()
-
-    An ar1sine instance inherits the attributes and methods from a noise instance.
-
-    Each ar1sine instance additionally has the following attribute:
-    
-        per : Sine wave period
-
-    Each ar1sine instance additionally has the following methods:
-
-        set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute covariance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
-
-    """
-
-    # Initialize an ar1sine instance
-    #-------------------------------
-    def __init__(n, per, dt=None, s2=None, fix_s2=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
-
-        """
-        Initialize an ar1sine instance
-
-        Returns
-        -------
-        n : ar1sine instance
-        
-        Parameters
-        ----------
-        per : float
-            Sine wave period
-        dt : float, optional
-            Noise sampling
-        s2 : float, optional
-            [A priori] variance factor
-        fix_s2 : bool, optional
-            Whether provided variance factor should be fixed (or only used as a priori).
-            Default is False.
-        tau : float, optional
-            [A priori] correlation time
-        fix_tau : bool, optional
-            Whether provided correlation time should be fixed (or only used as a priori).
-            Default is False.
-        tunit : str, optional
-            Time unit. Default is 'm'.
-        yunit : str, optional
-            Time series unit. Default is 'm'.
-
-        """
-        super().__init__(dt=dt)
-        n.per = per
-        n.par.append(scale_param(type='AR(1)*sine variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(scale_param(type='AR(1)*sine correlation time', x=tau, fixed=fix_tau, unit=tunit))
-
-    # Set default a priori values for unknown parameters
-    #---------------------------------------------------
-    def set_x0(n, m, v0):
-
-        """
-        Set default a priori values for unknown parameters
-
-        Parameters
-        ----------
-        m : model instance
-            The parent model
-        v0 : float
-            A priori variance
-            
-        """
-        
-        # Noise sampling
-        dt = n.get_dt(m)
-        
-        # Set a priori correlation time if needed
-        if (n.par[1].x is None):
-            n.par[1].x = 5*n.per
-        
-        # Set a priori variance factor if needed
-        if (n.par[0].x is None):
-            n.par[0].x = 1
-            n.set_cov(m)
-            v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
-            n.par[0].x = v0 / v
-            
-    # Compute covariance matrix [and its partial derivatives]
-    #--------------------------------------------------------
-    def set_cov(n, m, set_dcov=False):
-
-        """
-        Compute covariance matrix [and its partial derivatives]
-
-        set_cov() does not return anything, but sets attributes Q [and dQ] of the ar1sine instance.
-
-        Parameters
-        ----------
-        m : model instance
-            The parent model
-        set_dcov : bool, optional
-            Whether to compute partial derivatives of Q wrt unknown parameters
-            
-        """
-        
-        # Shortcuts to time series dates and integration interval[s]
-        t = m.r.t
-        T = m.r.T
 
         # Original noise sampling and dates
         dt = n.get_dt(m)
         tf = n.get_dates(m)
         nf = len(tf)
-
+        
         # Get noise parameters
         s2 = n.par[0].x
         tau = n.par[1].x
         phi = exp(-dt/tau)
-        phi2 = phi**2
+        phik = phi**np.arange(nf)
+        phi2 = np.abs(phik[2])
         
-        # Covariance vector of original noise
-        c = s2 * phi**np.arange(nf) * np.cos(2*pi*np.arange(nf)*dt/n.per) / (1 - phi2)
-        
-        # Initialize partial derivatives of covariance vector
-        if (set_dcov):
-            dc = []
+        # Coefficients of MA representation
+        n.h = sqrt(s2) * phik
+
+        # Initialize partial derivatives
+        if (set_dh):
+            n.dh = []
         else:
-            dc = None
-        
+            n.dh = None
+            
         # Partial derivative wrt variance factor
-        if (set_dcov) and not(n.par[0].fixed):
-            dc.append(c/s2)
-        
+        if (set_dh) and not(n.par[0].fixed):
+            n.dh.append(n.h / (2*s2))
+            
         # Partial derivative wrt correlation time
-        if (set_dcov) and not(n.par[1].fixed):
-            dc.append(dt/tau**2 * (np.arange(nf) + 2*phi2/(1-phi2)) * c)
-
-        # Set n.Q and n.dQ given c and dc
-        n.set_cov_from_c(m, c, dc)
-
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
-
-        """
-        Compute power spectral density [and its partial derivatives]
-
-        set_psd() does not return anything, but sets attributes P [and dP] of the ar1sine instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
-
-        Parameters
-        ----------
-        m : model instance
-            The parent model
-        fr : array
-            Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
-        set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
-            
-        """
-
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
-        
-        # Otherwise,
-        else:
-            
-            # Average integration interval
-            if np.isscalar(m.r.T):
-                T = m.r.T
-            else:
-                T = np.mean(m.r.T)
-                
-            # Get noise parameters
-            dt = n.get_dt(m)
-            s2 = n.par[0].x
-            tau = n.par[1].x
-            phi = exp(-dt/tau)
-            phi2 = phi**2
-            f0 = 1 / n.per
-            cf1 = np.cos(2*pi*(fr-f0)*dt)
-            cf2 = np.cos(2*pi*(fr+f0)*dt)
-            df1 = 1 + phi2 - 2*phi*cf1
-            df2 = 1 + phi2 - 2*phi*cf2
-                
-            # PSD
-            n.P = s2 * dt/T * (1/df1 + 1/df2) / 2
-            
-            # Initialize partial derivatives
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-            
-            # Partial derivative wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
-                
-            # Partial derivative wrt correlation time
-            if (set_dpsd) and not(n.par[1].fixed):
-                n.dP.append(-s2*dt**2/(T*tau**2)*phi * ((phi-cf1)/df1**2 + (phi-cf2)/df2**2))
+        if (set_dh) and not(n.par[1].fixed):
+            n.dh.append(dt/tau**2 * np.arange(nf)*n.h)
 
 
 
@@ -2760,18 +2585,17 @@ class pl(noise):
         n = pl()
 
     A pl instance inherits the attributes and methods from a noise instance.
-
+    
     Each pl instance additionally has the following methods:
 
-        set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute covariance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
+        set_x0() : Set default a priori values for unknown parameters
+        set_h()  : Compute coefficients of MA representation [and their partial derivatives]
 
     """
 
     # Initialize a pl instance
     #-------------------------
-    def __init__(n, dt=None, s2=None, fix_s2=False, a=None, fix_a=False, yunit='m'):
+    def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tunit='d', yunit='m'):
 
         """
         Initialize a pl instance
@@ -2784,6 +2608,17 @@ class pl(noise):
         ----------
         dt : float, optional
             Noise sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            - 'stationary' means that the noise is assumed to have started infinitely long ago.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -2794,15 +2629,17 @@ class pl(noise):
         fix_a : bool, optional
             Whether provided spectral index should be fixed (or only used as a priori).
             Default is False.
+        tunit : str, optional
+            Time unit. Default is 'm'.
         yunit : str, optional
             Time series unit. Default is 'm'.
 
         """
-
-        super().__init__(dt=dt, centered=True)
+        
+        super().__init__(dt=dt, per=per, flow=flow)
         n.par.append(scale_param(type='PL variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
         n.par.append(pl_index(type='PL spectral index', x=a, fixed=fix_a))
-
+        
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
     def set_x0(n, m, v0):
@@ -2832,161 +2669,55 @@ class pl(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
-            
-    # Compute covariance matrix [and its partial derivatives]
-    #--------------------------------------------------------
-    def set_cov(n, m, set_dcov=False):
+
+    # Compute coefficients of MA representation [and their partial derivatives]
+    #-------------------------------------------------------------------------
+    def set_h(n, m, set_dh=False):
 
         """
-        Compute covariance matrix [and its partial derivatives]
+        Compute coefficients of MA representation [and their partial derivatives]
 
-        set_cov() does not return anything, but sets attributes Q [and dQ] of the pl instance.
+        set_h() does not return anything, but sets attributes h [and dh] of the pl instance.
 
         Parameters
         ----------
         m : model instance
             The parent model
-        set_dcov : bool, optional
-            Whether to compute partial derivatives of Q wrt unknown parameters
+        set_dh : bool, optional
+            Whether to compute partial derivatives of h wrt unknown parameters
             
         """
-        
-        # Shortcuts to time series dates and integration interval[s]
-        t = m.r.t
-        T = m.r.T
 
         # Original noise sampling and dates
         dt = n.get_dt(m)
         tf = n.get_dates(m)
         nf = len(tf)
-
+        
         # Get noise parameters
         s2 = n.par[0].x
         a = n.par[1].x
         
-        # If spectral index < 1,
-        if (a < 1-1e-12):
+        # Coefficients of MA representation
+        n.h = np.zeros(nf)
+        n.h[0] = sqrt(s2)
+        for i in range(1, nf):
+            n.h[i] = (a/2+i-1)/i * n.h[i-1]
 
-            # Initializations
-            integrate = False
-            c = np.zeros(nf)
-            if (set_dcov) and not(n.par[1].fixed):
-                dc_da = np.zeros(nf)
-            
-            # Fill in covariance vector, and if needed, partial derivative wrt spectral index
-            c[0] = s2 * special.gamma(1-a) / special.gamma(1-a/2.)**2
-            if (set_dcov) and not(n.par[1].fixed):
-                dc_da[0] = c[0] * (special.digamma(1-a/2) - special.digamma(1-a))
-
-            for i in range(1, nf):
-                c[i] = (i-1+a/2.) / (i-a/2.) * c[i-1]
-                if (set_dcov) and not(n.par[1].fixed):
-                    dc_da[i] = (i-1/2) / (i-a/2)**2 * c[i-1] + (i-1+a/2) / (i-a/2) * dc_da[i-1]
-            
-        # Else,
+        # Initialize partial derivatives
+        if (set_dh):
+            n.dh = []
         else:
+            n.dh = None
             
-            # Initializations
-            integrate = True
-            c = np.zeros(nf-1)
-            if (set_dcov) and not(n.par[1].fixed):
-                dc_da = np.zeros(nf-1)
-
-            c[0] = s2 * special.gamma(3-a) / special.gamma(2-a/2.)**2
-            if (set_dcov) and not(n.par[1].fixed):
-                dc_da[0] = c[0] * (special.digamma(2-a/2) - special.digamma(3-a))
-
-            # Fill in covariance vector, and if needed, partial derivative wrt spectral index
-            for i in range(1, nf-1):
-                c[i] = (i-2+a/2.) / (i+1-a/2.) * c[i-1]
-                if (set_dcov) and not(n.par[1].fixed):
-                    dc_da[i] = (i-1/2) / (i+1-a/2)**2 * c[i-1] + (i-2+a/2) / (i+1-a/2) * dc_da[i-1]
-        
-        # Initialize partial derivatives of covariance vector
-        if (set_dcov):
-            dc = []
-        else:
-            dc = None
-        
         # Partial derivative wrt variance factor
-        if (set_dcov) and not(n.par[0].fixed):
-            dc.append(c/s2)
-        
-        # Partial derivative wrt spectral index
-        if (set_dcov) and not(n.par[1].fixed):
-            dc.append(dc_da)
-
-        # Set n.Q and n.dQ given c and dc
-        n.set_cov_from_c(m, c, dc, integrate=integrate)
-        
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
-
-        """
-        Compute power spectral density [and its partial derivatives]
-
-        set_psd() does not return anything, but sets attributes P [and dP] of the pl instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
-
-        Parameters
-        ----------
-        m : model instance
-            The parent model
-        fr : array
-            Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
-        set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
+        if (set_dh) and not(n.par[0].fixed):
+            n.dh.append(n.h / (2*s2))
             
-        """
-
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
-        
-        # Otherwise,
-        else:
-            
-            # Average integration interval
-            if np.isscalar(m.r.T):
-                T = m.r.T
-            else:
-                T = np.mean(m.r.T)
-            
-            # Get noise parameters
-            dt = n.get_dt(m)
-            s2 = n.par[0].x
-            a = n.par[1].x
-            sf = 2*np.sin(pi*fr*dt)
-                
-            # PSD
-            n.P = s2 * dt/T / sf**a
-            
-            # Initialize partial derivatives
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-            
-            # Partial derivative wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
-                
-            # Partial derivative wrt spectral index
-            if (set_dpsd) and not(n.par[1].fixed):
-                n.dP.append(-n.P * np.log(sf))
+        # Partial derivative wrt a
+        if (set_dh) and not(n.par[1].fixed):
+            n.dh.append(np.zeros(nf))
+            for i in range(1, nf):
+                n.dh[-1][i] = (a/2+i-1)/i * n.dh[-1][i-1] + n.h[i-1] / (2*i)
 
 
 
@@ -3002,18 +2733,17 @@ class ggm(noise):
         n = ggm()
 
     A ggm instance inherits the attributes and methods from a noise instance.
-
+    
     Each ggm instance additionally has the following methods:
 
-        set_x0()  : Set default a priori values for unknown parameters
-        set_cov() : Compute covariance vector [and its partial derivatives]
-        set_psd() : Compute power spectral density [and its partial derivatives]
+        set_x0() : Set default a priori values for unknown parameters
+        set_h()  : Compute coefficients of MA representation [and their partial derivatives]
 
     """
 
     # Initialize a ggm instance
     #-------------------------
-    def __init__(n, dt=None, s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
+    def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
 
         """
         Initialize a ggm instance
@@ -3026,6 +2756,17 @@ class ggm(noise):
         ----------
         dt : float, optional
             Noise sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            - 'stationary' means that the noise is assumed to have started infinitely long ago.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -3048,11 +2789,11 @@ class ggm(noise):
 
         """
         
-        super().__init__(dt=dt)
+        super().__init__(dt=dt, per=per, flow=flow)
         n.par.append(scale_param(type='GGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(param(type='PL spectral index', x=a, fixed=fix_a))
+        n.par.append(pl_index(type='GGM spectral index', x=a, fixed=fix_a))
         n.par.append(scale_param(type='GGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
-
+        
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
     def set_x0(n, m, v0):
@@ -3078,7 +2819,10 @@ class ggm(noise):
         
         # Set a priori correlation time if needed
         if (n.par[2].x is None):
-            n.par[2].x = -1/log(0.9)
+            if (n.per is None):
+                n.par[2].x = -dt/log(0.9)
+            else:
+                n.par[2].x = 5*n.per
 
         # Set a priori variance factor if needed
         if (n.par[0].x is None):
@@ -3086,184 +2830,65 @@ class ggm(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
-            
-    # Compute covariance matrix [and its partial derivatives]
-    #--------------------------------------------------------
-    def set_cov(n, m, set_dcov=False):
+
+    # Compute coefficients of MA representation [and their partial derivatives]
+    #-------------------------------------------------------------------------
+    def set_h(n, m, set_dh=False):
 
         """
-        Compute covariance matrix [and its partial derivatives]
+        Compute coefficients of MA representation [and their partial derivatives]
 
-        set_cov() does not return anything, but sets attributes Q [and dQ] of the ggm instance.
+        set_h() does not return anything, but sets attributes h [and dh] of the ggm instance.
 
         Parameters
         ----------
         m : model instance
             The parent model
-        set_dcov : bool, optional
-            Whether to compute partial derivatives of Q wrt unknown parameters
+        set_dh : bool, optional
+            Whether to compute partial derivatives of h wrt unknown parameters
             
         """
-        
-        # Shortcuts to time series dates and integration interval[s]
-        t = m.r.t
-        T = m.r.T
 
         # Original noise sampling and dates
         dt = n.get_dt(m)
         tf = n.get_dates(m)
         nf = len(tf)
-
+        
         # Get noise parameters
         s2 = n.par[0].x
-        a = mpmath.mpf(n.par[1].x)
-        tau = mpmath.mpf(n.par[2].x)
-        phi = mpmath.exp(-dt/tau)
-        phi2 = phi**2
-
-        # Covariance vector
-        c = []
-        c.append(mpmath.hyp2f1(a/2, a/2, 1, phi2))
-        c.append(a/2*phi*mpmath.hyp2f1(a/2+1, a/2, 2, phi2))
-        for k in range(1, nf-1):
-            c.append((k*(1+phi2)/phi*c[k] - (k+a/2-1)*c[k-1]) / (k+1-a/2))
-            if (np.abs(c[-1]) < 1e-16):
-                break
-        c = np.pad(np.array(c, dtype='float'), (0, nf-len(c)))
-                
-        # Partial derivative wrt spectral index
-        if (set_dcov) and not(n.par[1].fixed):
-            dc_da = []
-            dc_da.append(mpmath.diff(lambda a: mpmath.hyp2f1(a/2, a/2, 1, phi2), a))
-            dc_da.append(c[1]/a + a/2*phi*mpmath.diff(lambda a: mpmath.hyp2f1(a/2+1, a/2, 2, phi2), a))
-            for k in range(1, nf-1):
-                dc_da.append((c[k+1] + 2*k*(1+phi2)/phi*dc_da[-1] - 2*(k+a/2-1)*dc_da[-2] - c[k-1]) / (2*(k+1-a/2)))
-                if (np.abs(dc_da[-1]) < 1e-5):
-                    break
-            dc_da = np.pad(np.array(dc_da, dtype='float'), (0, nf-len(dc_da)))
-
-        # Partial derivative wrt correlation time
-        if (set_dcov) and not(n.par[2].fixed):
-            dp_dt = dt*phi/tau**2
-            dc_dt = []
-            dc_dt.append(phi*a**2/2 * mpmath.hyp2f1(a/2+1, a/2+1, 2, phi2) * dp_dt)
-            dc_dt.append((c[1]/phi + (phi*a/2)**2*(a/2+1)*mpmath.hyp2f1(a/2+2, a/2+1, 3, phi2)) * dp_dt)
-            for k in range(1, nf-1):
-                dc_dt.append((k*(1-1/phi2)*c[k]*dp_dt + k*(1+phi2)/phi*dc_dt[-1] - (k+a/2-1)*dc_dt[-2]) / (k+1-a/2))
-                if (np.abs(dc_dt[-1]) < 1e-5):
-                    break
-            dc_dt = np.pad(np.array(dc_dt, dtype='float'), (0, nf-len(dc_dt)))
+        a = n.par[1].x
+        tau = n.par[2].x
+        phi = exp(-dt/tau)
         
-        # Multiply covariance vector by variance factor
-        c = s2*c
-        
-        # Initialize partial derivatives of covariance vector
-        if (set_dcov):
-            dc = []
+        # Coefficients of MA representation
+        n.h = np.zeros(nf)
+        n.h[0] = sqrt(s2)
+        for i in range(1, nf):
+            n.h[i] = phi * (a/2+i-1)/i * n.h[i-1]
+
+        # Initialize partial derivatives
+        if (set_dh):
+            n.dh = []
         else:
-            dc = None
-        
+            n.dh = None
+            
         # Partial derivative wrt variance factor
-        if (set_dcov) and not(n.par[0].fixed):
-            dc.append(c/s2)
-        
-        # Partial derivative wrt spectral index
-        if (set_dcov) and not(n.par[1].fixed):
-            dc.append(s2*dc_da)
-
-        # Partial derivative wrt correlation time
-        if (set_dcov) and not(n.par[2].fixed):
-            dc.append(s2*dc_dt)
-
-        #if (set_dcov):
-            #for i in range(len(dc)):
-                #pp.plot(dc[i])
-            #pp.show()
-
-        # Set n.Q and n.dQ given c and dc
-        n.set_cov_from_c(m, c, dc)
-
-    # Compute power spectral density [and its partial derivatives]
-    #-------------------------------------------------------------
-    def set_psd(n, m, fr, from_cov=False, set_dpsd=False):
-
-        """
-        Compute power spectral density [and its partial derivatives]
-
-        set_psd() does not return anything, but sets attributes P [and dP] of the ggm instance.
-
-        Warning: If PSD should be computed from the covariance matrix of the noise model (from_cov=True),
-        then n.set_cov() must be called before n.set_psd(). If the PSD partial derivatives should
-        additionally be returned (set_dpsd=True), then the prior call to n.set_cov() must be made with
-        argument set_dcov=True.
-
-        Parameters
-        ----------
-        m : model instance
-            The parent model
-        fr : array
-            Frequencies at which to compute power
-        from_cov : bool, optional
-            Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).
-        set_dpsd : bool, optional
-            Whether to compute and set partial derivatives of power spectral density
-            with respect to unknown noise parameters. Default is False.
+        if (set_dh) and not(n.par[0].fixed):
+            n.dh.append(n.h / (2*s2))
             
-        """
+        # Partial derivative wrt a
+        if (set_dh) and not(n.par[1].fixed):
+            n.dh.append(np.zeros(nf))
+            for i in range(1, nf):
+                n.dh[-1][i] = phi * ((a/2+i-1)/i * n.dh[-1][i-1] + n.h[i-1] / (2*i))
 
-        # If PSD should be computed from covariance matrix,
-        if (from_cov):
-            
-            # Call generic routine
-            n.set_psd_from_cov(m, fr=fr, set_dpsd=set_dpsd)
-        
-        # Otherwise,
-        else:
-            
-            # Average integration interval
-            if np.isscalar(m.r.T):
-                T = m.r.T
-            else:
-                T = np.mean(m.r.T)
-                
-            # Get noise parameters
-            dt = n.get_dt(m)
-            s2 = n.par[0].x
-            a = n.par[1].x
-            tau = n.par[2].x
-            phi = exp(-dt/tau)
-            phi2 = phi**2
-            cf = np.cos(2*pi*fr*dt)
-            df = 1 + phi2 - 2*phi*cf
-                
-            # PSD
-            n.P = s2 * dt/T / df**(a/2)
-            
-            # Initialize partial derivatives
-            if (set_dpsd):
-                n.dP = []
-            else:
-                n.dP = None
-            
-            # Partial derivative wrt variance factor
-            if (set_dpsd) and not(n.par[0].fixed):
-                n.dP.append(n.P/s2)
-                
-            # Partial derivative wrt spectral index
-            if (set_dpsd) and not(n.par[1].fixed):
-                n.dP.append(-n.P/2 * np.log(df))
+        # Partial derivative wrt tau
+        if (set_dh) and not(n.par[2].fixed):
+            n.dh.append(np.zeros(nf))
+            for i in range(1, nf):
+                n.dh[-1][i] = (a/2+i-1)/i * (phi*n.dh[-1][i-1] + n.h[i-1])
+            n.dh[-1] = dt/tau**2*phi * n.dh[-1]
 
-            # Partial derivative wrt correlation time
-            if (set_dpsd) and not(n.par[2].fixed):
-                n.dP.append(-a*dt/tau**2 * phi * (phi-cf) * n.P / df)
-
-            ##if (set_dpsd):
-                ##for k in range(len(n.dP)):
-                    ##pp.plot(n.dP[k])
-                ##pp.show()
 
 
 # model class
@@ -3277,7 +2902,8 @@ class model:
     
         m = model()
         m = model.from_solns()
-
+        m = model.load()
+        
     Once initialized, each model instance has the following attribute:
 
         nd : Number of dimensions
@@ -3306,16 +2932,14 @@ class model:
     noise parameters of a 1-dimensional model, its following attributes
     (initialized to None) may be set by calling set_cov():
 
-        Q        : Covariance matrix
-        centered : Whether covariance matrix is centered, i.e. does not include uncertainty of noise average
-        Qd       : Differenced covariance matrix if centered is True (otherwise Qd = Q)
-        L        : Cholesky factorization of Qd
-        P        : Inverse of Qd
-        dQ       : Log-determinant of Qd
+        Q  : Covariance matrix
+        L  : Cholesky factorization of Q
+        P  : Inverse of Q
+        dQ : Log-determinant of Q
         
     Once (a priori or estimated) values have been assigned to the unknown
     noise parameters of a 1-dimensional model, its following attributes
-    (initialized to None) may be set by calling set_cov():
+    (initialized to None) may be set by calling set_psd():
 
         fr  : Frequency range
         pn  : Theoretical power spectral density of noise model
@@ -3326,19 +2950,18 @@ class model:
     The following attributes (initialized to None) of a 1-dimensional model instance 
     may be set by calling fit():
     
-        ny    : Effective number of observations
-        nx    : Effective number of deterministic parameters
+        nx    : Number of deterministic parameters
         nb    : Number of noise parameters
-        dQ    : Log-determinant of Qd
+        dQ    : Log-determinant of Q
         dN    : Log-determinant of normal matrix of deterministic parameters
         dH    : Log-determinant of normal matrix of noise parameters
         s2    : Global variance factor
         Qx    : Covariance matrix of deterministic parameters
         Qb    : Covariance matrix of noise parameters
+        Qc    : Covariance matrix of predicted observations
+        sc    : Formal errors of predicted observations
         v     : Residuals
-        vd    : [Differenced] residuals
         Pv    : Product of observation weight matrix with residuals
-        Pvd   : Product of [differenced] observation weight matrix with [differenced] residuals
         Qv    : Covariance matrix of residuals
         sv    : Formal errors of residuals
         vn    : Normalized residuals
@@ -3392,7 +3015,11 @@ class model:
         fit_iter()     : Fit deterministic + noise model and iteratively remove outliers
         plot_fit()     : Plot time series + deterministic model
         plot_res()     : Plot fit residuals
+        plot_normres() : Plot normalized residuals
         plot_psd()     : Plot PSD of residuals and of noise model
+        plot_all()     : plot_fit(), plot_res(), plot_normres() & plot_psd()
+        __str__()      : Print fit statistics and parameters
+        dump()         : Dump model instance into pickle file
         
     """
 
@@ -3441,8 +3068,6 @@ class model:
             m.A = None
             
             m.Q = None
-            m.centered = None
-            m.Qd = None
             m.L = None
             m.P = None
             m.dQ = None
@@ -3453,7 +3078,6 @@ class model:
             m.spn = None
             m.pv = None            
             
-            m.ny = None
             m.nx = None
             m.nb = None
             m.dN = None
@@ -3461,10 +3085,10 @@ class model:
             m.s2 = None
             m.Qx = None
             m.Qb = None
+            m.Qc = None
+            m.sc = None
             m.v = None
-            m.vd = None
             m.Pv = None
-            m.Pvd = None
             m.sv = None
             m.Qv = None
             m.vn = None
@@ -3510,6 +3134,27 @@ class model:
                 elif (n == 'ggm'):
                     m.add_ggm()
     
+    # Load model instance from pickle file
+    #-------------------------------------
+    @classmethod
+    def load(self, file):
+
+        """
+        Load model instance from pickle file
+
+        Returns
+        -------
+        m : model instance
+
+        Parameters
+        ----------
+        file : str
+            Pickle file to load
+
+        """
+    
+        return pickle.load(open(file, 'rb'))
+
     # Get specific component of model instance
     #-----------------------------------------
     def __getitem__(m, i):
@@ -3661,7 +3306,7 @@ class model:
             Parameter values. Default is None.
         fix_x : bool or array of bool, optional
             Whether the provided parameter values should be fixed (or only used as a priori)
-            Default is Flase.
+            Default is False.
             
         """
         
@@ -3685,7 +3330,7 @@ class model:
             Parameter values. Default is None.
         fix_x : bool or array of bool, optional
             Whether the provided parameter values should be fixed (or only used as a priori)
-            Default is Flase.
+            Default is False.
             
         """
         
@@ -3851,7 +3496,7 @@ class model:
 
     # Add AR(1) process to model
     #---------------------------
-    def add_ar1(m, dt=None, s2=None, fix_s2=False, tau=None, fix_tau=False):
+    def add_ar1(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, tau=None, fix_tau=False):
 
         """
         Add AR(1) process to model
@@ -3860,6 +3505,17 @@ class model:
         ----------
         dt : float, optional
             Sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            - 'stationary' means that the noise is assumed to have started infinitely long ago.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -3874,40 +3530,11 @@ class model:
         """
         
         for d in range(m.nd):
-            m[d].n.append(ar1(dt=dt, s2=s2, fix_s2=fix_s2, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
-
-    # Add AR(1)*sine process to model
-    #--------------------------------
-    def add_ar1sine(m, per, dt=None, s2=None, fix_s2=False, tau=None, fix_tau=False):
-
-        """
-        Add AR(1)*sine process to model
-
-        Parameters
-        ----------
-        per : float
-            Sine wave period
-        dt : float, optional
-            Sampling
-        s2 : float, optional
-            [A priori] variance factor
-        fix_s2 : bool, optional
-            Whether provided variance factor should be fixed (or only used as a priori).
-            Default is False.
-        tau : float, optional
-            [A priori] correlation time
-        fix_tau : bool, optional
-            Whether provided correlation time should be fixed (or only used as a priori).
-            Default is False.
-            
-        """
-        
-        for d in range(m.nd):
-            m[d].n.append(ar1sine(per, dt=dt, s2=s2, fix_s2=fix_s2, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
+            m[d].n.append(ar1(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
 
     # Add power-law noise to model
     #-----------------------------
-    def add_pl(m, dt=None, s2=None, fix_s2=False, a=None, fix_a=False):
+    def add_pl(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False):
 
         """
         Add power-law noise to model
@@ -3916,6 +3543,16 @@ class model:
         ----------
         dt : float, optional
             Sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -3930,11 +3567,11 @@ class model:
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, yunit=m.r.yunit))
 
     # Add flicker noise to model
     #---------------------------
-    def add_fn(m, dt=None, s2=None, fix_s2=False):
+    def add_fn(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False):
 
         """
         Add flicker noise to model
@@ -3943,6 +3580,16 @@ class model:
         ----------
         dt : float, optional
             Sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -3952,11 +3599,11 @@ class model:
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, s2=s2, fix_s2=fix_s2, a=1, fix_a=True, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=1, fix_a=True, yunit=m.r.yunit))
 
     # Add random walk to model
     #-------------------------
-    def add_rw(m, dt=None, s2=None, fix_s2=False):
+    def add_rw(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False):
 
         """
         Add random walk to model
@@ -3965,6 +3612,16 @@ class model:
         ----------
         dt : float, optional
             Sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -3974,11 +3631,11 @@ class model:
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, s2=s2, fix_s2=fix_s2, a=2, fix_a=True, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=2, fix_a=True, yunit=m.r.yunit))
 
     # Add GGM process to model
     #-------------------------
-    def add_ggm(m, dt=None, s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False):
+    def add_ggm(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False):
 
         """
         Add GGM process to model
@@ -4002,11 +3659,19 @@ class model:
         fix_tau : bool, optional
             Whether provided correlation time should be fixed (or only used as a priori).
             Default is False.
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
             
         """
         
         for d in range(m.nd):
-            m[d].n.append(ggm(dt=dt, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
+            m[d].n.append(ggm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
 
     # Add jumps to specified polynomial and/or sine wave functions of model
     #----------------------------------------------------------------------
@@ -4243,8 +3908,6 @@ class model:
 
         # Reset some model attributes
         m.Q = None
-        m.centered = None
-        m.Qd = None
         m.L = None
         m.P = None
         m.dQ = None
@@ -4271,8 +3934,6 @@ class model:
         
         # Reset some model attributes
         m.Q = None
-        m.centered = None
-        m.Qd = None
         m.L = None
         m.P = None
         m.dQ = None
@@ -4332,8 +3993,6 @@ class model:
         
         # Reset some model attributes
         m.Q = None
-        m.centered = None
-        m.Qd = None
         m.L = None
         m.P = None
         m.dQ = None
@@ -4466,7 +4125,7 @@ class model:
         """
         Compute covariance matrix
 
-        set_cov() does not return anything, but sets the attributes Q, centered, Qd, [L], [P] and [dQ]
+        set_cov() does not return anything, but sets the attributes Q, [L], [P] and [dQ]
         of the model instance.
 
         Warning: Only for 1-dimensional model.
@@ -4487,16 +4146,14 @@ class model:
         
         # Reset some model attributes
         m.Q = None
-        m.centered = None
-        m.Qd = None
         m.L = None
         m.P = None
-        m.d = None
+        m.dQ = None
 
         # Set covariance matrix of each noise component
         for n in m.n:
             n.set_cov(m, set_dcov=set_dcov)
-
+            
         # Should we set a covariance vector or matrix for the model?
         nd = np.max([n.Q.ndim for n in m.n])
         
@@ -4512,39 +4169,16 @@ class model:
                 m.Q = m.Q + np.diag(n.Q)
             else:
                 m.Q = m.Q + n.Q
-        
-        # Should we differentiate covariance matrix?
-        m.centered = True
-        for n in m.n:
-            if not(n.centered):
-                m.centered = False
-        
-        # Differentiate covariance matrix [and its partial derivatives] if needed
-        if (m.centered):
-            m.Qd = np.diff(np.diff(m.Q, axis=0), axis=1)
-            for n in m.n:
-                n.Qd = np.diff(np.diff(n.Q, axis=0), axis=1)
-                if (set_dcov):
-                    n.dQd = []
-                    for i in range(len(n.dQ)):
-                        n.dQd.append(np.diff(np.diff(n.dQ[i], axis=0), axis=1))
-        
-        # Or just point to non-differenced covariance matrix [and partial derivatives]
-        else:
-            m.Qd = m.Q
-            for n in m.n:
-                n.Qd = n.Q
-                n.dQd = n.dQ
-        
-        # Factorize [differenced] covariance matrix if requested
+                
+        # Factorize covariance matrix if requested
         if (chol) and (nd == 2):
-            m.L = cholesky(m.Qd)
+            m.L = cholesky(m.Q)
             
-        # Invert [differenced] covariance matrix if requested
+        # Invert covariance matrix if requested
         if (inv) and (nd == 2):
-            (m.P, m.dQ) = invspd(m.Qd, return_det=True)
+            (m.P, m.dQ) = invspd(m.Q, return_det=True)
         elif (inv) and (nd == 1):
-            m.P = 1/m.Qd
+            m.P = 1/m.Q
             m.dQ = np.sum(np.log(m.Q))
 
     # Compute power spectral density of noise model and of residuals
@@ -4567,9 +4201,7 @@ class model:
             Frequency range. Automatically set by default.
         from_cov : bool, optional
             Whether PSD of noise model should be computed from its covariance matrix,
-            i.e., accounting for possible irregular integration intervals.
-            Default is False, i.e., PSD of noise model is computed assuming regular
-            integration intervals of mean(r.T).            
+            i.e., accounting for possible irregular integration intervals and gaps in the series.
         set_dpsd : bool, optional
             Whether partial derivatives of power spectral density wrt noise parameters
             should be computed. Default is False.
@@ -4592,10 +4224,14 @@ class model:
         else:
             T = m.r.t[-1] - m.r.t[0]
             dt = np.min(m.r.t[1:]-m.r.t[:-1])
+            if not(np.isscalar(m.r.T)):
+                Tmax = np.max(m.r.T)
+                if (dt < Tmax):
+                    dt = Tmax
             f0 = 1/T
             fc = 1/(2*dt)
             df = f0/sf
-            m.fr = np.arange(f0, fc+df, df)
+            m.fr = np.arange(f0, fc+df/2, df)
             
         # If covariance matrix of noise model PSD should be computed,
         # then we need the partial derivatives
@@ -4604,7 +4240,7 @@ class model:
             
         # Compute PSD of noise components [and their partial derivatives]
         for n in m.n:
-            n.set_psd(m, fr=m.fr, from_cov=from_cov, set_dpsd=set_dpsd)
+            n.set_psd(m, fr=m.fr, set_dpsd=set_dpsd, from_cov=from_cov)
             
         # Compute total PSD of noise model
         m.pn = np.zeros(len(m.fr))
@@ -4628,7 +4264,7 @@ class model:
             
         # Compute PSD of residuals if available
         if (m.v is not None):
-            m.pv = lombscargle(m.r.t, m.v)[1]
+            m.pv = lombscargle(m.r.t, m.v, f=m.fr, dtrd=None)[1]
 
     # Compute jumps of polynomial and sine wave functions
     #----------------------------------------------------
@@ -4709,7 +4345,6 @@ class model:
                 # Increment parameter index
                 for p in f.par:
                     i = i+1
-            
 
             # 2) Loop over sine functions
             #----------------------------
@@ -4762,21 +4397,14 @@ class model:
             # Else, loop over noise components
             else:
                 for i in range(len(m[d].n)):
-                    
-                    # [Differenced] residuals -> [differenced] noise estimates projector
-                    Q = m[d].n[i].Qd
+
+                    # Residuals -> noise estimates projector
+                    Q = m[d].n[i].Q
                     if (Q.ndim == 1):
                         QP = (m[d].P*Q).T
                     else:
                         QP = np.dot(Q, m[d].P)
-
-                    # Integrate that projector if needed
-                    if (m.centered):
-                        QP = np.pad(QP, ((1, 0), (1, 0)))
-                        QP = np.cumsum(np.cumsum(QP, axis=0, out=QP), axis=1, out=QP)
-                        QP = QP - np.mean(QP, axis=0)
-                        QP = QP - np.mean(QP, axis=1).reshape(len(QP), 1)
-
+                    
                     # Noise estimates, their covariance matrix and formal errors
                     m[d].n[i].xi = np.dot(QP, m[d].v)
                     m[d].n[i].Qxi = np.dot(QP, np.dot(m[d].Qv, QP.T))
@@ -4811,16 +4439,8 @@ class model:
             
                 # Generate random noise
                 if (n.Q.ndim == 2):
-                    #L = np.real(linalg.sqrtm(n.Q))
-                    if (n.centered):
-                        Qd = np.diff(np.diff(n.Q, axis=0), axis=1)
-                        (f, L) = cholesky(Qd)
-                        n.xi = np.dot((L/f).T, np.random.randn(m[d].r.n-1))
-                        n.xi = np.cumsum(np.pad(n.xi, (1, 0)))
-                        n.xi = n.xi - np.mean(n.xi) 
-                    else:
-                        (f, L) = cholesky(n.Q)
-                        n.xi = np.dot((L/f).T, np.random.randn(m[d].r.n))
+                    (f, L) = cholesky(n.Q)
+                    n.xi = np.dot((L/f).T, np.random.randn(m[d].r.n))
                 else:
                     n.xi = np.sqrt(n.Q) * np.random.randn(m[d].r.n)
 
@@ -4840,16 +4460,13 @@ class model:
         fitx() does not return anything, but updates the values and formal errors
         of the model parameters, and also sets attributes of the model instance m:
         
-        ny    : Effective number of observations
-        nx    : Effective number of deterministic parameters
+        nx    : Number of deterministic parameters
         dQ    : Log-determinant of covariance matrix
         dN    : Log-determinant of normal matrix of deterministic parameters
         s2    : Global variance factor
         Qx    : Covariance matrix of deterministic parameters
         v     : Residuals
-        vd    : [Differenced] residuals
         Pv    : Product of observation weight matrix with residuals
-        Pvd   : Product of observation weight matrix with [differenced] residuals
         logl  : Log-likelihood
         loglr : Restricted log-likelihood
         
@@ -4878,26 +4495,10 @@ class model:
         m.set_x0()
         
         # Initializations
-        m.ny = m.r.n
         xr = m.get_xr()
         m.nx = len(xr)
         dx = np.ones(m.nx)
         
-        # Differentiate observations if needed
-        if (m.centered):
-            y = np.diff(m.r.y)
-            m.ny = m.ny-1
-        else:
-            y = m.r.y
-            
-        # Will we need to pseudo-invert the normal matrix?
-        pinv = False
-        if (m.centered):
-            for f in m.f:
-                if isinstance(f, polynom):
-                    if (f.deg == 0):
-                        pinv = True
-
         # If any parameter to estimate,
         if (m.nx > 0):
 
@@ -4908,13 +4509,6 @@ class model:
                 m.set_oeq()
                 A = m.A * m.dx_dxr()
                 
-                # Differentiate predicted observations and design matrix if needed
-                if (m.centered):
-                    A = np.diff(A, axis=0)
-                    yc = np.diff(m.yc)
-                else:
-                    yc = m.yc
-            
                 # Set up normal equation
                 if (m.Q.ndim == 2) and (m.P is not None):
                     AtP = np.dot(A.T, m.P)
@@ -4923,19 +4517,11 @@ class model:
                 else:
                     AtP = A.T/m.Q
                 N = np.dot(AtP, A)
-                b = np.dot(AtP, y-yc)
+                b = np.dot(AtP, m.r.y-m.yc)
                 
-                # [Pseudo-]solve normal equation
-                if (pinv):
-                    (l, v) = linalg.eig(N)
-                    l = np.real(l)
-                    ind = np.argsort(l)
-                    m.Qx = np.dot(v[:,ind[1:]]/l[ind[1:]], v[:,ind[1:]].T)
-                    m.dN = np.sum(np.log(l[ind[1:]]))
-                    dx = np.dot(m.Qx, b) + np.sum(m.r.y-m.yc)/np.sum(np.dot(m.A, v[:,ind[0]])) * v[:,ind[0]]
-                else:
-                    (m.Qx, m.dN) = invspd(N, return_det=True)
-                    dx = np.dot(m.Qx, b)
+                # Solve normal equation
+                (m.Qx, m.dN) = invspd(N, return_det=True)
+                dx = np.dot(m.Qx, b)
 
                 # Update deterministic parameters
                 m.set_xr(m.get_xr()+dx)
@@ -4949,26 +4535,14 @@ class model:
         m.set_oeq()
         m.v = m.r.y - m.yc
         
-        # [Differenced] residuals
-        if (m.centered):
-            m.vd = np.diff(m.v)
-        else:
-            m.vd = m.v
-            
-        # [Differenced] weight matrix * [differenced] residuals
-        if (m.Q.ndim == 2) and (m.P is not None):
-            m.Pvd = np.dot(m.P, m.vd)
-        elif (m.Q.ndim == 2):
-            m.Pvd = cholsolve(m.L, m.vd)
-        else:
-            m.Pvd = m.vd/m.Q
-            
         # Weight matrix * residuals
-        if (m.centered):
-            m.Pv = signal.convolve(m.Pvd, [-1, 1])
+        if (m.Q.ndim == 2) and (m.P is not None):
+            m.Pv = np.dot(m.P, m.v)
+        elif (m.Q.ndim == 2):
+            m.Pv = cholsolve(m.L, m.v)
         else:
-            m.Pv = m.Pvd
-            
+            m.Pv = m.v/m.Q
+        
         # Weighted-square sum of residuals
         vPv = np.sum(m.v*m.Pv)
         
@@ -4978,34 +4552,31 @@ class model:
                 m.dQ = 2 * (np.sum(np.log(np.diag(m.L[1]))) - np.sum(np.log(m.L[0])))
             else:
                 m.dQ = np.sum(np.log(m.Q))
-        
-        # Effective number of parameters
-        if (pinv):
-            m.nx = m.nx-1
-        
+                
         # Global variance factor
         if (vf):
             if (estimator == 'ml'):
-                m.s2 = vPv / m.ny
+                m.s2 = vPv / m.r.n
             elif (estimator == 'reml'):
-                m.s2 = vPv / (m.ny-m.nx)
+                m.s2 = vPv / (m.r.n-m.nx)
         else:
             m.s2 = 1
             
         # Log-likelihood
-        m.logl = -m.ny/2*log(2*pi*m.s2) - m.dQ/2 - vPv/(2*m.s2)
+        m.logl = -m.r.n/2*log(2*pi*m.s2) - m.dQ/2 - vPv/(2*m.s2)
         
         # Restricted log-likelihood
-        m.loglr = m.logl + m.nx/2*log(2*pi) - m.dN/2
+        m.loglr = m.logl + m.nx/2*log(2*pi*m.s2) - m.dN/2
         
         # Finalize parameter covariance matrix
         m.Qx = m.s2 * m.Qx
         dx = m.dx_dxr()
         m.Qx = dx*(m.Qx*dx).T
+        m.set_sigx()
     
     # Fit deterministic + noise model
     #--------------------------------
-    def fit(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', quiet=False, verbose=False, out=sys.stdout):
+    def fit(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model
@@ -5013,8 +4584,7 @@ class model:
         fit does not return anything, but updates the values and formal errors of the
         model parameters, and also sets attributes of the model instance m:
 
-        ny    : Effective number of observations
-        nx    : Effective number of deterministic parameters
+        nx    : Number of deterministic parameters
         nb    : Number of noise parameters
         dQ    : Log-determinant of covariance matrix
         dN    : Log-determinant of normal matrix of deterministic parameters
@@ -5022,10 +4592,10 @@ class model:
         s2    : Global variance factor
         Qx    : Covariance matrix of deterministic parameters
         Qb    : Covariance matrix of noise parameters
+        Qc    : Covariance matrix of predicted observations
+        sc    : Formal errors of predicted observations
         v     : Residuals
-        vd    : [Differenced] residuals
         Pv    : Product of observation weight matrix with residuals
-        Pvd   : Product of [differenced] observation weight matrix with [differenced] residuals
         sv    : Formal errors of residuals
         Qv    : Covariance matrix of residuals
         vn    : Normalized residuals
@@ -5044,13 +4614,21 @@ class model:
             either 'ml', 'reml' or 'ls'. Default is 'reml'.
         method : str, optional
             Numerical maximization method to be used in case estimator is either
-            'ml' or 'reml': either 'Nelder-Mead' or 'Newton'. Default is 'Newton'.
+            'ml' or 'reml': either 'Nelder-Mead', 'Powell', 'CG', 'BFGS' or 'Newton'.
+            Default is 'Newton'.
         ls_prefit : bool, optional
-            In case estimator is either 'ml' or 'reml', should we start with a quick
+            In case estimator is either 'ml' or 'reml', should we start with a first
             LS fit of the noise parameters? Default is True.
         hessian : str, optional
             Specifies how the hessian matrix of noise parameters should be computed:
             either 'expected' or 'numeric'. Default is 'expected'.
+        fr : array, optional
+            Frequency range used to compute PSD of noise model and residuals.
+            Default is None (automatically set).
+        finalize : bool, optional
+            If False, then fit() will stop right after the optimal noise parameters
+            are found and set, but most other attributes of the model will not be set.
+            Default is True.
         quiet : bool, optional
             Whether to hide messages. Default is False.
         verbose : bool, optional
@@ -5096,7 +4674,6 @@ class model:
                     print('    '+str(date())+' : Initial fit', file=out)
 
                 # First fit with white noise only to get good a priori deterministic parameters
-                m[d].centered = False
                 if (m[d].r.Q is not None):
                     m[d].Q = m[d].r.Q
                 else:
@@ -5110,22 +4687,40 @@ class model:
                 # Set possibly unset a priori noise parameters
                 m[d].set_b0(np.sum(m[d].v**2)/m[d].r.n/len(m[d].n))
                 
+                # In case there's just one noise component, with just one unknown variance factor,
+                # de-activate initial LS fit of noise parameters and switch to Nelder-Mead method,
+                # so that thanks to Williams' trick, no iterations are required.
+                b = True
+                if (len(m[d].n) > 1):
+                    b = False
+                else:
+                    n = m[d].n[0]
+                    if (n.par[0].fixed):
+                        b = False
+                    else:
+                        for i in range(1, len(n.par)):
+                            if not(n.par[i].fixed):
+                                b = False
+                if (b):
+                    ls_prefit = False
+                    method = 'Nelder-Mead'
+                    
                 # 1st case : [RE]ML estimation of noise parameters
                 #-------------------------------------------------
                 if (estimator in ['ml', 'reml']):
                     
                     # Initial LS fit of noise parameters
                     if (ls_prefit):
-                        m[d].fit(estimator='ls', quiet=True)
+                        m[d].fit(estimator='ls', finalize=False, quiet=True)
                         
                         # Raise error if initial LS fit of noise parameters failed
                         if (m[d].v is None):
                             raise RuntimeError('Initial LS fit of noise parameters failed.')
                 
-                    # 1st sub-case : Nelder-Mead maximization
-                    #----------------------------------------
-                    if (method == 'Nelder-Mead'):
-                        
+                    # 1st sub-case : Nelder-Mead or Powell maximization
+                    #--------------------------------------------------
+                    if (method in ['Nelder-Mead', 'Powell']):
+
                         # Does the model support Williams' trick?
                         w = True
                         for n in m[d].n:
@@ -5165,7 +4760,7 @@ class model:
                         # Search optimal reparameterized noise parameters
                         if not(quiet):
                             print('    '+str(date())+' : Search optimal noise parameters', file=out)
-                        br = optimize.minimize(loglr, m[d].get_br(), method='Nelder-Mead', options={'xatol': 1e-5}).x
+                        br = optimize.minimize(loglr, m[d].get_br(), method=method, tol=1e-5).x
 
                         # Set optimal noise parameters
                         m[d].set_br(br)                    
@@ -5180,7 +4775,78 @@ class model:
                             for n in m[d].n:
                                 n.par[0].x = m[d].s2 * n.par[0].x
                         
-                    # 2nd sub-case : Newton maximization
+                    # 2nd sub-case : conjugate gradient maximization
+                    #-----------------------------------------------
+                    elif (method in ['CG', 'BFGS']):
+                        
+                        # Inner function: reparameterized noise parameters -> minus [restricted] log-likelihood
+                        def loglr(br):
+                            
+                            # Fit
+                            m[d].set_br(br)
+                            m[d].set_cov(inv=True, set_dcov=True)
+                            m[d].fitx()
+                            
+                            # Message
+                            if not(quiet):
+                                if not(verbose):
+                                    print('\x1b[2K', end='\r', file=out)
+                                    end = '\r'
+                                else:
+                                    end = '\n'
+                                if (estimator == 'ml'):
+                                    print('        Current noise parameters and likelihood :', m[d].get_b(), m[d].logl, end=end, file=out)
+                                else:
+                                    print('        Current noise parameters and restricted likelihood :', m[d].get_b(), m[d].loglr, end=end, file=out)
+                            
+                            # Return minus [restricted] log-likelihood
+                            if (estimator == 'ml'):
+                                return -m[d].logl
+                            elif (estimator == 'reml'):
+                                return -m[d].loglr
+
+                        # Inner function: reparameterized noise parameters -> partial derivatives of minus [restricted] log-likelihood wrt reparameterized noise parameters
+                        def dloglr(br):
+                            
+                            # Fit if necessary
+                            if (m[d].P is None) or not(np.allclose(br, m[d].get_br())):
+                                m[d].set_br(br)
+                                m[d].set_cov(inv=True, set_dcov=True)
+                                m[d].fitx()
+                            
+                            # Set "weight matrix"
+                            if (estimator == 'ml') or (m[d].nx == 0):
+                                P = m[d].P
+                            else:
+                                if (m[d].P.ndim == 2):
+                                    AtP = np.dot(m[d].A.T, m[d].P)
+                                    P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+                                else:
+                                    AtP = m[d].A.T * m[d].P
+                                    P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+
+                            # Partial derivatives of minus [restricted] log-likelihood wrt reparameterized noise parameters
+                            J = []
+                            for n in m[d].n:
+                                for i in range(len(n.dQ)):
+                                    if (P.ndim == 2) and (n.dQ[i].ndim == 2):
+                                        J.append(trdot(n.dQ[i], P) - np.sum(m[d].Pv * np.dot(n.dQ[i], m[d].Pv)))
+                                    elif (P.ndim == 2) and (n.dQ[i].ndim == 1):
+                                        J.append(np.sum(n.dQ[i]*np.diag(P)) - np.sum(m[d].Pv*n.dQ[i]*m[d].Pv))
+                                    else:
+                                        J.append(np.sum(n.dQ[i]*P) - np.sum(m[d].Pv*n.dQ[i]*m[d].Pv))
+                                    
+                            return np.array(J)/2 * m[d].db_dbr()
+
+                        # Search optimal reparameterized noise parameters
+                        if not(quiet):
+                            print('    '+str(date())+' : Search optimal noise parameters', file=out)
+                        br = optimize.minimize(loglr, m[d].get_br(), method=method, jac=dloglr, options={'gtol': 1e-3}).x
+
+                        # Set optimal noise parameters
+                        m[d].set_br(br)                    
+
+                    # 3rd sub-case : Newton maximization
                     #-----------------------------------
                     elif (method == 'Newton'):
 
@@ -5191,9 +4857,11 @@ class model:
                         br = m[d].get_br()
                         nb = len(br)
                         db = np.ones(nb)
+                        d2b = np.zeros(nb)
+                        dbp = None
                         
                         # Iterations until reparameterized noise parameters have converged
-                        while (np.max(np.abs(db)) > 1e-5):
+                        while (np.max(np.abs(db+d2b)) > 1e-5):
                             
                             # Fit with current noise parameters
                             m[d].set_cov(inv=True, set_dcov=True)
@@ -5216,16 +4884,12 @@ class model:
                             if (estimator == 'ml') or (m[d].nx == 0):
                                 P = m[d].P
                             else:
-                                if (m[d].centered):
-                                    A = np.diff(m[d].A, axis=0)
-                                else:
-                                    A = m[d].A
                                 if (m[d].P.ndim == 2):
-                                    AtP = np.dot(A.T, m[d].P)
+                                    AtP = np.dot(m[d].A.T, m[d].P)
                                     P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
                                 else:
-                                    AtP = A.T * m[d].P
-                                    P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))                                    
+                                    AtP = m[d].A.T * m[d].P
+                                    P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
 
                             # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
                             # with weight matrix, and with residuals
@@ -5234,14 +4898,14 @@ class model:
                             for n in m[d].n:
                                 for i in range(len(n.dQ)):
                                     if (P.ndim == 2) and (n.dQ[i].ndim == 2):
-                                        dQP.append(np.dot(n.dQd[i], P))
-                                        dQPv.append(np.dot(dQP[-1], m[d].vd))
+                                        dQP.append(np.dot(n.dQ[i], P))
+                                        dQPv.append(np.dot(dQP[-1], m[d].v))
                                     elif (P.ndim == 2) and (n.dQ[i].ndim == 1):
-                                        dQP.append((P*n.dQd[i]).T)
-                                        dQPv.append(np.dot(dQP[-1], m[d].vd))
+                                        dQP.append((P*n.dQ[i]).T)
+                                        dQPv.append(np.dot(dQP[-1], m[d].v))
                                     else:
-                                        dQP.append(n.dQd[i]*P)
-                                        dQPv.append(dQP[-1]*m[d].vd)
+                                        dQP.append(n.dQ[i]*P)
+                                        dQPv.append(dQP[-1]*m[d].v)
                             
                             # Fill in normal matrix
                             N = np.zeros((nb, nb))
@@ -5262,20 +4926,35 @@ class model:
                             b = np.zeros(nb)
                             for i in range(nb):
                                 if (dQP[i].ndim == 2):
-                                    b[i] = (np.sum(m[d].Pvd*dQPv[i]) - np.trace(dQP[i])) / 2
+                                    b[i] = (np.sum(m[d].Pv*dQPv[i]) - np.trace(dQP[i])) / 2
                                 else:
-                                    b[i] = (np.sum(m[d].Pvd*dQPv[i]) - np.sum(dQP[i])) / 2
+                                    b[i] = (np.sum(m[d].Pv*dQPv[i]) - np.sum(dQP[i])) / 2
                             b = db_dbr*b
                             
                             # Solve normal equation
                             db = linalg.solve(N, b)
                             
+                            # Compute correction to increment based on previous increment
+                            if (dbp is not None):
+                                c = np.sum(db*dbp)
+                                z = np.sum(dbp**2)
+                                d2b = c**2 / z / (z-c) * dbp
+                            else:
+                                d2b = 0
+                            
                             # Update noise parameters
-                            br = br + db
+                            br = br + db + d2b
                             m[d].set_br(br)
+                            
+                            # Store increment
+                            dbp = db
 
                     # Final fit + compute covariance matrix of noise parameters
                     #----------------------------------------------------------
+
+                    # Exit now if requested
+                    if not(finalize):
+                        return
 
                     # Message
                     if not(quiet) and not(verbose):
@@ -5307,11 +4986,7 @@ class model:
                         if (estimator == 'ml') or (m[d].nx == 0):
                             P = m[d].P
                         else:
-                            if (m[d].centered):
-                                A = np.diff(m[d].A, axis=0)
-                            else:
-                                A = m[d].A
-                            AtP = np.dot(A.T, m[d].P)
+                            AtP = np.dot(m[d].A.T, m[d].P)
                             P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
 
                         # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
@@ -5320,11 +4995,11 @@ class model:
                         for n in m[d].n:
                             for i in range(len(n.dQ)):
                                 if (P.ndim == 2) and (n.dQ[i].ndim == 2):
-                                    dQP.append(np.dot(n.dQd[i], P))
+                                    dQP.append(np.dot(n.dQ[i], P))
                                 elif (P.ndim == 2) and (n.dQ[i].ndim == 1):
-                                    dQP.append((P*n.dQd[i]).T)
+                                    dQP.append((P*n.dQ[i]).T)
                                 else:
-                                    dQP.append(n.dQd[i]*P)
+                                    dQP.append(n.dQ[i]*P)
                         
                         # Fill in hessian matrix
                         H = np.zeros((m[d].nb, m[d].nb))
@@ -5369,6 +5044,7 @@ class model:
                         (m[d].Qb, m[d].dH) = invspd(-H, return_det=True)
                     else:
                         m[d].Qb = np.empty((0, 0))
+                    m[d].set_sigb()
                 
                 # 2nd case : LS estimation of noise parameters
                 #---------------------------------------------
@@ -5383,7 +5059,13 @@ class model:
                     db = np.ones(nb)
                     
                     # Iterations until reparameterized noise parameters have converged
+                    niter = 0
                     while (np.max(np.abs(db)) > 1e-5):
+                        
+                        # Raise error if we're at more than 100 iterations
+                        niter = niter + 1
+                        if (niter > 100):
+                            raise RuntimeError('Maximum number of iterations exceeded.')
                         
                         # Message
                         if not(quiet):
@@ -5393,13 +5075,9 @@ class model:
                             else:
                                 end = '\n'
                             print('        Current noise parameters :', m[d].get_b(), end=end, file=out)
-   
-                        #### Fit model with current noise parameters and compute PSD of residuals
-                        ###m[d].set_cov(chol=True)
-                        ###m[d].fitx()
-
+                        
                         # Compute PSD of residuals + theoretical PSD of noise model and its partial derivatives
-                        m[d].set_psd(set_dpsd=True)
+                        m[d].set_psd(set_dpsd=True, fr=fr)
                         
                         ###pp.loglog(m[d].fr, m[d].pv, 'k')
                         ###pp.loglog(m[d].fr, m[d].pn, 'r', linewidth=2)
@@ -5414,27 +5092,20 @@ class model:
                         # Build and solve normal equation
                         AtP = A.T / m[d].pn**2
                         N = np.dot(AtP, A)
+                        
+                        (ll, vv) = linalg.eig(N)
+                        N = N + np.min(np.real(ll))*np.eye(len(N))
+                        
                         b = np.dot(AtP, m[d].pv - m[d].pn)
                         db = linalg.solve(N, b)
 
                         # Update noise parameters
                         br = br + db
                         m[d].set_br(br)
-                    
-                    
-                    
-                    #def vpv(br):
-                        #m[d].set_br(br)
-                        #print(m.get_b())
-                        #m[d].set_psd()
-                        #pp.loglog(m[d].fr, m[d].pv, 'k')
-                        #pp.loglog(m[d].fr, m[d].pn, 'r', linewidth=2)
-                        #pp.show()
-                        #return np.sum(((m[d].pv-m[d].pn))**2)
-                    
-                    #br = optimize.fmin(vpv, x0=m[d].get_br(), xtol=1e-5, disp=False)
-                
 
+                    # Exit now if requested
+                    if not(finalize):
+                        return
 
                     # Message
                     if not(quiet) and not(verbose):
@@ -5454,7 +5125,8 @@ class model:
                     f = 1 / m[d].db_dbr()
                     N = f*(N*f).T
                     (m[d].Qb, m[d].dH) = invspd(N, return_det=True)
-
+                    m[d].set_sigb()
+                    
                 # Set some final attributes of the model
                 #---------------------------------------
 
@@ -5466,8 +5138,18 @@ class model:
                     m[d].sc = np.sqrt(np.diag(m[d].Qc))
 
                 # Covariance matrix and formal errors of residuals
-                m[d].Qv = m[d].Q - m[d].Qc
-                m[d].sv = np.sqrt(np.diag(m[d].Qv))
+                if (m[d].nx > 0):
+                    if (m[d].Q.ndim == 1):
+                        m[d].Qv = np.diag(m[d].Q) - m[d].Qc
+                    else:
+                        m[d].Qv = m[d].Q - m[d].Qc
+                    m[d].sv = np.sqrt(np.diag(m[d].Qv))
+                else:
+                    m[d].Qv = m[d].Q
+                    if (m[d].Q.ndim == 1):
+                        m[d].sv = np.sqrt(m[d].Qv)
+                    else:
+                        m[d].sv = np.sqrt(np.diag(m[d].Qv))
                 
                 # Normalized residuals
                 m[d].vn = m[d].v / m[d].sv
@@ -5475,22 +5157,18 @@ class model:
                 # WRMS of residuals
                 m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
                 
-                # Set formal errors of deterministic and noise parameters
-                m[d].set_sigx()
-                m[d].set_sigb()
-                
                 # Set -BIC/2 and evidence if noise parameters were estimated by ML
                 if (estimator == 'ml'):
-                    m[d].bic = m[d].logl - (m[d].nx+m[d].nb)*log(m[d].ny)/2
+                    m[d].bic = m[d].logl - (m[d].nx+m[d].nb)*log(m[d].r.n)/2
                     m[d].E = m[d].logl + ((m[d].nx+m[d].nb)*log(2*pi) - m[d].dN - m[d].dH) / 2
 
                 # Set -(restricted BIC)/2 and restricted evidence if noise parameters were estimated by REML
                 elif (estimator == 'reml'):
-                    m[d].bicr = m[d].loglr - m[d].nb*log(m[d].ny-m[d].nx)/2
+                    m[d].bicr = m[d].loglr - m[d].nb*log(m[d].r.n-m[d].nx)/2
                     m[d].Er = m[d].loglr + (m[d].nb*log(2*pi) - m[d].dH) / 2
 
                 # Compute PSD of noise model and of residuals
-                m[d].set_psd(set_spsd=True)
+                m[d].set_psd(set_spsd=True, fr=fr)
                 
                 # Compute jumps of polynomial and sine wave functions
                 m[d].set_jumps()
@@ -5513,7 +5191,8 @@ class model:
                 print('', file=out)
                 
             # Print error
-            print_exc()
+            if not(quiet):
+                print_exc()
             
             # Reset output model attributes
             for d in range(m.nd):
@@ -5537,7 +5216,6 @@ class model:
                 m[d].spn = None
                 m[d].pv = None
 
-                m[d].ny = None
                 m[d].nx = None
                 m[d].nb = None
                 m[d].dN = None
@@ -5545,10 +5223,10 @@ class model:
                 m[d].s2 = None
                 m[d].Qx = None
                 m[d].Qb = None
+                m[d].Qc = None
+                m[d].sc = None
                 m[d].v = None
-                m[d].vd = None
                 m[d].Pv = None
-                m[d].Pvd = None
                 m[d].sv = None
                 m[d].Qv = None
                 m[d].vn = None
@@ -5562,7 +5240,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', thr_raw=5, thr_norm=5, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, thr_raw=5, thr_norm=5, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -5570,8 +5248,7 @@ class model:
         fit does not return anything, but updates the values and formal errors of the
         model parameters, and also sets attributes of the model instance m:
 
-        ny    : Effective number of observations
-        nx    : Effective number of deterministic parameters
+        nx    : Number of deterministic parameters
         nb    : Number of noise parameters
         dQ    : Log-determinant of covariance matrix
         dN    : Log-determinant of normal matrix of deterministic parameters
@@ -5579,10 +5256,10 @@ class model:
         s2    : Global variance factor
         Qx    : Covariance matrix of deterministic parameters
         Qb    : Covariance matrix of noise parameters
+        Qc    : Covariance matrix of predicted observations
+        sc    : Formal errors of predicted observations
         v     : Residuals
-        vd    : [Differenced] residuals
         Pv    : Product of observation weight matrix with residuals
-        Pvd   : Product of [differenced] observation weight matrix with [differenced] residuals
         sv    : Formal errors of residuals
         Qv    : Covariance matrix of residuals
         vn    : Normalized residuals
@@ -5608,6 +5285,9 @@ class model:
         hessian : str, optional
             Specifies how the hessian matrix of noise parameters should be computed:
             either 'expected' or 'numeric'. Default is 'expected'.
+        fr : array, optional
+            Frequency range used to compute PSD of noise model and residuals.
+            Default is None (automatically set).
         thr_raw : float, optional
             Multiplicative factor defining thresholds for raw residuals:
             along each component, threshold = thr_raw * WRMS. Default is 5.
@@ -5633,7 +5313,7 @@ class model:
                 ls_prefit = False
             
             # Fit model
-            m.fit(estimator=estimator, method=method, ls_prefit=ls_prefit, hessian=hessian, quiet=quiet, verbose=verbose, out=out)
+            m.fit(estimator=estimator, method=method, ls_prefit=ls_prefit, hessian=hessian, fr=fr, quiet=quiet, verbose=verbose, out=out)
             
             # Get outlier indices
             ind = []
@@ -5898,7 +5578,7 @@ class model:
         else:
             tunit = m.r.tunit
             fr = m[0].fr
-
+    
         # Frequency unit
         if (tunit == 'd'):
             funit = 'cpd'
@@ -5966,10 +5646,19 @@ class model:
         elif (show):
             pp.show()
 
-    # Plot everything
-    #----------------
+    # plot_fit(), plot_res(), plot_normres() & plot_psd()
+    #----------------------------------------------------
     def plot_all(m, tunit=None):
 
+        """
+        plot_fit(), plot_res(), plot_normres() & plot_psd()
+
+        Parameters
+        ----------
+        tunit : str, optional
+            Time unit for the plots. Default is None (i.e., time unit of the time series).
+            
+        """
         m.plot_fit(tunit=tunit, show=False)
         m.plot_res(tunit=tunit, show=False)
         m.plot_normres(tunit=tunit, show=False)
@@ -6027,10 +5716,7 @@ class model:
                 else:
                     return date.from_mjd(t).tiso()
         else:
-            if (m.r.tunit == 'd'):
-                dateformat = 'decimal MJD'
-            else:
-                dateformat = 'decimal '+tunit
+            dateformat = 'decimal '+tunit
             i = tformat.index('.')
             nt = int(tformat[:i])
             def print_date(t):
@@ -6061,59 +5747,66 @@ class model:
         
         # Print statistics
         if (m.nd == 1):
-            txt = txt + 'npar: {0}'.format(m[0].nx+m[0].nb) + '\n'
-            txt = txt + 'wrms: {0:13.6e}'.format(m[0].wrms) + '\n'
-            txt = txt + 'logl: {0:13.6e}'.format(m[0].logl) + '\n'
+            txt = txt + 'npar:  {0}'.format(m[0].nx+m[0].nb) + '\n'
+            txt = txt + 'wrms:  {0:13.6e}'.format(m[0].wrms) + '\n'
+            txt = txt + 'logl:  {0:13.6e}'.format(m[0].logl) + '\n'
+            txt = txt + 'loglr: {0:13.6e}'.format(m[0].loglr) + '\n'
             if (m[0].bic is not None):
-                txt = txt + 'bic:  {0:13.6e}'.format(m[0].bic) + '\n'
+                txt = txt + 'bic:   {0:13.6e}'.format(m[0].bic) + '\n'
             if (m[0].bicr is not None):
-                txt = txt + 'bicr: {0:13.6e}'.format(m[0].bicr) + '\n'
+                txt = txt + 'bicr:  {0:13.6e}'.format(m[0].bicr) + '\n'
             if (m[0].E is not None):
-                txt = txt + 'E:    {0:13.6e}'.format(m[0].E) + '\n'
+                txt = txt + 'E:     {0:13.6e}'.format(m[0].E) + '\n'
             if (m[0].Er is not None):
-                txt = txt + 'Er:   {0:13.6e}'.format(m[0].Er) + '\n'
+                txt = txt + 'Er:    {0:13.6e}'.format(m[0].Er) + '\n'
         else:
-            s = 'npar: ['
+            s = 'npar:  ['
             for d in range(m.nd):
                 s = s + '{0}, '.format(m[d].nx+m[d].nb)
             s = s[:-2] + ']'
             txt = txt + s + '\n'
             
-            s = 'wrms: ['
+            s = 'wrms:  ['
             for d in range(m.nd):
                 s = s + '{0:13.6e}, '.format(m[d].wrms)
             s = s[:-2] + ']'
             txt = txt + s + '\n'
             
-            s = 'logl: ['
+            s = 'logl:  ['
             for d in range(m.nd):
                 s = s + '{0:13.6e}, '.format(m[d].logl)
             s = s[:-2] + ']'
             txt = txt + s + '\n'
             
+            s = 'loglr: ['
+            for d in range(m.nd):
+                s = s + '{0:13.6e}, '.format(m[d].loglr)
+            s = s[:-2] + ']'
+            txt = txt + s + '\n'
+
             if (m[d].bic is not None):
-                s = 'bic:  ['
+                s = 'bic:   ['
                 for d in range(m.nd):
                     s = s + '{0:13.6e}, '.format(m[d].bic)
                 s = s[:-2] + ']'
                 txt = txt + s + '\n'
 
             if (m[d].bicr is not None):
-                s = 'bicr: ['
+                s = 'bicr:  ['
                 for d in range(m.nd):
                     s = s + '{0:13.6e}, '.format(m[d].bicr)
                 s = s[:-2] + ']'
                 txt = txt + s + '\n'
 
             if (m[d].E is not None):
-                s = 'E:    ['
+                s = 'E:     ['
                 for d in range(m.nd):
                     s = s + '{0:13.6e}, '.format(m[d].E)
                 s = s[:-2] + ']'
                 txt = txt + s + '\n'
 
             if (m[d].Er is not None):
-                s = 'Er:   ['
+                s = 'Er:    ['
                 for d in range(m.nd):
                     s = s + '{0:13.6e}, '.format(m[d].Er)
                 s = s[:-2] + ']'
@@ -6128,7 +5821,7 @@ class model:
                 for p in n.par:
                     
                     # Print current parameter
-                    if isinstance(n, ar1sine):
+                    if (n.per is not None):
                         txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, end: {4}, value: {5:13.6e}, sigma: {6:12.6e}, unit: {7}}}'.format(d, p.type, n.per, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
                     else:
                         txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, end: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
@@ -6141,7 +5834,6 @@ class model:
             for f in m[d].f:
                 for p in f.par:
                     
-
                     # Print current parameter
                     if isinstance(f, polynom):
                         txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, start: {3}, end: {4}, value: {5:13.6e}, sigma: {6:12.6e}, unit: {7}}}'.format(d, p.type, f.deg, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
@@ -6169,3 +5861,287 @@ class model:
                             txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'sine wave jump', f.per, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
         
         return txt
+
+    # Clean matrix attributes
+    #------------------------
+    def clean(m):
+      
+        """
+        Clean matrix attributes
+
+        """
+
+        # Loop over dimensions
+        for d in range(m.nd):
+            m[d].Q = None
+            m[d].L = None
+            m[d].P = None
+            m[d].Qpn = None
+            m[d].Qc = None
+            m[d].Qv = None
+            
+            # Loop over noise components
+            for n in m[d].n:
+                n.Q = None
+                n.dQ = None
+                n.P = None
+                n.dP = None
+                n.Qxi = None
+                
+    # Dump model instance into pickle file
+    #-------------------------------------
+    def dump(m, file):
+      
+        """
+        Dump model instance into pickle file
+
+        Parameters
+        ----------
+        file : str
+            Pickle file to write
+
+        """
+
+        pickle.dump(m, open(file, 'wb'))
+
+    # Likelihood ratio test for outliers
+    #-----------------------------------
+    def glr_outlier(m):
+
+        """
+        Likelihood ratio test for outliers
+        
+        Returns
+        -------
+        T : array
+            T-statistics for possible outliers at each date of the time series
+            
+        """
+
+        # Initialization
+        T = np.zeros(m.r.n)
+
+        # Loop over dimensions
+        for d in range(m.nd):
+
+            # Useful stuff
+            if (m[d].P.ndim == 2):
+                CtPC = np.diag(m[d].P)
+                CtPA = np.dot(m[d].P, m[d].A)
+                CtPv = m[d].Pv
+            else:
+                CtPC = m[d].P
+                CtPA = (m[d].A.T*m[d].P).T
+                CtPv = m[d].Pv
+
+            # Update T-statistics
+            for i in range(m.r.n):
+                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                T[i] = T[i] + np.sum(CtPv[i]**2/Nc)
+                
+        return T
+
+    # Likelihood ratio test for mean changes (position discontinuities)
+    #------------------------------------------------------------------
+    def glr_mean(m):
+
+        """
+        Likelihood ratio test for mean changes (position discontinuities)
+        
+        Returns
+        -------
+        T : array
+            T-statistics for possible mean changes at each date of the time series
+            
+        """
+
+        # Initialization
+        T = np.zeros(m.r.n)
+
+        # Loop over dimensions
+        for d in range(m.nd):
+
+            # Useful stuff
+            if (m[d].P.ndim == 2):
+                CtP = np.cumsum(m[d].P, axis=0)
+                CtPC = np.sum(np.tril(CtP), axis=1)
+                CtPA = np.dot(CtP, m[d].A)
+                CtPv = np.dot(CtP, m[d].v)
+            else:
+                CtPC = np.cumsum(m[d].P)
+                CtPA = np.cumsum((m[d].A.T*m[d].P).T, axis=0)
+                CtPv = np.cumsum(m[d].Pv)
+
+            # Update T-statistics
+            for i in range(m.r.n-1):
+                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                if (Nc > 0):
+                    T[i+1] = T[i+1] + np.sum(CtPv[i]**2/Nc)
+                
+        return T
+
+    # Likelihood ratio test for mean+trend changes (position+velocity discontinuities)
+    #---------------------------------------------------------------------------------
+    def glr_trend(m):
+
+        """
+        Likelihood ratio test for mean+trend changes (position+velocity discontinuities)
+        
+        Returns
+        -------
+        T : array
+            T-statistics for possible mean+trend changes at each date of the time series
+
+        """
+
+        # Initializations
+        T = np.zeros(m.r.n)
+        t = m.r.t - m.t0
+        
+        # Loop over dimensions
+        for d in range(m.nd):
+
+            # Useful stuff
+            if (m[d].P.ndim == 2):
+                C1tP = np.cumsum(m[d].P, axis=0)
+                C2tP = np.cumsum((m[d].P*t).T, axis=0)
+                C1tPC1 = np.sum(np.tril(C1tP), axis=1)
+                C1tPC2 = np.sum(np.tril(C2tP), axis=1)
+                C2tPC2 = np.sum(np.tril(C2tP)*t, axis=1)
+                C1tPA = np.dot(C1tP, m[d].A)
+                C2tPA = np.dot(C2tP, m[d].A)
+                C1tPv = np.dot(C1tP, m[d].v)
+                C2tPv = np.dot(C2tP, m[d].v)
+            else:
+                C1tPC1 = np.cumsum(m[d].P)
+                C1tPC2 = np.cumsum(m[d].P*t)
+                C2tPC2 = np.cumsum(m[d].P*t**2)
+                C1tPA = np.cumsum((m[d].A.T*m[d].P).T, axis=0)
+                C2tPA = np.cumsum((m[d].A.T*m[d].P*t).T, axis=0)
+                C1tPv = np.cumsum(m[d].Pv)
+                C2tPv = np.cumsum(m[d].Pv*t)
+                
+            # Update T-statistics
+            T = np.zeros(m[d].r.n)
+            for i in range(1, m[d].r.n-2):
+                CtPC = np.array([[C1tPC1[i], C1tPC2[i]], [C1tPC2[i], C2tPC2[i]]])
+                CtPA = np.array([C1tPA[i], C2tPA[i]])
+                CtPv = np.array([C1tPv[i], C2tPv[i]])
+                Nc = CtPC - np.dot(CtPA, np.dot(m[d].Qx, CtPA.T))
+                if (np.linalg.matrix_rank(Nc) == 2):
+                    xc = linalg.solve(Nc, CtPv)
+                    T[i+1] = np.dot(xc.T, CtPv)
+                
+        return T
+
+    # Likelihood ratio test for periodic signals
+    #-------------------------------------------
+    def glr_sine(m):
+
+        """
+        Likelihood ratio test for periodic signals
+        
+        Returns
+        -------
+        T : array
+            T-statistics for possible periodic signals at each frequency of m.fr
+
+        """
+
+        # Initializations
+        T = np.zeros(len(m.fr))
+        t = m.r.t - m.t0                
+
+        # If series is regularly sampled (m.r.T is constant),
+        if np.isscalar(m.r.T):
+            
+            # Full array of dates
+            tf = np.arange(t[0], t[-1]+m.r.T, m.r.T)
+
+            # Indices of observed dates
+            ind = []
+            j = 0
+            for i in range(m.r.n):
+                while (tf[j] < t[i]):
+                    j = j+1
+                ind.append(j)
+
+            # Loop over dimensions
+            for d in range(m.nd):
+                
+                # Full weight matrix
+                Pf = np.zeros((len(tf), len(tf)))
+                if (m[d].P.ndim == 2):
+                    Pf[np.ix_(ind,ind)] = m[d].P
+                else:
+                    Pf[ind,ind] = m[d].P
+
+                # Compute sum(sin(2*pi*f*(ti-tj)*Pij)) and sum(cos(2*pi*f*(ti-tj)*Pij))
+                Pc = np.zeros(len(tf))
+                Pc[0] = np.sum(np.diag(Pf))
+                for i in range(1, len(tf)):
+                    Pc[i] = 2*np.sum(np.diag(Pf, i))
+                (S0, C0) = trig_sum(m.r.T*np.arange(len(tf)), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+
+                # Compute sum(sin(2*pi*f*(ti+tj)*Pij)) and sum(cos(2*pi*f*(ti+tj)*Pij))
+                Pf = np.fliplr(Pf)
+                Pc = np.zeros(2*len(tf)-1)
+                for i in range(2*len(tf)-1):
+                    Pc[i] = np.sum(np.diag(Pf, len(tf)-1-i))
+                (S1, C1) = trig_sum(2*tf[0]+m.r.T*np.arange(2*len(tf)-1), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+
+                # Compute C^T*P*C at all frequencies
+                CtPC = np.zeros((len(m.fr), 2, 2))
+                CtPC[:,0,0] = (C0+C1)/2
+                CtPC[:,0,1] = S1/2
+                CtPC[:,1,0] = CtPC[:,0,1]
+                CtPC[:,1,1] = (C0-C1)/2
+
+                # Compute C^T*P*A at all frequencies
+                PA = np.zeros((len(tf), m[d].nx))
+                if (m[d].P.ndim == 2):
+                    PA[ind,:] = np.dot(m[d].P, m[d].A)
+                else:
+                    PA[ind,:] = (m[d].A.T * m[d].P).T
+                CtPA = np.zeros((len(m.fr), 2, m[d].nx))
+                for i in range(m.nx):
+                    (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+
+                # Compute C^T*P*v at all frequencies
+                Pv = np.zeros(len(tf))
+                Pv[ind] = m[d].Pv
+                CtPv = np.zeros((len(m.fr), 2))
+                (CtPv[:,1], CtPv[:,0]) = trig_sum(tf, Pv, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+
+                # Update T-statistics
+                for i in range(len(m.fr)):    
+                    Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                    if (np.linalg.matrix_rank(Nc) == 2):
+                        xc = linalg.solve(Nc, CtPv[i])
+                        T[i] = T[i] + np.dot(xc.T, CtPv[i])
+            
+        # Else (irregularly sampled series),
+        else:
+
+            # Loop over frequencies
+            for i in range(len(m.fr)):    
+                C = np.zeros((m.r.n, 2))
+                C[:,0] = np.cos(2*pi*m.fr[i]*t)
+                C[:,1] = np.sin(2*pi*m.fr[i]*t)
+                
+                # Loop over dimensions
+                for d in range(m.nd):
+                    if (m[d].P.ndim == 2):
+                        CtP = np.dot(C.T, m[d].P)
+                    else:
+                        CtP = C.T * m[d].P
+                    CtPC = np.dot(CtP, C)
+                    CtPA = np.dot(CtP, m[d].A)
+                    CtPv = np.dot(CtP, m[d].v)
+                        
+                    Nc = CtPC - np.dot(CtPA, np.dot(m[d].Qx, CtPA.T))
+                    if (np.linalg.matrix_rank(Nc) == 2):
+                        xc = linalg.solve(Nc, CtPv)
+                        T[i] = T[i] + np.dot(xc.T, CtPv)
+                
+        return T

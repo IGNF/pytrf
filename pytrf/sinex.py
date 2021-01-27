@@ -7,8 +7,8 @@
 import os
 import sys
 import re
-#import mkl
-#mkl.set_num_threads(1)
+import mkl
+mkl.set_num_threads(1)
 import copy
 import pickle
 from math import pi, sqrt, cos, sin, acos, exp, log
@@ -1013,7 +1013,7 @@ class sinex:
                 keys.append('43'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']):
                 j = ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    '].index(p.type)
-                keys.append('5'+'{0:06d}{1}'.format(p.isol, j))
+                keys.append('5'+'{0:06d}{1}'.format(int(p.soln), j))
             else:
                 keys.append('9{0:06d}'.format(i))
                 
@@ -1315,7 +1315,7 @@ class sinex:
             f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ___ESTIMATED_VALUE___\n')
             for i in range(snx.npar):
                 p =  snx.param[i]
-                f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e}\n'.format(i+1, p, snx.x[i], snx.b[i]))
+                f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e}\n'.format(i+1, p, snx.b[i]))
             f.write('-SOLUTION/NORMAL_EQUATION_VECTOR\n')
 
         # Write SOLUTION/NORMAL_EQUATION_MATRIX block
@@ -2631,10 +2631,12 @@ class sinex:
         ----------
         helmerts : str
             Indicates which Helmert parameters should be considered.
-            It can include 'T' (translations), 'S' (scale) and 'R' (rotations).
+            It can include 'T' (translations), 'S' (scale), 'R' (rotations)
+            and 'A' (CRF rotations).
         par : str
             Indicates which type of parameters should be considered.
-            It can be either 'STA' (station positions) or 'VEL' (station velocities).
+            It can be either 'STA' (station and radiosource positions) or 'VEL'
+            (station velocities - radiosource velocities not supported yet).
         units : str, optional
             Specifies units of Helmert parameters. It can be either None (mm, ppb, mas)
             or 'm' (m).
@@ -2642,31 +2644,46 @@ class sinex:
         """
       
         # Initialization
-        A = np.zeros((snx.npar, 7))
+        A = np.zeros((snx.npar, 10))
         
         # 1st case : Helmert parameters
         if (par == 'STA'):
 
             # Station positions partial derivatives
             ix = np.array([[i, i+1, i+2] for i in snx.ix])
-            A[ix[:,0], 0] =  ae
-            A[ix[:,1], 1] =  ae
-            A[ix[:,2], 2] =  ae
-            A[ix[:,0], 3] =  snx.x0[ix[:,0]]
-            A[ix[:,1], 3] =  snx.x0[ix[:,1]]
-            A[ix[:,2], 3] =  snx.x0[ix[:,2]]
-            A[ix[:,1], 4] = -snx.x0[ix[:,2]]
-            A[ix[:,2], 4] =  snx.x0[ix[:,1]]
-            A[ix[:,0], 5] =  snx.x0[ix[:,2]]
-            A[ix[:,2], 5] = -snx.x0[ix[:,0]]
-            A[ix[:,0], 6] = -snx.x0[ix[:,1]]
-            A[ix[:,1], 6] =  snx.x0[ix[:,0]]
+            if (len(ix) > 0):
+                A[ix[:,0], 0] =  ae
+                A[ix[:,1], 1] =  ae
+                A[ix[:,2], 2] =  ae
+                A[ix[:,0], 3] =  snx.x0[ix[:,0]]
+                A[ix[:,1], 3] =  snx.x0[ix[:,1]]
+                A[ix[:,2], 3] =  snx.x0[ix[:,2]]
+                A[ix[:,1], 4] = -snx.x0[ix[:,2]]
+                A[ix[:,2], 4] =  snx.x0[ix[:,1]]
+                A[ix[:,0], 5] =  snx.x0[ix[:,2]]
+                A[ix[:,2], 5] = -snx.x0[ix[:,0]]
+                A[ix[:,0], 6] = -snx.x0[ix[:,1]]
+                A[ix[:,1], 6] =  snx.x0[ix[:,0]]
+            
+            # Radiosource positions partial derivatives
+            ix = np.array([[i, i+1] for i in snx.irs])
+            if (len(ix) > 0):
+                a = mas2rad * snx.x0[ix[:,0]]
+                d = mas2rad * snx.x0[ix[:,1]]
+                A[ix[:,0], 7] =  np.tan(d)*np.cos(a) / mas2rad
+                A[ix[:,1], 7] = -np.sin(a)           / mas2rad
+                A[ix[:,0], 8] =  np.tan(d)*np.sin(a) / mas2rad
+                A[ix[:,1], 8] =  np.cos(a)           / mas2rad
+                A[ix[:,0], 9] = -1                   / mas2rad
             
             # ERP partial derivatives
-            A[snx.ixpo, 5] = 1/mas2rad
-            A[snx.iypo, 4] = 1/mas2rad
-            A[snx.iut, 6] = -1/(ms2rad*dera_dt)
-
+            A[snx.ixpo, 5]  =  1/mas2rad
+            A[snx.iypo, 4]  =  1/mas2rad
+            A[snx.iut, 6]   = -1/(ms2rad*dera_dt)
+            A[snx.inutx, 8] =  1/mas2rad
+            A[snx.inuty, 7] =  1/mas2rad
+            A[snx.iut, 9]   =  1/(ms2rad*dera_dt)
+            
             # Geocenter coordinate partial derivatives
             ix = np.array([[i, i+1, i+2] for i in snx.igc])
             if (len(ix) > 0):
@@ -2687,20 +2704,20 @@ class sinex:
             A[iv[:,0], 0] =  ae
             A[iv[:,1], 1] =  ae
             A[iv[:,2], 2] =  ae
-            A[iv[:,0], 3] =  snx.x0[ix[:,0]]
-            A[iv[:,1], 3] =  snx.x0[ix[:,1]]
-            A[iv[:,2], 3] =  snx.x0[ix[:,2]]
-            A[iv[:,1], 4] = -snx.x0[ix[:,2]]
-            A[iv[:,2], 4] =  snx.x0[ix[:,1]]
-            A[iv[:,0], 5] =  snx.x0[ix[:,2]]
-            A[iv[:,2], 5] = -snx.x0[ix[:,0]]
-            A[iv[:,0], 6] = -snx.x0[ix[:,1]]
-            A[iv[:,1], 6] =  snx.x0[ix[:,0]]
+            A[iv[:,0], 3] =  snx.x[ix[:,0]]
+            A[iv[:,1], 3] =  snx.x[ix[:,1]]
+            A[iv[:,2], 3] =  snx.x[ix[:,2]]
+            A[iv[:,1], 4] = -snx.x[ix[:,2]]
+            A[iv[:,2], 4] =  snx.x[ix[:,1]]
+            A[iv[:,0], 5] =  snx.x[ix[:,2]]
+            A[iv[:,2], 5] = -snx.x[ix[:,0]]
+            A[iv[:,0], 6] = -snx.x[ix[:,1]]
+            A[iv[:,1], 6] =  snx.x[ix[:,0]]
 
         # Express Helmert parameters in adequate units
         if (units is None):
-            A = A * np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad])
-        elif (units == 'm'):
+            A = A * np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad])
+        else:
             A = A / ae
         
         # Indices of relevant columns of A
@@ -2711,6 +2728,8 @@ class sinex:
             ind.append(3)
         if ('R' in helmerts):
             ind.extend(range(4, 7))
+        if ('A' in helmerts):
+            ind.extend(range(7, 10))
         
         return A[:,ind]
         
@@ -2846,6 +2865,47 @@ class sinex:
 
         # And delete the others
         snx.del_ind(np.setdiff1d(range(snx.npar), ind), keep_const=True)
+
+    # Delete unobserved parameters
+    #-----------------------------
+    def del_unobs_par(snx):
+
+        """
+        Delete unobserved parameters
+        
+        """
+        
+        # Get indices of unobserved parameters
+        ind = np.nonzero(np.diag(snx.N) <= 0)[0].tolist()
+
+        # Add possible missing station coordinates
+        ind2 = []
+        for i in ind:
+            if (snx.param[i].type == 'STAX  '):
+                ind2.extend([i+1, i+2])
+            elif (snx.param[i].type == 'STAY  '):
+                ind2.extend([i-1, i+1])
+            elif (snx.param[i].type == 'STAZ  '):
+                ind2.extend([i-2, i-1])
+        ind = list(set(ind+ind2))
+        
+        # Delete unobserved parameters
+        indk = np.setdiff1d(range(snx.npar), ind)
+        snx.N = snx.N[np.ix_(indk, indk)]
+        snx.b = snx.b[indk]
+        snx.Nc = snx.Nc[np.ix_(indk, indk)]
+        snx.x0 = snx.x0[indk]
+        snx.sig0 = snx.sig0[indk]
+        snx.x = snx.x[indk]
+        snx.sig = snx.sig[indk]
+        snx.param = [snx.param[i] for i in indk]
+        snx.npar = len(indk)
+        
+        # Reset parameter indices
+        snx.set_par_ind()
+        
+        # Update station list
+        snx.clean_sta()
 
     # Reduce origin, scale and/or orientation information in a normal equation
     #-------------------------------------------------------------------------
@@ -3400,7 +3460,7 @@ class sinex:
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, thr=None, proj=False):
+    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=False):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -3414,10 +3474,12 @@ class sinex:
         ----------
         helmerts : str
             Indicates which Helmert parameters should be constrained.
-            It can include 'T' (translations), 'S' (scale) and 'R' (rotations).
+            It can include 'T' (translations), 'S' (scale), 'R' (rotations)
+            and 'A' (CRF rotations).
         par : str
             Indicates to which type of parameters constraints should be applied.
-            It can be either 'STA' (station positions) or 'VEL' (station velocities).
+            It can be either 'STA' (station and radiosource positions) or 'VEL'
+            (station velocities - radiosource velocities not supported yet).
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -3425,7 +3487,10 @@ class sinex:
             positions/velocities of stations to which constraints are applied:
             sigma = 0.01 / sqrt(median(N_{i,i})).
         datum : sinex instance, optional
-            Reference solution with respect to which constraints should be applied.
+            Reference TRF solution with respect to which constraints should be applied.
+            Default is None (constraints applied with respect to snx.x0).
+        crf_datum : sinex instance, optional
+            Reference CRF solution with respect to which constraints should be applied.
             Default is None (constraints applied with respect to snx.x0).
         thr : float, optional
             If set, then stations with large uncertainties will be rejected from the set
@@ -3466,7 +3531,27 @@ class sinex:
                 isnx = [[i, i+1, i+2] for i in snx.iv]
             isnx = np.array(isnx)
             ix = isnx.flatten()
-                                
+        
+        # If a CRF datum is specified,
+        if (crf_datum) and (par == 'STA'):
+
+            # Get indices of common radiosources
+            (irs, iref) = snx.get_common_rs(crf_datum)
+            irs = np.array(irs).flatten()
+            iref = np.array(iref).flatten()
+            
+            # Modify a priori coordinates of common radiosources
+            dx0 = np.zeros(snx.npar)
+            dx0[irs] = crf_datum.x[iref] - snx.x0[irs]
+            if (np.any(dx0)):
+                snx.x0 = snx.x0 + dx0
+                snx.b = snx.b - np.dot(snx.N, dx0)
+
+        # Else, get indices of all radiosources,
+        elif (par == 'STA'):
+            irs = [[i, i+1] for i in snx.irs]
+            irs = np.array(irs, dtype='int').flatten()
+        
         # If a threshold is specified, reject candidate stations with large uncertainties
         if (thr):
             end = False
@@ -3484,7 +3569,8 @@ class sinex:
             sigma = 0.01 / sqrt(np.median(snx.N[ix,ix]))
         
         # Design matrix of minimal constraints
-        A = snx.helmert_partials('RST', par, units='m')[ix]
+        ix = np.hstack((ix, irs))
+        A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
         
         # Indices of relevant columns of A
         ind = []
@@ -3494,7 +3580,9 @@ class sinex:
             ind.append(3)
         if ('R' in helmerts):
             ind.extend(range(4, 7))
-
+        if ('A' in helmerts):
+            ind.extend(range(7, 10))
+        
         # Either reduce columns of A and compute B
         if not(proj):
             A = A[:,ind]
