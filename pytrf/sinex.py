@@ -3947,7 +3947,7 @@ class sinex:
     
     # Get list of outliers from Helmert comparison or combination
     #------------------------------------------------------------
-    def get_outliers(snx, thr_raw=None, thr_norm=None, ac=None, quiet=False, out=sys.stdout):
+    def get_outliers(snx, thr_raw=None, thr_norm=None, thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, reject1by1=False, ac=None, quiet=False, out=sys.stdout):
 
         """
         Get list of outliers from Helmert comparison or combination
@@ -3969,6 +3969,10 @@ class sinex:
             Default is None.
         thr_norm : float, optional
             Threshold for normalized residuals
+        thr_abs_E, thr_abs_N, thr_abs_H : float, optional
+            Absolute threshold for respectively east, north and up positional residuals  
+        reject1b1 : bool, optional
+            If True, then outliers will be removed one by one.
         ac : str, optional
             AC name to be reported in outliers summary file. Default is None.
         quiet : bool, optional
@@ -3997,7 +4001,18 @@ class sinex:
             if (thr_norm):
                 for i in range(3):
                     indx.extend(np.nonzero(np.abs(snx.vn[ix[:,i]]) > thr_norm)[0].tolist())
+            if (thr_abs_E):
+                indx.extend(np.nonzero(np.abs(snx.v[ix[:,0]]) > thr_abs_E)[0].tolist())
+            if (thr_abs_N):
+                indx.extend(np.nonzero(np.abs(snx.v[ix[:,1]]) > thr_abs_N)[0].tolist())
+            if (thr_abs_H):
+                indx.extend(np.nonzero(np.abs(snx.v[ix[:,2]]) > thr_abs_H)[0].tolist())
             indx = list(set(indx))
+
+        if len(indx)>0:
+            if reject1by1 == True:
+                r3D = np.sqrt(snx.vn[ix[indx,0]]**2 + snx.vn[ix[indx,1]]**2 + snx.vn[ix[indx,2]]**2)
+                indx = [indx[np.nonzero(r3D == np.max(r3D))[0]]]
         
         # Print station position outliers
         if (len(indx) > 0) and not(quiet):
@@ -4055,7 +4070,7 @@ class sinex:
     
     # Iterative Helmert comparison between two solutions
     #---------------------------------------------------
-    def compare_iter(snx, ref, helmerts, weighting='full', apply_vf=True, norm_res='approx', thr_raw=None, thr_norm=None, clean_ref=False, ac=None, quiet=False, out=sys.stdout):
+    def compare_iter(snx, ref, helmerts, weighting='full', apply_vf=True, norm_res='approx', thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, reject1by1=False, clean_ref=False, ac=None, quiet=False, out=sys.stdout):
 
         """
         Iterative Helmert comparison between two solutions
@@ -4113,6 +4128,10 @@ class sinex:
             Default is None.
         thr_norm : float, optional
             Threshold for normalized residuals
+        thr_abs_E, thr_abs_N, thr_abs_H : float, optional
+            Absolute threshold for respectively east, north and up positional residuals 
+        reject1b1 : bool, optional
+            If True, then outliers will be removed one by one.
         clean_ref : bool, optional
             If True, then outliers will be removed from ref instead of snx.
             Default is False.
@@ -4133,7 +4152,7 @@ class sinex:
             (T, Q) = snx.compare(ref, helmerts, weighting, apply_vf, norm_res, quiet, out)
             
             # Get outlier list
-            (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, ac, quiet, out)
+            (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, thr_abs_E, thr_abs_N, thr_abs_H, reject1by1 , ac, quiet, out)
             
             # If any outliers,
             if (len(code) > 0):
