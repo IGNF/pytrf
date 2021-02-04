@@ -6,8 +6,8 @@
 #-----------------
 import os
 import sys
-import mkl
-mkl.set_num_threads(1)
+#import mkl
+#mkl.set_num_threads(1)
 import copy
 import pickle
 import numpy as np

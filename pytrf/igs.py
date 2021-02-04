@@ -37,36 +37,39 @@ def read_rej(f, d, ac):
     for a in ac:
         a.rej = []
 
-    # Read station rejection file
-    rej = read_yaml(f)
-    
-    # Loop over rejection records
-    if (rej):
-        for r in rej:
+    # If specified rejection file exists,
+    if os.path.isfile(f):
+
+        # Read station rejection file
+        rej = read_yaml(f)
         
-            # Translate r.days into a list of days
-            daylist = []
-            if (isinstance(r.days, int)):
-                daylist.append(r.days)
-            else:
-                for s in r.days.split(';'):
-                    if (len(s) == 1):
-                        daylist.append(int(s))
-                    else:
-                        daylist.extend(range(int(s[0]), int(s[2])+1))
-                
-            # If current day is in this list of days
-            if (d in daylist):
-                
-                # Update list of stations to reject from concerned ACs
-                for a in r.acs.split(';'):
-                    if (a in [c.name for c in ac]):
-                        i = [c.name for c in ac].index(a)
-                        ac[i].rej.extend(r.stas.split(';'))
+        # Loop over rejection records
+        if (rej):
+            for r in rej:
             
-    # Sort and remove doublons from each station list
-    for i in range(len(ac)):
-        ac[i].rej = np.sort(np.unique(ac[i].rej))
+                # Translate r.days into a list of days
+                daylist = []
+                if (isinstance(r.days, int)):
+                    daylist.append(r.days)
+                else:
+                    for s in r.days.split(';'):
+                        if (len(s) == 1):
+                            daylist.append(int(s))
+                        else:
+                            daylist.extend(range(int(s[0]), int(s[2])+1))
+                    
+                # If current day is in this list of days
+                if (d in daylist):
+                    
+                    # Update list of stations to reject from concerned ACs
+                    for a in r.acs.split(';'):
+                        if (a in [c.name for c in ac]):
+                            i = [c.name for c in ac].index(a)
+                            ac[i].rej.extend(r.stas.split(';'))
+                
+        # Sort and remove doublons from each station list
+        for i in range(len(ac)):
+            ac[i].rej = np.sort(np.unique(ac[i].rej)).tolist()
 
 # Write residuals from daily IGS combination
 #-------------------------------------------
@@ -266,11 +269,12 @@ def write_res(snx, acs, w, d, fres, fyml):
 
     # SC residuals
     for ac in acs:
-        ix = ac.snx.isc[0]
-        ac.vsc = ac.v[ix]
-        ac.svsc = ac.sv[ix]
-        print(' SC    ppb   {0} {1:9.3f} {2:9.3f}'.format(ac.name, ac.vsc, ac.svsc), file=fres)
-        print('  - {{param: SC  , unit: ppb  , ac: {0}, res: {1:9.3f}, sig: {2:9.3f}}}'.format(ac.name, ac.vsc, ac.svsc), file=fyml)
+        if (ac.sc):
+            ix = ac.snx.isc[0]
+            ac.vsc = ac.v[ix]
+            ac.svsc = ac.sv[ix]
+            print(' SC    ppb   {0} {1:9.3f} {2:9.3f}'.format(ac.name, ac.vsc, ac.svsc), file=fres)
+            print('  - {{param: SC  , unit: ppb  , ac: {0}, res: {1:9.3f}, sig: {2:9.3f}}}'.format(ac.name, ac.vsc, ac.svsc), file=fyml)
     print(' -----------------------------------', file=fres)
 
     # Close output files

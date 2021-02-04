@@ -10,8 +10,8 @@ This subpackage contains several useful math routines.
 # External imports
 #-----------------
 import sys
-import mkl
-mkl.set_num_threads(1)
+#import mkl
+#mkl.set_num_threads(1)
 import numpy as np
 from scipy import linalg, signal, special, sparse
 from astropy.timeseries import LombScargle

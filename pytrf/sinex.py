@@ -7,8 +7,8 @@
 import os
 import sys
 import re
-import mkl
-mkl.set_num_threads(1)
+#import mkl
+#mkl.set_num_threads(1)
 import copy
 import pickle
 from math import pi, sqrt, cos, sin, acos, exp, log
@@ -1727,7 +1727,7 @@ class sinex:
         
     # Check receivers, antennas and eccentricities against site logs
     #---------------------------------------------------------------
-    def check_metadata(snx, metasnx, start=None, end=None, antlist=None, quiet=False, out=sys.stdout):
+    def check_metadata(snx, metasnx, start=None, end=None, antlist=None, flag_daz=True, quiet=False, out=sys.stdout):
 
         """
         Check receivers, antennas and eccentricities against site logs
@@ -1738,6 +1738,9 @@ class sinex:
             List of metadata inconsistencies
         nolog : list
             List of stations for which no sitelog is available
+        rej : list
+            List of stations which have either a wrong antenna type, an eccentricity error > 1 mm
+            or an orientation error > 10°
 
         Parameters
         ----------
@@ -1749,6 +1752,8 @@ class sinex:
             End date (in SINEX date format)
         antlist : list, optional
             List of ground antenna types in ANTEX file. Default is None.
+        flag_daz : bool, optional
+            Whether to flag antenna orientation errors or not. Default is True.
         quiet : bool, optional
             Whether not to print output messages. Default is False.
         out : file-like, optional
@@ -1768,6 +1773,7 @@ class sinex:
         # Initialize output
         metaerr = []
         nolog = []
+        rej = []
         
         # Loop over stations
         for s in snx.sta:
@@ -1850,12 +1856,15 @@ class sinex:
                             a2 = a2[0:16] + 'NONE'
                         if (a2 != a1):
                             metaerr.append('{0}   antenna type          {1:<20s}   {2:<20s}   {3:<6s}'.format(s.code, s.ant[0].type, ant[0].type, source))
+                            rej.append(s.code)
 
                     # Any clear mistake to report about antenna orientation?
                     if (len(ant) == 1) and (len(s.ant) == 1):
-                        if ((int(s.ant[0].daz) - int(ant[0].daz)) % 360 != 0):
+                        if (abs(int(s.ant[0].daz)%360 - int(ant[0].daz)%360) > 1):
                             metaerr.append('{0}   antenna orientation   {1:<20d}   {2:<20d}   {3:<6s}'.format(s.code, int(s.ant[0].daz), int(ant[0].daz), source))
-
+                        if (abs(int(s.ant[0].daz)%360 - int(ant[0].daz)%360) > 10):
+                            rej.append(s.code)
+                            
                     # Update antenna metadata
                     s.ant = ant
 
@@ -1887,6 +1896,8 @@ class sinex:
                             metaerr.append('{0}   North eccentricity    {1:<20s}   {2:<20s}   {3:<6s}'.format(s.code, s.ecc[0].dx[1], ecc[0].dx[1], source))
                         if (float(s.ecc[0].dx[2]) != float(ecc[0].dx[2])):
                             metaerr.append('{0}   East eccentricity     {1:<20s}   {2:<20s}   {3:<6s}'.format(s.code, s.ecc[0].dx[2], ecc[0].dx[2], source))
+                        if (abs(float(s.ecc[0].dx[0])-float(ecc[0].dx[0])) > 0.001) or (abs(float(s.ecc[0].dx[1])-float(ecc[0].dx[1])) > 0.001) or (abs(float(s.ecc[0].dx[2])-float(ecc[0].dx[2])) > 0.001):
+                            rej.append(s.code)
 
                     # Update eccentricity metadata
                     s.ecc = ecc
@@ -1899,7 +1910,7 @@ class sinex:
         if not(quiet):
             print('', file=out)
             
-        return (metaerr, nolog)
+        return (metaerr, nolog, rej)
 
     # Get indices of parameters of specified types
     #---------------------------------------------
@@ -2808,7 +2819,10 @@ class sinex:
             else:
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
-                            
+                if (snx.x0 is not None):
+                    snx.x0 = snx.x0[indk]
+                    snx.sig0 = snx.sig0[indk]
+                
             # Update snx.npar and snx.param
             snx.npar = len(indk)
             snx.param = [snx.param[i] for i in indk]
