@@ -139,6 +139,7 @@ class sinex:
         del_helmerts()     : Reduce origin, scale and/or orientation information in a normal equation
         del_sta()          : Delete (reduce) specified stations
         del_rs()           : Delete (reduce) specified radiosources
+        del_duplicates()   : Delete (reduce) solution numbers (solns) if there are many of them in an "instantaneous" solution
         keep_sta()         : Keep specified stations - Delete (reduce) other stations
         keep_rs()          : Keep specified radiosources - Delete (reduce) other radiosources
         trim_params()      : Delete (reduce) parameters that do not belong to period of interest
@@ -3016,6 +3017,48 @@ class sinex:
 
         # And delete them
         snx.del_ind(ind)
+
+    # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+    #------------------------------------------------------------------------------------------
+    def del_duplicates(snx, quiet=False, out=sys.stdout):
+        
+        """
+        Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+
+        Parameters
+        ----------
+        quiet : bool, optional
+            Whether not to print output messages. Default is False.
+        out : file-like, optional
+            Log file. Default is sys.stdout.
+        
+        """
+
+        lst_del=[]
+
+        for sta in snx.sta:
+
+            #if there are many solns for the same station
+            if len(sta.soln) > 1:
+            
+                if not(quiet):
+                    print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
+
+                for soln in sta.soln :
+                    indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
+                    p = snx.param[indp]
+                    if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
+                        # if reference date is in the soln
+                        if not(quiet):
+                            print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
+                    
+                    else:
+                        if not(quiet):
+                            print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
+
+                        lst_del+=[indp,indp+1,indp+2]
+            
+        snx.del_ind(lst_del)
 
     # Keep specified stations - Delete (reduce) other stations
     #---------------------------------------------------------
