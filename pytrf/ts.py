@@ -760,8 +760,7 @@ class param:
     Once initialized, each param instance has the following attributes:
 
         type  : Description of parameter type (str)
-        start : Start of validity (date instance or None)
-        end   : End of validity (date instance or None)
+        t     : Start of validity (date instance or None)
         x     : Value (float or None)
         fixed : Fixed or estimated parameter? (bool)
         sig   : Formal error (float or None)
@@ -771,7 +770,7 @@ class param:
 
     # Initialize a param instance
     #----------------------------
-    def __init__(p, type, start=-np.inf, end=np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
       
         """
         Initialize a param instance
@@ -797,8 +796,7 @@ class param:
         """
 
         p.type = type
-        p.start = start
-        p.end = end
+        p.t = t
         p.x = x
         p.fixed = fixed
         if (p.fixed):
@@ -833,7 +831,7 @@ class scale_param(param):
 
     # Initialize a scale_param instance
     #----------------------------------
-    def __init__(p, type, start=-np.inf, end=np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
       
         """
         Initialize a scale_param instance
@@ -857,7 +855,7 @@ class scale_param(param):
             
         """
 
-        super().__init__(type=type, start=-np.inf, end=np.inf, x=x, fixed=fixed, unit=unit)
+        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit)
         
     # Compute reparameterized value (xr=log(x)) from original value
     #--------------------------------------------------------------
@@ -948,7 +946,7 @@ class pl_index(param):
 
     # Initialize a pl_index instance
     #-------------------------------
-    def __init__(p, type, start=-np.inf, end=np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
       
         """
         Initialize a pl_index instance
@@ -972,7 +970,7 @@ class pl_index(param):
             
         """
 
-        super().__init__(type=type, start=-np.inf, end=np.inf, x=x, fixed=fixed, unit=unit)
+        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit)
         
     # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
     #------------------------------------------------------------------------
@@ -1055,8 +1053,6 @@ class function:
         par : List of param instances (initialized to [])
         yc  : Computed observations (initialized to None)
         A   : Design matrix (initialized to None)
-        dx  : Values of jumps
-        sdx : Formal errors of jumps
         
     """
 
@@ -1076,8 +1072,6 @@ class function:
         f.par = []
         f.yc = None
         f.A = None
-        f.dx = None
-        f.sdx = None
 
 
 
@@ -1139,15 +1133,15 @@ class polynom(function):
         f.deg = deg
         f.t = t
 
-        t = [-np.inf] + t + [np.inf]    
+        t = [-np.inf] + t
         
         if (x is None):
-            x = (len(t)-1) * [None]
+            x = len(t) * [None]
         elif np.isscalar(x):
             x = [x]
         
         if isinstance(fix_x, bool):
-            fix_x = (len(t)-1) * [fix_x]
+            fix_x = len(t) * [fix_x]
         
         if (deg == 0):
             unit = yunit
@@ -1156,8 +1150,9 @@ class polynom(function):
         elif (deg == 2):
             unit = yunit + '/' + tunit + '^' + str(deg)
         
-        for i in range(len(t)-1):
-            f.par.append(param(type='polynomial coefficient', start=t[i], end=t[i+1], x=x[i], fixed=fix_x[i], unit=unit))
+        f.par.append(param(type='polynomial coefficient', x=x[0], fixed=fix_x[0], unit=unit))
+        for i in range(1, len(t)):
+            f.par.append(param(type='polynomial coefficient jump', t=t[i], x=x[i], fixed=fix_x[i], unit=unit))
 
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -1195,14 +1190,16 @@ class polynom(function):
 
         # Initializations
         t = m.r.t
-        dt = t - m.t0
         f.yc = np.zeros(len(t))
         f.A = []
         
-        # Loop over parameters (= intervals between jumps)
+        # Loop over parameters
         for p in f.par:
-            b = np.logical_and(t >= p.start, t < p.end)
-            a = b * dt**f.deg/factorial(f.deg)
+            t0 = p.t
+            if (t0 < t[0]):
+                t0 = t[0]
+            b = (t >= t0)
+            a = b * (t-t0)**f.deg/factorial(f.deg)
             f.yc = f.yc + p.x*a
             if not(p.fixed):
                 f.A.append(a)
@@ -1265,15 +1262,19 @@ class sine(function):
         f.per = per
         f.t = t
 
-        t = [-np.inf] + t + [np.inf]
+        t = [-np.inf] + t
+        
         if (x is None):
-            x = 2*(len(t)-1) * [None]
+            x = 2*len(t) * [None]
+        
         if isinstance(fix_x, bool):
-            fix_x = 2*(len(t)-1) * [fix_x]
+            fix_x = 2*len(t) * [fix_x]
             
-        for i in range(len(t)-1):
-            f.par.append(param(type='cos amplitude', start=t[i], end=t[i+1], x=x[2*i], fixed=fix_x[2*i], unit=yunit))
-            f.par.append(param(type='sin amplitude', start=t[i], end=t[i+1], x=x[2*i+1], fixed=fix_x[2*i+1], unit=yunit))
+        f.par.append(param(type='cos amplitude', x=x[0], fixed=fix_x[0], unit=yunit))
+        f.par.append(param(type='sin amplitude', x=x[1], fixed=fix_x[1], unit=yunit))
+        for i in range(1, len(t)):
+            f.par.append(param(type='cos amplitude jump', t=t[i], x=x[2*i], fixed=fix_x[2*i], unit=yunit))
+            f.par.append(param(type='sin amplitude jump', t=t[i], x=x[2*i+1], fixed=fix_x[2*i+1], unit=yunit))
             
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -1315,9 +1316,9 @@ class sine(function):
         f.yc = np.zeros(len(t))
         f.A = []
         
-        # Loop over pairs of cos/sin parameters (= intervals between jumps)
+        # Loop over pairs of cos/sin parameters
         for (pc, ps) in zip(f.par[::2], f.par[1::2]):
-            b = np.logical_and(t >= pc.start, t < pc.end)
+            b = (t >= pc.t)
             Ac = b * np.cos(2*pi*dt/f.per)
             As = b * np.sin(2*pi*dt/f.per)
             f.yc = f.yc + pc.x*Ac + ps.x*As
@@ -1385,8 +1386,8 @@ class fexp(function):
         super().__init__()
         f.t0 = t0
 
-        f.par.append(param(type='exp amplitude', start=t0, end=np.inf, x=amp, fixed=fix_amp, unit=yunit))
-        f.par.append(scale_param(type='exp relaxation time', start=t0, end=np.inf, x=tau, fixed=fix_tau, unit=tunit))
+        f.par.append(param(type='exp amplitude', t=t0, x=amp, fixed=fix_amp, unit=yunit))
+        f.par.append(scale_param(type='exp relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit))
             
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -1515,8 +1516,8 @@ class flog(function):
         super().__init__()
         f.t0 = t0
 
-        f.par.append(param(type='log amplitude', start=t0, end=np.inf, x=amp, fixed=fix_amp, unit=yunit))
-        f.par.append(scale_param(type='log relaxation time', start=t0, end=np.inf, x=tau, fixed=fix_tau, unit=tunit))
+        f.par.append(param(type='log amplitude', t=t0, x=amp, fixed=fix_amp, unit=yunit))
+        f.par.append(scale_param(type='log relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit))
             
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -3007,7 +3008,6 @@ class model:
         set_oeq()      : Compute predicted observations and design matrix
         set_cov()      : Compute covariance matrix
         set_psd()      : Compute power spectral density of noise model and of residuals
-        set_jumps()    : Compute jumps of polynomial and sine wave functions
         set_xi()       : Estimate individual noise components
         simulate()     : Simulate time series values
         fitx()         : Fit deterministic model with fixed covariance matrix
@@ -4266,112 +4266,112 @@ class model:
         if (m.v is not None):
             m.pv = lombscargle(m.r.t, m.v, f=m.fr, dtrd=None)[1]
 
-    # Compute jumps of polynomial and sine wave functions
-    #----------------------------------------------------
-    def set_jumps(m):
+    ## Compute jumps of polynomial and sine wave functions
+    ##----------------------------------------------------
+    #def set_jumps(m):
 
-        """
-        Compute jumps of polynomial and sine wave functions
+        #"""
+        #Compute jumps of polynomial and sine wave functions
         
-        set_jumps does not return anything but sets attributes dx and sdx
-        of the model polynomial and sine wave functions.
+        #set_jumps does not return anything but sets attributes dx and sdx
+        #of the model polynomial and sine wave functions.
         
-        """
+        #"""
 
-        # Loop over dimensions
-        for d in range(m.nd):
+        ## Loop over dimensions
+        #for d in range(m.nd):
             
-            # Full vector of deterministic parameters and full covariance matrix
-            # (including fixed parameters)
-            x = []
-            i = 0
-            j = 0
-            ii = []
-            jj = []
-            for f in m[d].f:
-                for p in f.par:
-                    if not(p.fixed):
-                        ii.append(i)
-                        jj.append(j)
-                        i = i+1
-                    x.append(p.x)
-                    j = j+1
-            x = np.array(x)
-            Qx = np.zeros((j, j))
-            Qx[np.ix_(jj, jj)] = m[d].Qx[np.ix_(ii, ii)]
+            ## Full vector of deterministic parameters and full covariance matrix
+            ## (including fixed parameters)
+            #x = []
+            #i = 0
+            #j = 0
+            #ii = []
+            #jj = []
+            #for f in m[d].f:
+                #for p in f.par:
+                    #if not(p.fixed):
+                        #ii.append(i)
+                        #jj.append(j)
+                        #i = i+1
+                    #x.append(p.x)
+                    #j = j+1
+            #x = np.array(x)
+            #Qx = np.zeros((j, j))
+            #Qx[np.ix_(jj, jj)] = m[d].Qx[np.ix_(ii, ii)]
             
             
-            # 1) Loop over polynomial functions
-            #----------------------------------
+            ## 1) Loop over polynomial functions
+            ##----------------------------------
             
-            i = 0
-            for f in m[d].f:
-                if isinstance(f, polynom):
+            #i = 0
+            #for f in m[d].f:
+                #if isinstance(f, polynom):
 
-                    # Initialize jumps
-                    f.dx = np.zeros(len(f.t))
-                    f.sdx = np.zeros(len(f.t))
+                    ## Initialize jumps
+                    #f.dx = np.zeros(len(f.t))
+                    #f.sdx = np.zeros(len(f.t))
                     
-                    # Loop over jump dates
-                    for k in range(len(f.t)):
+                    ## Loop over jump dates
+                    #for k in range(len(f.t)):
                         
-                        # Partial derivatives of current jump wrt f parameters
-                        A = np.zeros(len(x))
-                        A[i+k] = -1
-                        A[i+k+1] = 1
+                        ## Partial derivatives of current jump wrt f parameters
+                        #A = np.zeros(len(x))
+                        #A[i+k] = -1
+                        #A[i+k+1] = 1
 
-                        # Loop over polynomial functions of higher degrees
-                        j = 0
-                        for ff in m[d].f:
-                            if (isinstance(ff, polynom)):
-                                if (ff.deg > f.deg):
+                        ## Loop over polynomial functions of higher degrees
+                        #j = 0
+                        #for ff in m[d].f:
+                            #if (isinstance(ff, polynom)):
+                                #if (ff.deg > f.deg):
                                 
-                                    # If ff also has a jump at current jump date (f.t[k])
-                                    if (f.t[k] in ff.t):
-                                        l = ff.t.index(f.t[k])
+                                    ## If ff also has a jump at current jump date (f.t[k])
+                                    #if (f.t[k] in ff.t):
+                                        #l = ff.t.index(f.t[k])
                                         
-                                        # Partial derivatives of current jump wrt ff parameters
-                                        A[j+l] = -(f.t[k]-m[d].t0)**(ff.deg-f.deg) / factorial(ff.deg-f.deg)
-                                        A[j+l+1] = -A[j+l]
+                                        ## Partial derivatives of current jump wrt ff parameters
+                                        #A[j+l] = -(f.t[k]-m[d].t0)**(ff.deg-f.deg) / factorial(ff.deg-f.deg)
+                                        #A[j+l+1] = -A[j+l]
                                     
-                            # Increment parameter index
-                            for p in ff.par:
-                                j = j+1
+                            ## Increment parameter index
+                            #for p in ff.par:
+                                #j = j+1
                                 
-                        # Current jump value and formal error
-                        f.dx[k] = np.dot(A, x)
-                        f.sdx[k] = sqrt(np.dot(A, np.dot(Qx, A.T)))
+                        ## Current jump value and formal error
+                        #f.dx[k] = np.dot(A, x)
+                        #f.sdx[k] = sqrt(np.dot(A, np.dot(Qx, A.T)))
                         
-                # Increment parameter index
-                for p in f.par:
-                    i = i+1
+                ## Increment parameter index
+                #for p in f.par:
+                    #i = i+1
 
-            # 2) Loop over sine functions
-            #----------------------------
+            ## 2) Loop over sine functions
+            ##----------------------------
             
-            i = 0
-            for f in m[d].f:
-                if isinstance(f, sine):
+            #i = 0
+            #for f in m[d].f:
+                #if isinstance(f, sine):
 
-                    # Initialize jumps
-                    f.dx = np.zeros(len(f.t))
-                    f.sdx = np.zeros(len(f.t))
+                    ## Initialize jumps
+                    #f.dx = np.zeros(len(f.t))
+                    #f.sdx = np.zeros(len(f.t))
                     
-                    # Loop over jump dates
-                    for k in range(len(f.t)):
+                    ## Loop over jump dates
+                    #for k in range(len(f.t)):
                         
-                        # Compute jump
-                        da = x[i+2*k+2] - x[i+2*k]
-                        db = x[i+2*k+3] - x[i+2*k+1]
-                        f.dx[k] = sqrt(da**2 + db**2)
+                        ## Compute jump
+                        #da = x[i+2*k+2] - x[i+2*k]
+                        #db = x[i+2*k+3] - x[i+2*k+1]
+                        #f.dx[k] = sqrt(da**2 + db**2)
 
-                        # Compute jump formal error
-                        A = np.array([-da, -db, da, db])
-                        f.sdx[k] = sqrt(np.dot(A.T, np.dot(Qx[i+2*k:i+2*k+4,i+2*k:i+2*k+4], A))) / f.dx[k]
+                        ## Compute jump formal error
+                        #A = np.array([-da, -db, da, db])
+                        #f.sdx[k] = sqrt(np.dot(A.T, np.dot(Qx[i+2*k:i+2*k+4,i+2*k:i+2*k+4], A))) / f.dx[k]
 
-                # Increment parameter index
-                for p in f.par:
-                    i = i+1
+                ## Increment parameter index
+                #for p in f.par:
+                    #i = i+1
     
     # Estimate individual noise components
     #-------------------------------------
@@ -4954,6 +4954,10 @@ class model:
 
                     # Exit now if requested
                     if not(finalize):
+                        b = m[d].get_b()
+                        m[d].nb = len(b)
+                        m[d].set_cov()
+                        m[d].fitx()
                         return
 
                     # Message
@@ -5064,7 +5068,7 @@ class model:
                         
                         # Raise error if we're at more than 100 iterations
                         niter = niter + 1
-                        if (niter > 100):
+                        if (niter > 200):
                             raise RuntimeError('Maximum number of iterations exceeded.')
                         
                         # Message
@@ -5105,6 +5109,10 @@ class model:
 
                     # Exit now if requested
                     if not(finalize):
+                        b = m[d].get_b()
+                        m[d].nb = len(b)
+                        m[d].set_cov()
+                        m[d].fitx()
                         return
 
                     # Message
@@ -5170,8 +5178,8 @@ class model:
                 # Compute PSD of noise model and of residuals
                 m[d].set_psd(set_spsd=True, fr=fr)
                 
-                # Compute jumps of polynomial and sine wave functions
-                m[d].set_jumps()
+                ## Compute jumps of polynomial and sine wave functions
+                #m[d].set_jumps()
                 
                 # Estimate individual noise components
                 m[d].set_xi()
@@ -5822,9 +5830,9 @@ class model:
                     
                     # Print current parameter
                     if (n.per is not None):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, end: {4}, value: {5:13.6e}, sigma: {6:12.6e}, unit: {7}}}'.format(d, p.type, n.per, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
+                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, n.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     else:
-                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, end: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
+                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
 
         txt = txt + '\n'
         
@@ -5836,29 +5844,29 @@ class model:
                     
                     # Print current parameter
                     if isinstance(f, polynom):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, start: {3}, end: {4}, value: {5:13.6e}, sigma: {6:12.6e}, unit: {7}}}'.format(d, p.type, f.deg, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
+                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.deg, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     elif isinstance(f, sine):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, end: {4}, value: {5:13.6e}, sigma: {6:12.6e}, unit: {7}}}'.format(d, p.type, f.per, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
+                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     else:
-                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, end: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, print_date(p.start), print_date(p.end), p.x, p.sig, p.unit) + '\n'
+                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
 
         txt = txt + '\n'
         
-        # Loop over jumps
-        txt = txt + 'jumps:\n'
-        for d in range(m.nd):
-            for f in m[d].f:
-                if (f.dx is not None):
-                    for i in range(len(f.dx)):
+        ## Loop over jumps
+        #txt = txt + 'jumps:\n'
+        #for d in range(m.nd):
+            #for f in m[d].f:
+                #if (f.dx is not None):
+                    #for i in range(len(f.dx)):
                     
-                        # Current jump unit
-                        unit = f.par[0].unit
+                        ## Current jump unit
+                        #unit = f.par[0].unit
                         
-                        # Print current jump
-                        if isinstance(f, polynom):
-                            txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'polynomial coefficient jump', f.deg, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
-                        elif isinstance(f, sine):
-                            txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'sine wave jump', f.per, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
+                        ## Print current jump
+                        #if isinstance(f, polynom):
+                            #txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'polynomial coefficient jump', f.deg, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
+                        #elif isinstance(f, sine):
+                            #txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'sine wave jump', f.per, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
         
         return txt
 
@@ -5980,9 +5988,50 @@ class model:
                 
         return T
 
+    # Likelihood ratio test for trend changes (velocity discontinuities)
+    #-------------------------------------------------------------------
+    def glr_trend(m):
+
+        """
+        Likelihood ratio test for trend changes (velocity discontinuities)
+        
+        Returns
+        -------
+        T : array
+            T-statistics for possible trend changes at each date of the time series
+
+        """
+
+        # Initializations
+        T = np.zeros(m.r.n)
+        t = m.r.t - m.t0
+        dt = np.hstack((0, m.r.t[1:]-m.r.t[:-1]))
+        
+        # Loop over dimensions
+        for d in range(m.nd):
+
+            # Useful stuff
+            if (m[d].P.ndim == 2):
+                CtP = np.cumsum((m[d].P*t).T, axis=0) - (np.cumsum(m[d].P, axis=1)*t).T
+                CtPC = np.sum(np.tril(CtP)*t, axis=1) - np.sum(np.tril(CtP), axis=1)*t
+                CtPA = np.dot(CtP, m[d].A)
+                CtPv = np.dot(CtP, m[d].v)
+            else:
+                CtPC = np.cumsum(m[d].P*dt**2)
+                CtPA = np.cumsum((m[d].A.T*m[d].P*dt).T, axis=0)
+                CtPv = np.cumsum(m[d].Pv*dt)
+                
+            # Update T-statistics
+            for i in range(m.r.n):
+                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                if (Nc > 0):
+                    T[i] = T[i] + np.sum(CtPv[i]**2/Nc)
+                
+        return T
+
     # Likelihood ratio test for mean+trend changes (position+velocity discontinuities)
     #---------------------------------------------------------------------------------
-    def glr_trend(m):
+    def glr_mean_trend(m):
 
         """
         Likelihood ratio test for mean+trend changes (position+velocity discontinuities)
@@ -5991,7 +6040,6 @@ class model:
         -------
         T : array
             T-statistics for possible mean+trend changes at each date of the time series
-
         """
 
         # Initializations
@@ -6022,7 +6070,6 @@ class model:
                 C2tPv = np.cumsum(m[d].Pv*t)
                 
             # Update T-statistics
-            T = np.zeros(m[d].r.n)
             for i in range(1, m[d].r.n-2):
                 CtPC = np.array([[C1tPC1[i], C1tPC2[i]], [C1tPC2[i], C2tPC2[i]]])
                 CtPA = np.array([C1tPA[i], C2tPA[i]])

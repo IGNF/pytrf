@@ -1276,9 +1276,9 @@ def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_
         if not(quiet):
             print('', file=out)
         
-        ## Continue to iterate if VCE has not converged yet
-        #if (end) and (np.max(np.abs(np.log([sol.vf for sol in inputs]))) > 1e-3):
-            #end = False
+        # Continue to iterate if VCE has not converged yet
+        if (end) and (update_sf) and (np.max(np.abs(np.log([sol.vf for sol in inputs]))) > 1e-3):
+            end = False
 
     return combsnx
     

@@ -397,10 +397,11 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('  - #core  = number of core stations used for alignament to {0}'.format(opt.datumname), file=fsum)
     print('  - VF^0.5 = square root of estimated variance factor', file=fsum)
     print('  - WRMS   = WRMS of "AC - igs" station position residuals', file=fsum)
+    print('  - sigm   = median of station position formal errors', file=fsum)
     print('', file=fsum)
-    print('                                      _____________WRMS____________', file=fsum)
-    print(' AC  day  #sta   #RF #core    VF^0.5     E[mm]     N[mm]     H[mm] ', file=fsum)
-    print(' ------------------------------------------------------------------', file=fsum)
+    print('                                      _____________WRMS____________ _____________sigm____________', file=fsum)
+    print(' AC  day  #sta   #RF #core    VF^0.5     E[mm]     N[mm]     H[mm]     E[mm]     N[mm]     H[mm] ', file=fsum)
+    print(' ------------------------------------------------------------------------------------------------', file=fsum)
 
     # Main statistics YAML header
     print('', file=fyml)
@@ -413,6 +414,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('# - ncore  = number of core stations used for alignament to IGSR3', file=fyml)
     print('# - sqrtvf = square root of estimated variance factor', file=fyml)
     print('# - wrms   = WRMS of "AC - igs" station position residuals (unit: mm, frame: ENH)', file=fyml)
+    print('# - sigm   = median of station position formal errors (unit: mm, frame: ENH)', file=fyml)
     print('', file=fyml)
     print('stats:', file=fyml)
 
@@ -422,15 +424,15 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
         for d in range(7):
             if (acs[i] in [ac.name for ac in dacs[d]]):
                 ac = dacs[d][[ac.name for ac in dacs[d]].index(acs[i])]
-                print(' {0.name}   {1} {0.nsta:5d} {0.ndat:5d} {0.ncore:5d} {0.sf:10.6f} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f}'.format(ac, d, ac.wrms), file=fsum)
-                print('    - {{ac: {0.name}, day: {1}, nsta: {0.nsta:5d}, nrf: {0.ndat:5d}, ncore: {0.ncore:5d}, sqrtvf: {0.sf:10.6f}, wrms: [{2[0]:9.3f},{2[1]:9.3f},{2[2]:9.3f}]}}'.format(ac, d, ac.wrms), file=fyml)
-        print(' ------------------------------------------------------------------', file=fsum)
+                print(' {0.name}   {1} {0.nsta:5d} {0.ndat:5d} {0.ncore:5d} {0.sf:10.6f} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}'.format(ac, d, ac.wrms, ac.sigm), file=fsum)
+                print('    - {{ac: {0.name}, day: {1}, nsta: {0.nsta:5d}, nrf: {0.ndat:5d}, ncore: {0.ncore:5d}, sqrtvf: {0.sf:10.6f}, wrms: [{2[0]:9.3f},{2[1]:9.3f},{2[2]:9.3f}], sigm: [{3[0]:9.3f},{3[1]:9.3f},{3[2]:9.3f}]}}'.format(ac, d, ac.wrms, ac.sigm), file=fyml)
+        print(' ------------------------------------------------------------------------------------------------', file=fsum)
     
     print('  -', file=fyml)
     for d in range(7):
         print(' igs   {0} {1:5d} {2:5d} {3:5d}'.format(d, nsta[d], ndat[d], ncore[d]), file=fsum)
         print('    - {{ac: igs, day: {0}, nsta: {1:5d}, nrf: {2:5d}, ncore: {3:5d}}}'.format(d, nsta[d], ndat[d], ncore[d]), file=fyml)
-    print(' ------------------------------------------------------------------', file=fsum)
+    print(' ------------------------------------------------------------------------------------------------', file=fsum)
     
     # ERP, geocenter and scale residuals header
     print('', file=fsum)
@@ -653,12 +655,13 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     for source in logsource:
         print('  - {0.name:<6s} = {0.server}{0.remotedir}'.format(source), file=fsum)
     print('', file=fsum)
+    s = '  - No sitelog found for station(s): '
+    for sta in nolog:
+        s = s + sta + ', '
     if (len(nolog) > 0):
-        s = '  - No sitelog found for station(s): '
-        for sta in nolog:
-            s = s + sta + ', '
-        print(s[:-2], file=fsum)
-        print('', file=fsum)
+        s = s[:-2]
+    print(s, file=fsum)
+    print('', file=fsum)
     print(' AC    sta    ___metadata_type___   __info_from_sinex___   _info_from_sitelog__   source', file=fsum)
     print(' ---------------------------------------------------------------------------------------', file=fsum)
 
@@ -679,7 +682,9 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     s = 'nologs: ['
     for sta in nolog:
         s = s + sta + ', '
-    s = s[:-2] + ']'
+    if (len(nolog) > 0):
+        s = s[:-2]
+    s = s + ']'
     print(s, file=fyml)
     print('', file=fyml)
     print('errors:', file=fyml)    
