@@ -574,7 +574,7 @@ class ts:
                 r.dtrd = 1
                 r.ctrd = np.vstack((r.ctrd, np.zeros((1, r.nd))))
             elif (r.dtrd == 1) and (r.t0 != t0):
-                r.ctrd[:,0] = r.ctrd[:,0] + r.ctrd[:,1]*(t0-r.t)
+                r.ctrd[:,0] = r.ctrd[:,0] + r.ctrd[:,1]*(t0-r.t0)
             
             r.t0 = t0
             t = r.t - r.t0
@@ -4952,14 +4952,6 @@ class model:
                     # Final fit + compute covariance matrix of noise parameters
                     #----------------------------------------------------------
 
-                    # Exit now if requested
-                    if not(finalize):
-                        b = m[d].get_b()
-                        m[d].nb = len(b)
-                        m[d].set_cov()
-                        m[d].fitx()
-                        return
-
                     # Message
                     if not(quiet) and not(verbose):
                         print('\x1b[2K', end='\r', file=out)
@@ -4969,86 +4961,95 @@ class model:
                     # Get optimal noise parameters
                     b = m[d].get_b()
                     m[d].nb = len(b)
+                    for n in m[d].n:
+                        for p in n.par:
+                            if not(p.fixed):
+                                p.sig = np.nan
                     
                     # Set observation covariance matrix
+                    if not(finalize):
+                        m[d].set_cov()
                     if (hessian == 'expected'):
                         m[d].set_cov(inv=True, set_dcov=True)
                     else:
-                        m[d].set_cov(inv=True)
+                        m[d].set_cov(inv=True)                    
                     
                     # Final fit
                     m[d].fitx()
                     
-                    # Message
-                    if not(quiet):
-                        print('    '+str(date())+' : Compute covariance matrix of noise parameters', file=out)
-                    
-                    # If expected hessian matrix should be computed,
-                    if (hessian == 'expected'):
+                    # If model should be finalized,
+                    if (finalize):
+
+                        # Message
+                        if not(quiet):
+                            print('    '+str(date())+' : Compute covariance matrix of noise parameters', file=out)
                         
-                        # Set "weight matrix"
-                        if (estimator == 'ml') or (m[d].nx == 0):
-                            P = m[d].P
+                        # If expected hessian matrix should be computed,
+                        if (hessian == 'expected'):
+                            
+                            # Set "weight matrix"
+                            if (estimator == 'ml') or (m[d].nx == 0):
+                                P = m[d].P
+                            else:
+                                AtP = np.dot(m[d].A.T, m[d].P)
+                                P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+
+                            # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
+                            # with weight matrix
+                            dQP = []
+                            for n in m[d].n:
+                                for i in range(len(n.dQ)):
+                                    if (P.ndim == 2) and (n.dQ[i].ndim == 2):
+                                        dQP.append(np.dot(n.dQ[i], P))
+                                    elif (P.ndim == 2) and (n.dQ[i].ndim == 1):
+                                        dQP.append((P*n.dQ[i]).T)
+                                    else:
+                                        dQP.append(n.dQ[i]*P)
+                            
+                            # Fill in hessian matrix
+                            H = np.zeros((m[d].nb, m[d].nb))
+                            for i in range(m[d].nb):
+                                for j in range(i+1):
+                                    if (dQP[i].ndim == 2) and (dQP[j].ndim == 2):
+                                        H[i,j] = -trdot(dQP[i], dQP[j]) / 2
+                                    elif (dQP[i].ndim == 1) and (dQP[j].ndim == 2):
+                                        H[i,j] = -np.sum(dQP[i]*np.diag(dQP[j])) / 2
+                                    elif (dQP[i].ndim == 2) and (dQP[j].ndim == 1):
+                                        H[i,j] = -np.sum(dQP[j]*np.diag(dQP[i])) / 2                                    
+                                    else:
+                                        H[i,j] = -np.sum(dQP[i]*dQP[j]) / 2
+                                    H[j,i] = H[i,j]
+                        
+                        # Else (hessian matrix should be computed numerically),
                         else:
-                            AtP = np.dot(m[d].A.T, m[d].P)
-                            P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+                            
+                            # Model copy
+                            mc = copy.deepcopy(m[d])
 
-                        # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
-                        # with weight matrix
-                        dQP = []
-                        for n in m[d].n:
-                            for i in range(len(n.dQ)):
-                                if (P.ndim == 2) and (n.dQ[i].ndim == 2):
-                                    dQP.append(np.dot(n.dQ[i], P))
-                                elif (P.ndim == 2) and (n.dQ[i].ndim == 1):
-                                    dQP.append((P*n.dQ[i]).T)
-                                else:
-                                    dQP.append(n.dQ[i]*P)
+                            # Inner function: noise parameters -> log-likelihood
+                            def logl(b):
+                                mc.set_b(b)
+                                mc.set_cov(chol=True)
+                                mc.fitx()
+                                return mc.logl
+
+                            # Fill in hessian matrix
+                            H = np.zeros((m[d].nb, m[d].nb))
+                            for i in range(m[d].nb):
+                                dpi = np.zeros(m[d].nb)
+                                dpi[i] = 1e-4*b[i]
+                                for j in range(i+1):
+                                    dpj = np.zeros(m[d].nb)
+                                    dpj[j] = 1e-4*b[j]
+                                    H[i,j] = (logl(b+dpi+dpj) - logl(b+dpi-dpj) - logl(b-dpi+dpj) + logl(b-dpi-dpj)) / (4e-8*b[i]*b[j])
+                                    H[j,i] = H[i,j]
                         
-                        # Fill in hessian matrix
-                        H = np.zeros((m[d].nb, m[d].nb))
-                        for i in range(m[d].nb):
-                            for j in range(i+1):
-                                if (dQP[i].ndim == 2) and (dQP[j].ndim == 2):
-                                    H[i,j] = -trdot(dQP[i], dQP[j]) / 2
-                                elif (dQP[i].ndim == 1) and (dQP[j].ndim == 2):
-                                    H[i,j] = -np.sum(dQP[i]*np.diag(dQP[j])) / 2
-                                elif (dQP[i].ndim == 2) and (dQP[j].ndim == 1):
-                                    H[i,j] = -np.sum(dQP[j]*np.diag(dQP[i])) / 2                                    
-                                else:
-                                    H[i,j] = -np.sum(dQP[i]*dQP[j]) / 2
-                                H[j,i] = H[i,j]
-                    
-                    # Else (hessian matrix should be computed numerically),
-                    else:
-                        
-                        # Model copy
-                        mc = copy.deepcopy(m[d])
-
-                        # Inner function: noise parameters -> log-likelihood
-                        def logl(b):
-                            mc.set_b(b)
-                            mc.set_cov(chol=True)
-                            mc.fitx()
-                            return mc.logl
-
-                        # Fill in hessian matrix
-                        H = np.zeros((m[d].nb, m[d].nb))
-                        for i in range(m[d].nb):
-                            dpi = np.zeros(m[d].nb)
-                            dpi[i] = 1e-4*b[i]
-                            for j in range(i+1):
-                                dpj = np.zeros(m[d].nb)
-                                dpj[j] = 1e-4*b[j]
-                                H[i,j] = (logl(b+dpi+dpj) - logl(b+dpi-dpj) - logl(b-dpi+dpj) + logl(b-dpi-dpj)) / (4e-8*b[i]*b[j])
-                                H[j,i] = H[i,j]
-                    
-                    # Covariance matrix of noise parameters
-                    if (m[d].nb > 0):
-                        (m[d].Qb, m[d].dH) = invspd(-H, return_det=True)
-                    else:
-                        m[d].Qb = np.empty((0, 0))
-                    m[d].set_sigb()
+                        # Covariance matrix of noise parameters
+                        if (m[d].nb > 0):
+                            (m[d].Qb, m[d].dH) = invspd(-H, return_det=True)
+                        else:
+                            m[d].Qb = np.empty((0, 0))
+                        m[d].set_sigb()
                 
                 # 2nd case : LS estimation of noise parameters
                 #---------------------------------------------
@@ -5066,7 +5067,7 @@ class model:
                     niter = 0
                     while (np.max(np.abs(db)) > 1e-5):
                         
-                        # Raise error if we're at more than 100 iterations
+                        # Raise error if we're at more than 200 iterations
                         niter = niter + 1
                         if (niter > 200):
                             raise RuntimeError('Maximum number of iterations exceeded.')
@@ -5107,14 +5108,6 @@ class model:
                         br = br + db
                         m[d].set_br(br)
 
-                    # Exit now if requested
-                    if not(finalize):
-                        b = m[d].get_b()
-                        m[d].nb = len(b)
-                        m[d].set_cov()
-                        m[d].fitx()
-                        return
-
                     # Message
                     if not(quiet) and not(verbose):
                         print('\x1b[2K', end='\r', file=out)
@@ -5126,7 +5119,10 @@ class model:
                     m[d].nb = len(b)
                     
                     # Final fit
-                    m[d].set_cov(inv=True)
+                    if not(finalize):
+                        m[d].set_cov()
+                    else:
+                        m[d].set_cov(inv=True)
                     m[d].fitx()
 
                     # Set covariance matrix of noise parameters
@@ -5138,51 +5134,50 @@ class model:
                 # Set some final attributes of the model
                 #---------------------------------------
 
-                # Covariance matrix and formal errors of predicted observations
-                m[d].Qc = np.zeros((m[d].r.n, m[d].r.n))
-                m[d].sc = np.zeros((m[d].r.n))
-                if (m[d].nx > 0):
-                    m[d].Qc = np.dot(m[d].A, np.dot(m[d].Qx, m[d].A.T))
-                    m[d].sc = np.sqrt(np.diag(m[d].Qc))
+                if (finalize):
 
-                # Covariance matrix and formal errors of residuals
-                if (m[d].nx > 0):
-                    if (m[d].Q.ndim == 1):
-                        m[d].Qv = np.diag(m[d].Q) - m[d].Qc
-                    else:
-                        m[d].Qv = m[d].Q - m[d].Qc
-                    m[d].sv = np.sqrt(np.diag(m[d].Qv))
-                else:
-                    m[d].Qv = m[d].Q
-                    if (m[d].Q.ndim == 1):
-                        m[d].sv = np.sqrt(m[d].Qv)
-                    else:
+                    # Covariance matrix and formal errors of predicted observations
+                    m[d].Qc = np.zeros((m[d].r.n, m[d].r.n))
+                    m[d].sc = np.zeros((m[d].r.n))
+                    if (m[d].nx > 0):
+                        m[d].Qc = np.dot(m[d].A, np.dot(m[d].Qx, m[d].A.T))
+                        m[d].sc = np.sqrt(np.diag(m[d].Qc))
+
+                    # Covariance matrix and formal errors of residuals
+                    if (m[d].nx > 0):
+                        if (m[d].Q.ndim == 1):
+                            m[d].Qv = np.diag(m[d].Q) - m[d].Qc
+                        else:
+                            m[d].Qv = m[d].Q - m[d].Qc
                         m[d].sv = np.sqrt(np.diag(m[d].Qv))
-                
-                # Normalized residuals
-                m[d].vn = m[d].v / m[d].sv
-                
-                # WRMS of residuals
-                m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
-                
-                # Set -BIC/2 and evidence if noise parameters were estimated by ML
-                if (estimator == 'ml'):
-                    m[d].bic = m[d].logl - (m[d].nx+m[d].nb)*log(m[d].r.n)/2
-                    m[d].E = m[d].logl + ((m[d].nx+m[d].nb)*log(2*pi) - m[d].dN - m[d].dH) / 2
+                    else:
+                        m[d].Qv = m[d].Q
+                        if (m[d].Q.ndim == 1):
+                            m[d].sv = np.sqrt(m[d].Qv)
+                        else:
+                            m[d].sv = np.sqrt(np.diag(m[d].Qv))
+                    
+                    # Normalized residuals
+                    m[d].vn = m[d].v / m[d].sv
+                    
+                    # WRMS of residuals
+                    m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
+                    
+                    # Set -BIC/2 and evidence if noise parameters were estimated by ML
+                    if (estimator == 'ml'):
+                        m[d].bic = m[d].logl - (m[d].nx+m[d].nb)*log(m[d].r.n)/2
+                        m[d].E = m[d].logl + ((m[d].nx+m[d].nb)*log(2*pi) - m[d].dN - m[d].dH) / 2
 
-                # Set -(restricted BIC)/2 and restricted evidence if noise parameters were estimated by REML
-                elif (estimator == 'reml'):
-                    m[d].bicr = m[d].loglr - m[d].nb*log(m[d].r.n-m[d].nx)/2
-                    m[d].Er = m[d].loglr + (m[d].nb*log(2*pi) - m[d].dH) / 2
+                    # Set -(restricted BIC)/2 and restricted evidence if noise parameters were estimated by REML
+                    elif (estimator == 'reml'):
+                        m[d].bicr = m[d].loglr - m[d].nb*log(m[d].r.n-m[d].nx)/2
+                        m[d].Er = m[d].loglr + (m[d].nb*log(2*pi) - m[d].dH) / 2
 
-                # Compute PSD of noise model and of residuals
-                m[d].set_psd(set_spsd=True, fr=fr)
-                
-                ## Compute jumps of polynomial and sine wave functions
-                #m[d].set_jumps()
-                
-                # Estimate individual noise components
-                m[d].set_xi()
+                    # Compute PSD of noise model and of residuals
+                    m[d].set_psd(set_spsd=True, fr=fr)
+                    
+                    # Estimate individual noise components
+                    m[d].set_xi()
 
                 # Print end message
                 if not(quiet):
@@ -5248,7 +5243,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, thr_raw=5, thr_norm=5, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, thr_raw=5, thr_norm=5, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -5301,6 +5296,10 @@ class model:
             along each component, threshold = thr_raw * WRMS. Default is 5.
         thr_norm : float, optional
             Threshold for normalized residuals. Default is 5.
+        finalize : bool, optional
+            If False, then fit_iter() will stop right after the optimal noise parameters
+            are found and set, but most other attributes of the model will not be set.
+            Default is True.
         quiet : bool, optional
             Whether to hide messages. Default is False.
         verbose : bool, optional
@@ -5321,7 +5320,7 @@ class model:
                 ls_prefit = False
             
             # Fit model
-            m.fit(estimator=estimator, method=method, ls_prefit=ls_prefit, hessian=hessian, fr=fr, quiet=quiet, verbose=verbose, out=out)
+            m.fit(estimator=estimator, method=method, ls_prefit=ls_prefit, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
             
             # Get outlier indices
             ind = []
@@ -5375,7 +5374,8 @@ class model:
             
             # Plot predicted observations
             fig.axes[d].plot(t, m[d].yc, 'r', linewidth=2, zorder=4)
-            fig.axes[d].fill_between(t, m[d].yc-m[d].sc, m[d].yc+m[d].sc, color='r', alpha=0.6, zorder=4)
+            if (m[d].sc is not None):
+                fig.axes[d].fill_between(t, m[d].yc-m[d].sc, m[d].yc+m[d].sc, color='r', alpha=0.6, zorder=4)
             
         # Save or show figure
         if (output is not None):
@@ -5424,7 +5424,7 @@ class model:
             tunit = m.r.tunit
             t = m.r.t
         elif (m.r.tunit == 'd') and (tunit == 'y'):
-            t = [date.from_mjd(d).ydec() for d in m.r.t]
+            t = np.array([date.from_mjd(d).ydec() for d in m.r.t])
         else:
             tunit = m.r.tunit
             t = m.r.t
@@ -5503,7 +5503,7 @@ class model:
             tunit = m.r.tunit
             t = m.r.t
         elif (m.r.tunit == 'd') and (tunit == 'y'):
-            t = [date.from_mjd(d).ydec() for d in m.r.t]
+            t = np.array([date.from_mjd(d).ydec() for d in m.r.t])
         else:
             tunit = m.r.tunit
             t = m.r.t
@@ -5774,11 +5774,12 @@ class model:
             s = s[:-2] + ']'
             txt = txt + s + '\n'
             
-            s = 'wrms:  ['
-            for d in range(m.nd):
-                s = s + '{0:13.6e}, '.format(m[d].wrms)
-            s = s[:-2] + ']'
-            txt = txt + s + '\n'
+            if (m[d].wrms is not None):
+                s = 'wrms:  ['
+                for d in range(m.nd):
+                    s = s + '{0:13.6e}, '.format(m[d].wrms)
+                s = s[:-2] + ']'
+                txt = txt + s + '\n'
             
             s = 'logl:  ['
             for d in range(m.nd):
@@ -5852,22 +5853,6 @@ class model:
 
         txt = txt + '\n'
         
-        ## Loop over jumps
-        #txt = txt + 'jumps:\n'
-        #for d in range(m.nd):
-            #for f in m[d].f:
-                #if (f.dx is not None):
-                    #for i in range(len(f.dx)):
-                    
-                        ## Current jump unit
-                        #unit = f.par[0].unit
-                        
-                        ## Print current jump
-                        #if isinstance(f, polynom):
-                            #txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'polynomial coefficient jump', f.deg, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
-                        #elif isinstance(f, sine):
-                            #txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, date: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, 'sine wave jump', f.per, print_date(f.t[i]), f.dx[i], f.sdx[i], unit) + '\n'
-        
         return txt
 
     # Clean matrix attributes
@@ -5935,16 +5920,20 @@ class model:
             # Useful stuff
             if (m[d].P.ndim == 2):
                 CtPC = np.diag(m[d].P)
-                CtPA = np.dot(m[d].P, m[d].A)
+                if (m[d].nx > 0):
+                    CtPA = np.dot(m[d].P, m[d].A)
                 CtPv = m[d].Pv
             else:
                 CtPC = m[d].P
-                CtPA = (m[d].A.T*m[d].P).T
+                if (m[d].nx > 0):
+                    CtPA = (m[d].A.T*m[d].P).T
                 CtPv = m[d].Pv
 
             # Update T-statistics
             for i in range(m.r.n):
-                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                Nc = CtPC[i]
+                if (m[d].nx > 0):
+                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                 T[i] = T[i] + np.sum(CtPv[i]**2/Nc)
                 
         return T
@@ -5973,16 +5962,20 @@ class model:
             if (m[d].P.ndim == 2):
                 CtP = np.cumsum(m[d].P, axis=0)
                 CtPC = np.sum(np.tril(CtP), axis=1)
-                CtPA = np.dot(CtP, m[d].A)
+                if (m[d].nx > 0):
+                    CtPA = np.dot(CtP, m[d].A)
                 CtPv = np.dot(CtP, m[d].v)
             else:
                 CtPC = np.cumsum(m[d].P)
-                CtPA = np.cumsum((m[d].A.T*m[d].P).T, axis=0)
+                if (m[d].nx > 0):
+                    CtPA = np.cumsum((m[d].A.T*m[d].P).T, axis=0)
                 CtPv = np.cumsum(m[d].Pv)
 
             # Update T-statistics
             for i in range(m.r.n-1):
-                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                Nc = CtPC[i]
+                if (m[d].nx > 0):
+                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                 if (Nc > 0):
                     T[i+1] = T[i+1] + np.sum(CtPv[i]**2/Nc)
                 
@@ -6014,16 +6007,20 @@ class model:
             if (m[d].P.ndim == 2):
                 CtP = np.cumsum((m[d].P*t).T, axis=0) - (np.cumsum(m[d].P, axis=1)*t).T
                 CtPC = np.sum(np.tril(CtP)*t, axis=1) - np.sum(np.tril(CtP), axis=1)*t
-                CtPA = np.dot(CtP, m[d].A)
+                if (m[d].nx > 0):
+                    CtPA = np.dot(CtP, m[d].A)
                 CtPv = np.dot(CtP, m[d].v)
             else:
                 CtPC = np.cumsum(m[d].P*dt**2)
-                CtPA = np.cumsum((m[d].A.T*m[d].P*dt).T, axis=0)
+                if (m[d].nx > 0):
+                    CtPA = np.cumsum((m[d].A.T*m[d].P*dt).T, axis=0)
                 CtPv = np.cumsum(m[d].Pv*dt)
                 
             # Update T-statistics
             for i in range(m.r.n):
-                Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                Nc = CtPC[i]
+                if (m[d].nx > 0):
+                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                 if (Nc > 0):
                     T[i] = T[i] + np.sum(CtPv[i]**2/Nc)
                 
@@ -6145,14 +6142,15 @@ class model:
                 CtPC[:,1,1] = (C0-C1)/2
 
                 # Compute C^T*P*A at all frequencies
-                PA = np.zeros((len(tf), m[d].nx))
-                if (m[d].P.ndim == 2):
-                    PA[ind,:] = np.dot(m[d].P, m[d].A)
-                else:
-                    PA[ind,:] = (m[d].A.T * m[d].P).T
-                CtPA = np.zeros((len(m.fr), 2, m[d].nx))
-                for i in range(m.nx):
-                    (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                if (m[d].nx > 0):
+                    PA = np.zeros((len(tf), m[d].nx))
+                    if (m[d].P.ndim == 2):
+                        PA[ind,:] = np.dot(m[d].P, m[d].A)
+                    else:
+                        PA[ind,:] = (m[d].A.T * m[d].P).T
+                    CtPA = np.zeros((len(m.fr), 2, m[d].nx))
+                    for i in range(m[d].nx):
+                        (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
 
                 # Compute C^T*P*v at all frequencies
                 Pv = np.zeros(len(tf))
@@ -6162,7 +6160,9 @@ class model:
 
                 # Update T-statistics
                 for i in range(len(m.fr)):    
-                    Nc = CtPC[i] - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                    Nc = CtPC[i]
+                    if (m[d].nx > 0):
+                        Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                     if (np.linalg.matrix_rank(Nc) == 2):
                         xc = linalg.solve(Nc, CtPv[i])
                         T[i] = T[i] + np.dot(xc.T, CtPv[i])
