@@ -19,7 +19,7 @@ m0.add_polynom(deg=1, x=0.003)
 m0.add_sine(per=200, x=[2.5, -2.5])
 m0.add_wn(s2=2)
 m0.add_fn(s2=1)
-m0.add_ar1(per=200, s2=0.005, tau=600)
+m0.add_ar1sine(per=200, s2=0.005, tau=600)
 
 # Simulate time series
 m0.simulate()
@@ -65,7 +65,7 @@ pp.show()
 # Define 2nd model instance with the same components
 # (but no values assigned to parameters)
 m = model(r, deg=[0, 1], per=[200], noise=['wn', 'fn'])
-m.add_ar1(per=200)
+m.add_ar1sine(per=200)
 
 # Fit model and print results
 m.fit(estimator='reml', method='Newton')

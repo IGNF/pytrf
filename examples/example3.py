@@ -12,9 +12,9 @@ class arctan(function):
     # "arctan" function initialization with 3 parameters: t0, amp & tau
     def __init__(f, t0, amp=None, tau=None, fix_t0=False, fix_amp=False, fix_tau=False, tunit='d', yunit='m'):
         super().__init__()
-        f.par.append(param(type='arctan ref time', t=-np.inf, x=t0, fixed=fix_t0, unit=tunit))        
-        f.par.append(param(type='arctan amplitude', t=-np.inf, x=amp, fixed=fix_amp, unit=yunit))
-        f.par.append(scale_param(type='arctan time constant', t=-np.inf, x=tau, fixed=fix_tau, unit=tunit))
+        f.par.append(param(type='arctan ref time', start=-np.inf, end=np.inf, x=t0, fixed=fix_t0, unit=tunit))        
+        f.par.append(param(type='arctan amplitude', start=-np.inf, end=np.inf, x=amp, fixed=fix_amp, unit=yunit))
+        f.par.append(scale_param(type='arctan time constant', start=-np.inf, end=np.inf, x=tau, fixed=fix_tau, unit=tunit))
             
     # Set default a priori values for unknown parameters
     def set_x0(f, m):
@@ -77,6 +77,6 @@ m.plot_all(tunit='y')
 m.add_pl()
 
 # Fit model and show results
-m.fit(estimator='ml', method='BFGS')
+m.fit()
 print(m)
 m.plot_all(tunit='y')

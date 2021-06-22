@@ -396,8 +396,6 @@ class sinex:
                     r.description = line[21:43]
                     r.lon = line[44:55]
                     r.lat = line[56:67]
-                    if (r.lat[0:4] == '  0-'):
-                        r.lat = ' -0 ' + r.lat[4:]
                     r.h = line[68:75]
                     r.rec = []
                     r.ant = []
