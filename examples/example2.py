@@ -57,6 +57,6 @@ m.plot_all(tunit='y')
 m.add_pl()
 
 # Fit model and show results
-m.fit()
+m.fit(method='BFGS')
 print(m)
 m.plot_all(tunit='y')
