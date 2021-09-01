@@ -3458,6 +3458,29 @@ class model:
 
         for d in range(m.nd):
             m[d].f.append(sine(per, t, x, fix_x, m.r.yunit))
+
+    # Add sine wave function to model
+    #--------------------------------
+    def add_poisson(m, per, deg, t=[], x=None, fix_x=False):
+
+        """
+        Add poisson function to model
+
+        Parameters
+        ----------
+        per : float
+            Period in days
+        deg : int
+            Polynoms degree
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori)
+            Default is False.            
+        """
+
+        for d in range(m.nd):
+            m[d].f.append(poisson(per, deg, x, fix_x, m.r.yunit))
         
     # Add exponential function to model
     #----------------------------------
