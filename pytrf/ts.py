@@ -1327,6 +1327,129 @@ class sine(function):
             if not(ps.fixed):
                 f.A.append(As)
 
+#fpoisson class
+#--------------
+class poisson(function):
+
+    """
+    Sub-class of the function class for poisson functions
+
+    A poisson instance is initialized by:
+    
+        f = poisson()
+
+    A poisson instance inherits the attributes from a function instance.
+        
+    Each poisson instance additionally has the following attributes:
+
+        per : Period
+        deg : Polynoms degree
+        
+    Each poisson instance additionally has the following methods:
+
+        set_x0()  : Set default a priori values for unknown parameters
+        set_oeq() : Compute predicted observations and design matrix
+
+    """
+
+    # Initialize a poisson instance
+    #---------------------------
+    def __init__(f, per, deg, x=None, fix_x=False, yunit='m'):
+
+        """
+        Initialize a poisson instance
+
+        Returns
+        -------
+        f : poisson instance
+        
+        Parameters
+        ----------
+        per : float
+            Period
+        deg : int
+            Polynoms degree
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori)
+            Default is False.
+        yunit : str, optional
+            Time series unit. Default is 'm'.
+            
+        """
+
+        super().__init__()
+        f.per = per
+        f.deg = deg
+
+        if (x is None):
+            x = 2*(deg+1) * [None]
+        
+        if isinstance(fix_x, bool):
+            fix_x = 2*(deg+1) * [fix_x]
+        
+        
+        for i in range(deg+1):
+            f.par.append(param(type='cos amplitude deg'+str(i), x=x[2*i], fixed=fix_x[2*i], unit=yunit))
+            f.par.append(param(type='sin amplitude deg'+str(i), x=x[2*i+1], fixed=fix_x[2*i+1], unit=yunit))
+            
+    # Set default a priori values for unknown parameters
+    #---------------------------------------------------
+    def set_x0(f, m):
+
+        """
+        Set default a priori values for unknown parameters
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+
+        for p in f.par:
+            if (p.x is None):
+                p.x = 0
+
+    # Compute predicted observations and design matrix
+    #-------------------------------------------------
+    def set_oeq(f, m):
+
+        """
+        Compute predicted observations and design matrix
+
+        set_oeq() does not return anything, but sets attributes yc and A of the poisson instance.
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+
+        # Initializations
+        t = m.r.t
+        dt = t - m.t0
+        f.yc = np.zeros(len(t))
+        f.A = []
+
+        # Loop over pairs of cos/sin parameters
+        deg=0
+        for (pc, ps) in zip(f.par[::2], f.par[1::2]): #prends les elements de par 2 par 2 
+
+            Ac=dt**deg*np.cos(2*pi*dt/f.per)
+            As=dt**deg*np.sin(2*pi*dt/f.per)
+
+            f.yc = f.yc + pc.x*Ac + ps.x*As
+
+            if not(pc.fixed):
+                f.A.append(Ac)
+            if not(ps.fixed):
+                f.A.append(As)
+                
+            deg+=1
+
 
 
 # fexp class
@@ -3330,10 +3453,9 @@ class model:
             Parameter values. Default is None.
         fix_x : bool or array of bool, optional
             Whether the provided parameter values should be fixed (or only used as a priori)
-            Default is False.
-            
+            Default is False.            
         """
-        
+
         for d in range(m.nd):
             m[d].f.append(sine(per, t, x, fix_x, m.r.yunit))
         
