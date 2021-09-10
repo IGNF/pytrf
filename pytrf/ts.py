@@ -6225,16 +6225,21 @@ class model:
 
     # Likelihood ratio test for periodic signals
     #-------------------------------------------
-    def glr_sine(m):
+    def glr_sine(m, use_fft=True):
 
         """
         Likelihood ratio test for periodic signals
+
+        Parameters
+        ----------
+        use_fft : bool
+            If false, don't make approximation
         
         Returns
         -------
         T : array
             T-statistics for possible periodic signals at each frequency of m.fr
-
+        
         """
 
         # Initializations
@@ -6270,14 +6275,14 @@ class model:
                 Pc[0] = np.sum(np.diag(Pf))
                 for i in range(1, len(tf)):
                     Pc[i] = 2*np.sum(np.diag(Pf, i))
-                (S0, C0) = trig_sum(m.r.T*np.arange(len(tf)), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                (S0, C0) = trig_sum(m.r.T*np.arange(len(tf)), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute sum(sin(2*pi*f*(ti+tj)*Pij)) and sum(cos(2*pi*f*(ti+tj)*Pij))
                 Pf = np.fliplr(Pf)
                 Pc = np.zeros(2*len(tf)-1)
                 for i in range(2*len(tf)-1):
                     Pc[i] = np.sum(np.diag(Pf, len(tf)-1-i))
-                (S1, C1) = trig_sum(2*tf[0]+m.r.T*np.arange(2*len(tf)-1), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                (S1, C1) = trig_sum(2*tf[0]+m.r.T*np.arange(2*len(tf)-1), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute C^T*P*C at all frequencies
                 CtPC = np.zeros((len(m.fr), 2, 2))
@@ -6295,13 +6300,13 @@ class model:
                         PA[ind,:] = (m[d].A.T * m[d].P).T
                     CtPA = np.zeros((len(m.fr), 2, m[d].nx))
                     for i in range(m[d].nx):
-                        (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                        (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute C^T*P*v at all frequencies
                 Pv = np.zeros(len(tf))
                 Pv[ind] = m[d].Pv
                 CtPv = np.zeros((len(m.fr), 2))
-                (CtPv[:,1], CtPv[:,0]) = trig_sum(tf, Pv, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                (CtPv[:,1], CtPv[:,0]) = trig_sum(tf, Pv, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Update T-statistics
                 for i in range(len(m.fr)):    
