@@ -6313,9 +6313,12 @@ class model:
                     Nc = CtPC[i]
                     if (m[d].nx > 0):
                         Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
-                    if (np.linalg.matrix_rank(Nc) == 2):
+                    try:
+                        toto = np.linalg.cholesky(Nc)
                         xc = linalg.solve(Nc, CtPv[i])
                         T[i] = T[i] + np.dot(xc.T, CtPv[i])
+                    except:
+                        pass
             
         # Else (irregularly sampled series),
         else:
