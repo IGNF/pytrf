@@ -6312,13 +6312,10 @@ class model:
                 for i in range(len(m.fr)):    
                     Nc = CtPC[i]
                     if (m[d].nx > 0):
-                        Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
-                    try:
-                        toto = np.linalg.cholesky(Nc)
-                        xc = linalg.solve(Nc, CtPv[i])
+                        Nc2 = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                    if (np.linalg.det(Nc2)/np.linalg.det(Nc) > 1e-12):
+                        xc = linalg.solve(Nc2, CtPv[i])
                         T[i] = T[i] + np.dot(xc.T, CtPv[i])
-                    except:
-                        pass
             
         # Else (irregularly sampled series),
         else:
