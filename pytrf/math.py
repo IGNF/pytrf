@@ -15,7 +15,7 @@ import sys
 import numpy as np
 from scipy import linalg, signal, special, sparse
 from astropy.timeseries import LombScargle
-from math import pi, cos, sin, tan, atan, atan2, sqrt, log, log10, exp
+from math import pi, cos, sin, tan, atan, atan2, sqrt, log, log10, exp, ceil
 
 # Internal imports
 #-----------------
@@ -394,14 +394,12 @@ def vondrak(t, x, fc):
     d2 = a[3:-2] * c[3:-2] + b[2:-3] * d[2:-3]
     d3 = a[3:-3] * d[3:-3]
 
-    #A = np.diag(d0) + np.diag(d1,1) + np.diag(d1,-1) + np.diag(d2,2) + np.diag(d2,-2) + np.diag(d3,3) + np.diag(d3,-3)
-    #return linalg.solve(A, eps*x)
-
     A = np.zeros((4, len(d0)))
     A[0,:] = d0
     A[1,:-1] = d1
     A[2,:-2] = d2
     A[3,:-3] = d3
+
     return linalg.solveh_banded(A, eps*x, lower=True)
 
 # Lomb-Scargle periodogram
@@ -461,8 +459,116 @@ def lombscargle(t, x, sf=4, f=None, dtrd=0, normalize=False):
 
     # Compute periodogram
     p = LombScargle(t, x, normalization='psd', fit_mean=False, center_data=False).power(f)
-      
+    
     return (f, p)
+
+# Morlet wavelet scalogram
+#-------------------------
+def scalogram(t, y, w=5, f=None):
+    
+    """
+    Morlet wavelet scalogram
+    
+    Warning: The time series may have gaps. On the other hand,
+    it is supposed to have a constant integration interval.
+
+    Returns
+    -------
+    tf : array_like
+        Dates of output scalogram
+    f : array_like
+        Frequencies of output scalogram
+    p : array_like
+        Scalogram
+
+    Parameters
+    ----------
+    t : (n,) array_like
+        Dates
+    y : (n,) array_like
+        Time series values
+    w : float, optional
+        Morlet wavelet omega0. Default is 5.
+        Larger w -> better frequency resolution
+        Lower  w -> better time resolution
+    f : array_like, optional
+        Frequencies of output periodogram in units of 1/t. Automatically set by default.
+    """
+
+    # Time series integration interval
+    T = np.min(t[1:] - t[:-1])
+    
+    # Normalize time and frequency in units of integration interval
+    t = t / T
+    if (f is not None):
+        f = f * T
+        
+    # Full array of dates
+    tf = np.arange(t[0], t[-1]+1)
+
+    # Indices of observed dates
+    ind = []
+    j = 0
+    for i in range(len(t)):
+        while (tf[j] < t[i]):
+            j = j+1
+        ind.append(j)
+
+    # Full time series
+    yf = np.zeros(len(tf))
+    yf[ind] = y
+
+    # Observation mask
+    mask = np.zeros(len(tf))
+    mask[ind] = 1
+    
+    # If necessary, set array of frequencies
+    n = t[-1] - t[0]
+    if (f is None):
+        f = np.arange(1/n, 1/2+1/n, 1/n)
+        
+    # Initialize scalogram
+    p = np.zeros((len(tf), len(f)))
+    
+    # Loop over frequencies
+    for i in range(len(f)):
+        
+        # Wavelet of current frequency
+        n = ceil(5*w/(pi*f[i]))
+        s = n*f[i]/(2*w)
+        m = signal.morlet(n, s=s, w=w)
+        mc = np.real(m)
+        ms = np.imag(m)
+        
+        # Convolve full time series with wavelet
+        pc = signal.convolve(yf, mc, mode='same')
+        ps = signal.convolve(yf, ms, mode='same')
+        
+        # Squared wavelet
+        mcc = mc**2
+        mcs = mc*ms
+        mss = ms**2
+
+        # Convolve squared wavelet with observation mask
+        pcc = signal.convolve(mask, mcc, mode='same')
+        pcs = signal.convolve(mask, mcs, mode='same')
+        pss = signal.convolve(mask, mss, mode='same')
+
+        # Time series / wavelet regression coefficients
+        d = pcc*pss - pcs**2
+        ind = np.nonzero(d / (np.sum(mcc)*np.sum(mss)) < 0.25)[0]
+        d[ind] = np.nan
+        xc = (pss*pc - pcs*ps) / d
+        xs = (pcc*ps - pcs*pc) / d
+
+        # Scalogram
+        p[:,i] = pc*xc + ps*xs
+        
+    # Un-normalize time & frequency
+    tf = tf * T
+    f = f / T
+
+    return (tf, f, p)
 
 # Compute correlation matrix from covariance matrix
 #--------------------------------------------------

@@ -47,7 +47,7 @@ def read_yaml(inp, sed=False, t=None):
         Date to be used for keywords substitutions. Default is None.
     """
   
-    y = yaml.load(open(inp))#, Loader=yaml.FullLoader)
+    y = yaml.load(open(inp), Loader=yaml.FullLoader)
     
     # If y is a dictionary,
     if (isinstance(y, dict)):

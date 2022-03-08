@@ -14,6 +14,7 @@ import pickle
 from math import pi, sqrt, exp, log, ceil, factorial
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
+from scipy.stats import median_absolute_deviation as mad
 import matplotlib.pyplot as pp
 pp.rcParams['font.family'] = 'monospace'
 pp.rcParams['font.size'] = 12
@@ -765,12 +766,14 @@ class param:
         fixed : Fixed or estimated parameter? (bool)
         sig   : Formal error (float or None)
         unit  : Parameter unit (str)
+        xc    : Reference value of constraint (float or None)
+        sigc  : Sigma of constraint (float or None)
         
     """
 
     # Initialize a param instance
     #----------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
       
         """
         Initialize a param instance
@@ -793,6 +796,10 @@ class param:
             Fixed or estimated parameter?
         unit : str, optional
             Parameter unit. Default is ''.
+        xc : float, optional
+            Reference value of constraint
+        sigc : float, optional
+            Sigma of constraint
         """
 
         p.type = type
@@ -804,6 +811,8 @@ class param:
         else:
             p.sig = None
         p.unit = unit
+        p.xc = xc
+        p.sigc = sigc
 
 
 
@@ -831,7 +840,7 @@ class scale_param(param):
 
     # Initialize a scale_param instance
     #----------------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
       
         """
         Initialize a scale_param instance
@@ -852,10 +861,14 @@ class scale_param(param):
             Parameter value
         fixed : bool, optional
             Fixed or estimated parameter?
+        xc : float, optional
+            Reference value of constraint
+        sigc : float, optional
+            Sigma of constraint
             
         """
 
-        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit)
+        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
     # Compute reparameterized value (xr=log(x)) from original value
     #--------------------------------------------------------------
@@ -946,7 +959,7 @@ class pl_index(param):
 
     # Initialize a pl_index instance
     #-------------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit=''):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
       
         """
         Initialize a pl_index instance
@@ -967,10 +980,14 @@ class pl_index(param):
             Parameter value
         fixed : bool, optional
             Fixed or estimated parameter?
+        xc : float, optional
+            Reference value of constraint
+        sigc : float, optional
+            Sigma of constraint
             
         """
 
-        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit)
+        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
     # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
     #------------------------------------------------------------------------
@@ -1170,7 +1187,10 @@ class polynom(function):
 
         for p in f.par:
             if (p.x is None):
-                p.x = 0
+                if (p.xc is not None):
+                    p.x = p.xc
+                else:
+                    p.x = 0
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -1292,7 +1312,10 @@ class sine(function):
 
         for p in f.par:
             if (p.x is None):
-                p.x = 0
+                if (p.xc is not None):
+                    p.x = p.xc
+                else:
+                    p.x = 0
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -1326,6 +1349,138 @@ class sine(function):
                 f.A.append(Ac)
             if not(ps.fixed):
                 f.A.append(As)
+
+
+
+# poisson class
+#--------------
+class poisson(function):
+
+    """
+    Sub-class of the function class for Poisson functions
+
+    A poisson instance is initialized by:
+    
+        f = poisson()
+
+    A poisson instance inherits the attributes from a function instance.
+        
+    Each poisson instance additionally has the following attributes:
+
+        per : Period
+        deg : Polynomial degree
+        
+    Each poisson instance additionally has the following methods:
+
+        set_x0()  : Set default a priori values for unknown parameters
+        set_oeq() : Compute predicted observations and design matrix
+
+    """
+
+    # Initialize a poisson instance
+    #---------------------------
+    def __init__(f, per, deg, x=None, fix_x=False, tunit='d', yunit='m'):
+
+        """
+        Initialize a poisson instance
+
+        Returns
+        -------
+        f : poisson instance
+        
+        Parameters
+        ----------
+        per : float
+            Period
+        deg : int
+            Polynomial degree
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori).
+            Default is False.
+        tunit : str, optional
+            Time unit. Default is 'd'.
+        yunit : str, optional
+            Time series unit. Default is 'm'.
+            
+        """
+
+        super().__init__()
+        f.per = per
+        f.deg = deg
+
+        if (x is None):
+            x = 2*(deg+1) * [None]
+        
+        if isinstance(fix_x, bool):
+            fix_x = 2*(deg+1) * [fix_x]        
+        
+        for i in range(deg+1):
+            if (i == 0):
+                unit = yunit
+            elif (i == 1):
+                unit = yunit + '/' + tunit
+            elif (i == 2):
+                unit = yunit + '/' + tunit + '^' + str(deg)
+            f.par.append(param(type='cos amplitude deg'+str(i), x=x[2*i], fixed=fix_x[2*i], unit=unit))
+            f.par.append(param(type='sin amplitude deg'+str(i), x=x[2*i+1], fixed=fix_x[2*i+1], unit=unit))
+            
+    # Set default a priori values for unknown parameters
+    #---------------------------------------------------
+    def set_x0(f, m):
+
+        """
+        Set default a priori values for unknown parameters
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+
+        for p in f.par:
+            if (p.x is None):
+                p.x = 0
+
+    # Compute predicted observations and design matrix
+    #-------------------------------------------------
+    def set_oeq(f, m):
+
+        """
+        Compute predicted observations and design matrix
+
+        set_oeq() does not return anything, but sets attributes yc and A of the poisson instance.
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+
+        # Initializations
+        t = m.r.t
+        dt = t - m.t0
+        f.yc = np.zeros(len(t))
+        f.A = []
+
+        # Loop over pairs of cos/sin parameters
+        deg = 0
+        for (pc, ps) in zip(f.par[::2], f.par[1::2]):
+
+            Ac = dt**deg * np.cos(2*pi*dt/f.per)
+            As = dt**deg * np.sin(2*pi*dt/f.per)
+
+            f.yc = f.yc + pc.x*Ac + ps.x*As
+
+            if not(pc.fixed):
+                f.A.append(Ac)
+            if not(ps.fixed):
+                f.A.append(As)
+                
+            deg += 1
 
 
 
@@ -1405,24 +1560,34 @@ class fexp(function):
         
         # Set a priori amplitude if needed
         if (f.par[0].x is None):
-            f.par[0].x = 1
+            if (f.par[0].xc is not None):
+                f.par[0].x = f.par[0].xc
+            else:
+                f.par[0].x = 1
 
         # If [a priori] relaxation time is not already set,
         if (f.par[1].x is None):
 
-            # Look for other exp functions starting at the same date
-            # and list their [a priori] relaxation times
-            tau = []
-            for ff in m.f:
-                if isinstance(ff, fexp):
-                    if (ff.par[1].x is not None):
-                        tau.append(ff.par[1].x)
+            # If relaxation time is constrained, set a priori value to reference value
+            if (f.par[1].xc is not None):
+                f.par[1].x = f.par[1].xc
             
-            # Set a priori relaxation time of current function
-            if (len(tau) == 0):
-                f.par[1].x = 100
+            # Else,
             else:
-                f.par[1].x = np.min(tau) / 10
+                
+                # Look for other exp functions starting at the same date
+                # and list their [a priori] relaxation times
+                tau = []
+                for ff in m.f:
+                    if isinstance(ff, fexp):
+                        if (ff.par[1].x is not None):
+                            tau.append(ff.par[1].x)
+                
+                # Set a priori relaxation time of current function
+                if (len(tau) == 0):
+                    f.par[1].x = 100
+                else:
+                    f.par[1].x = np.min(tau) / 10
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -1535,24 +1700,34 @@ class flog(function):
         
         # Set a priori amplitude if needed
         if (f.par[0].x is None):
-            f.par[0].x = 1
+            if (f.par[0].xc is not None):
+                f.par[0].x = f.par[0].xc
+            else:
+                f.par[0].x = 1
 
         # If [a priori] relaxation time is not already set,
         if (f.par[1].x is None):
 
-            # Look for other log functions starting at the same date
-            # and list their [a priori] relaxation times
-            tau = []
-            for ff in m.f:
-                if isinstance(ff, flog):
-                    if (ff.par[1].x is not None):
-                        tau.append(ff.par[1].x)
+            # If relaxation time is constrained, set a priori value to reference value
+            if (f.par[1].xc is not None):
+                f.par[1].x = f.par[1].xc
             
-            # Set a priori relaxation time of current function
-            if (len(tau) == 0):
-                f.par[1].x = 100
+            # Else,
             else:
-                f.par[1].x = np.min(tau) / 10
+
+                # Look for other log functions starting at the same date
+                # and list their [a priori] relaxation times
+                tau = []
+                for ff in m.f:
+                    if isinstance(ff, flog):
+                        if (ff.par[1].x is not None):
+                            tau.append(ff.par[1].x)
+                
+                # Set a priori relaxation time of current function
+                if (len(tau) == 0):
+                    f.par[1].x = 100
+                else:
+                    f.par[1].x = np.min(tau) / 10
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -2982,10 +3157,10 @@ class model:
         add_exp()      : Add exponential function to model
         add_log()      : Add logarithmic function to model
         add_psd()      : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
+        add_noise()    : Add custom noise to model
         add_wn()       : Add homogeneous white noise to model
         add_vw()       : Add variable white noise to model
         add_ar1()      : Add AR(1) process to model
-        add_ar1sine()  : Add AR(1)*sine process to model
         add_pl()       : Add power-law noise to model
         add_fn()       : Add flicker noise to model
         add_rw()       : Add random walk to model
@@ -3337,6 +3512,29 @@ class model:
         for d in range(m.nd):
             m[d].f.append(sine(per, t, x, fix_x, m.r.yunit))
         
+    # Add Poisson function to model
+    #------------------------------
+    def add_poisson(m, per, deg, t=[], x=None, fix_x=False):
+
+        """
+        Add Poisson function to model
+
+        Parameters
+        ----------
+        per : float
+            Period in days
+        deg : int
+            Polynoms degree
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori)
+            Default is False.            
+        """
+
+        for d in range(m.nd):
+            m[d].f.append(poisson(per, deg, x, fix_x, m.r.tunit, m.r.yunit))
+
     # Add exponential function to model
     #----------------------------------
     def add_exp(m, t0, amp=None, tau=None, fix_amp=False, fix_tau=False):
@@ -3452,6 +3650,22 @@ class model:
                 elif (p.type[1:4] == 'LOG'):
                     m[d].add_log(t, amp, tau, fix_amp, fix_tau)
         
+    # Add custom noise to model
+    #-----------------------------
+    def add_noise(m, n):
+
+        """
+        Add custom noise to model
+
+        Parameters
+        ----------
+            n : noise instance
+            
+        """
+        
+        for d in range(m.nd):
+            m[d].n.append(n)
+
     # Add homogeneous white noise to model
     #-------------------------------------
     def add_wn(m, dt=None, s2=None, fix_s2=False):
@@ -4265,113 +4479,6 @@ class model:
         # Compute PSD of residuals if available
         if (m.v is not None):
             m.pv = lombscargle(m.r.t, m.v, f=m.fr, dtrd=None)[1]
-
-    ## Compute jumps of polynomial and sine wave functions
-    ##----------------------------------------------------
-    #def set_jumps(m):
-
-        #"""
-        #Compute jumps of polynomial and sine wave functions
-        
-        #set_jumps does not return anything but sets attributes dx and sdx
-        #of the model polynomial and sine wave functions.
-        
-        #"""
-
-        ## Loop over dimensions
-        #for d in range(m.nd):
-            
-            ## Full vector of deterministic parameters and full covariance matrix
-            ## (including fixed parameters)
-            #x = []
-            #i = 0
-            #j = 0
-            #ii = []
-            #jj = []
-            #for f in m[d].f:
-                #for p in f.par:
-                    #if not(p.fixed):
-                        #ii.append(i)
-                        #jj.append(j)
-                        #i = i+1
-                    #x.append(p.x)
-                    #j = j+1
-            #x = np.array(x)
-            #Qx = np.zeros((j, j))
-            #Qx[np.ix_(jj, jj)] = m[d].Qx[np.ix_(ii, ii)]
-            
-            
-            ## 1) Loop over polynomial functions
-            ##----------------------------------
-            
-            #i = 0
-            #for f in m[d].f:
-                #if isinstance(f, polynom):
-
-                    ## Initialize jumps
-                    #f.dx = np.zeros(len(f.t))
-                    #f.sdx = np.zeros(len(f.t))
-                    
-                    ## Loop over jump dates
-                    #for k in range(len(f.t)):
-                        
-                        ## Partial derivatives of current jump wrt f parameters
-                        #A = np.zeros(len(x))
-                        #A[i+k] = -1
-                        #A[i+k+1] = 1
-
-                        ## Loop over polynomial functions of higher degrees
-                        #j = 0
-                        #for ff in m[d].f:
-                            #if (isinstance(ff, polynom)):
-                                #if (ff.deg > f.deg):
-                                
-                                    ## If ff also has a jump at current jump date (f.t[k])
-                                    #if (f.t[k] in ff.t):
-                                        #l = ff.t.index(f.t[k])
-                                        
-                                        ## Partial derivatives of current jump wrt ff parameters
-                                        #A[j+l] = -(f.t[k]-m[d].t0)**(ff.deg-f.deg) / factorial(ff.deg-f.deg)
-                                        #A[j+l+1] = -A[j+l]
-                                    
-                            ## Increment parameter index
-                            #for p in ff.par:
-                                #j = j+1
-                                
-                        ## Current jump value and formal error
-                        #f.dx[k] = np.dot(A, x)
-                        #f.sdx[k] = sqrt(np.dot(A, np.dot(Qx, A.T)))
-                        
-                ## Increment parameter index
-                #for p in f.par:
-                    #i = i+1
-
-            ## 2) Loop over sine functions
-            ##----------------------------
-            
-            #i = 0
-            #for f in m[d].f:
-                #if isinstance(f, sine):
-
-                    ## Initialize jumps
-                    #f.dx = np.zeros(len(f.t))
-                    #f.sdx = np.zeros(len(f.t))
-                    
-                    ## Loop over jump dates
-                    #for k in range(len(f.t)):
-                        
-                        ## Compute jump
-                        #da = x[i+2*k+2] - x[i+2*k]
-                        #db = x[i+2*k+3] - x[i+2*k+1]
-                        #f.dx[k] = sqrt(da**2 + db**2)
-
-                        ## Compute jump formal error
-                        #A = np.array([-da, -db, da, db])
-                        #f.sdx[k] = sqrt(np.dot(A.T, np.dot(Qx[i+2*k:i+2*k+4,i+2*k:i+2*k+4], A))) / f.dx[k]
-
-                ## Increment parameter index
-                #for p in f.par:
-                    #i = i+1
     
     # Estimate individual noise components
     #-------------------------------------
@@ -4502,14 +4609,96 @@ class model:
         # If any parameter to estimate,
         if (m.nx > 0):
 
-            # Iterations until reparameterized deterministic parameters have converged
-            while (np.max(np.abs(dx)) > 1e-5):
+            # Get a priori log-relaxation times and "fix" them
+            # (This should be generalized to any kind of non-linear parameters.)
+            ltau = []
+            for f in m.f:
+                if isinstance(f, fexp) or isinstance(f, flog):
+                    if not(f.par[1].fixed):
+                        ltau.append(f.par[1].x2xr(f.par[1].x))
+                        f.par[1].fixed = True
+                        f.par[1].estim = True
+                        
+            # If any relaxation times to estimate,
+            if (len(ltau) > 0):
+                
+                # Inner function: ltau -> -logl
+                def logl(ltau):
+                    i = -1
+                    for f in m.f:
+                        if isinstance(f, fexp) or isinstance(f, flog):
+                            if (f.par[1].estim):
+                                i = i+1
+                                f.par[1].x = f.par[1].xr2x(ltau[i])
+                    m.fitx(vf=vf, estimator=estimator)
+                    if (estimator == 'reml'):
+                        return -m.loglr
+                    else:
+                        return -m.logl
+                
+                # Find optimal log-relaxation times
+                ltau = optimize.minimize(logl, ltau, method='Nelder-Mead', tol=1e-5).x
+                
+                # Set optimal log-relaxation times and unfix them
+                i = -1
+                for f in m.f:
+                    if isinstance(f, fexp) or isinstance(f, flog):
+                        if (f.par[1].estim):
+                            i = i+1
+                            f.par[1].x = f.par[1].xr2x(ltau[i])
             
-                # Set predicted observations and design matrix
+            # Set predicted observations and design matrix
+            m.set_oeq()
+            A = m.A * m.dx_dxr()
+            
+            # Set up normal equation
+            if (m.Q.ndim == 2) and (m.P is not None):
+                AtP = np.dot(A.T, m.P)
+            elif (m.Q.ndim == 2):
+                AtP = (cholsolve(m.L, A)).T
+            else:
+                AtP = A.T/m.Q
+            N = np.dot(AtP, A)
+            b = np.dot(AtP, m.r.y-m.yc)
+
+            # Add constraints if any,
+            i = -1
+            for f in m.f:
+                for p in f.par:
+                    if not(p.fixed):
+                        i = i+1
+                    if (p.sigc is not None):
+                        if hasattr(p, 'x2xr'):
+                            x0 = p.x2xr(p.x)
+                            xc = p.x2xr(p.xc)
+                            sc = p.sigc / p.dx_dxr(p.xc)
+                        else:
+                            x0 = p.x
+                            xc = p.xc
+                            sc = p.sigc
+                        N[i,i] = N[i,i] + 1/sc**2
+                        b[i] = b[i] + (xc-x0)/sc**2
+            
+            # Solve normal equation
+            (m.Qx, m.dN) = invspd(N, return_det=True)
+            dx = np.dot(m.Qx, b)
+
+            # Update deterministic parameters
+            m.set_xr(m.get_xr()+dx)
+
+            # If there were relaxation times to estimate,
+            if (len(ltau) > 0):
+
+                # Unfix them
+                i = -1
+                for f in m.f:
+                    if isinstance(f, fexp) or isinstance(f, flog):
+                        if (f.par[1].estim):
+                            f.par[1].fixed = False
+                            
+                # Update parameter covariance matrix
                 m.set_oeq()
                 A = m.A * m.dx_dxr()
-                
-                # Set up normal equation
                 if (m.Q.ndim == 2) and (m.P is not None):
                     AtP = np.dot(A.T, m.P)
                 elif (m.Q.ndim == 2):
@@ -4517,14 +4706,26 @@ class model:
                 else:
                     AtP = A.T/m.Q
                 N = np.dot(AtP, A)
-                b = np.dot(AtP, m.r.y-m.yc)
-                
-                # Solve normal equation
+                i = -1
+                for f in m.f:
+                    for p in f.par:
+                        if not(p.fixed):
+                            i = i+1
+                        if (p.sigc is not None):
+                            if hasattr(p, 'x2xr'):
+                                x0 = p.x2xr(p.x)
+                                xc = p.x2xr(p.xc)
+                                sc = p.sigc / p.dx_dxr(p.xc)
+                            else:
+                                x0 = p.x
+                                xc = p.xc
+                                sc = p.sigc
+                            N[i,i] = N[i,i] + 1/sc**2
                 (m.Qx, m.dN) = invspd(N, return_det=True)
-                dx = np.dot(m.Qx, b)
-
-                # Update deterministic parameters
-                m.set_xr(m.get_xr()+dx)
+                
+            # Else, just update observation equations
+            else:
+                m.set_oeq()
 
         # Else (no parameter to estimate),
         else:
@@ -4546,13 +4747,36 @@ class model:
         # Weighted-square sum of residuals
         vPv = np.sum(m.v*m.Pv)
         
-        # Half log-determinant of covariance matrix
+        # Log-determinant of covariance matrix
         if (m.dQ is None):
             if (m.Q.ndim == 2):
                 m.dQ = 2 * (np.sum(np.log(np.diag(m.L[1]))) - np.sum(np.log(m.L[0])))
             else:
                 m.dQ = np.sum(np.log(m.Q))
                 
+        # Compute number of constraints, constraint residuals
+        # and half-log determinant of constraint covariance matrix
+        c = 0
+        dQc = 0
+        vcPcvc = 0
+        i = -1
+        for f in m.f:
+            for p in f.par:
+                if not(p.fixed):
+                    i = i+1
+                if (p.sigc is not None):
+                    if hasattr(p, 'x2xr'):
+                        x = p.x2xr(p.x)
+                        xc = p.x2xr(p.xc)
+                        sc = p.sigc / p.dx_dxr(p.xc)
+                    else:
+                        x = p.x
+                        xc = p.xc
+                        sc = p.sigc
+                    c = c + 1
+                    dQc = dQc + log(sc**2)
+                    vcPcvc = vcPcvc + ((xc-x)/sc)**2
+        
         # Global variance factor
         if (vf):
             if (estimator == 'ml'):
@@ -4563,10 +4787,10 @@ class model:
             m.s2 = 1
             
         # Log-likelihood
-        m.logl = -m.r.n/2*log(2*pi*m.s2) - m.dQ/2 - vPv/(2*m.s2)
+        m.logl = -(m.r.n+c)/2*log(2*pi*m.s2) - m.dQ/2 - dQc/2 - (vPv+vcPcvc)/(2*m.s2)
         
         # Restricted log-likelihood
-        m.loglr = m.logl + m.nx/2*log(2*pi*m.s2) - m.dN/2
+        m.loglr = m.logl + m.nx/2*log(2*pi*m.s2) - m.dN/2 + dQc/2
         
         # Finalize parameter covariance matrix
         m.Qx = m.s2 * m.Qx
@@ -4576,7 +4800,7 @@ class model:
     
     # Fit deterministic + noise model
     #--------------------------------
-    def fit(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model
@@ -4616,7 +4840,10 @@ class model:
             Numerical maximization method to be used in case estimator is either
             'ml' or 'reml': either 'Nelder-Mead', 'Powell', 'CG', 'BFGS' or 'Newton'.
             Default is 'Newton'.
-        ls_prefit : bool, optional
+        prefit_x : bool, optional
+            Should we start with a first fit of the deterministic parameters
+            assuming white noise only?
+        prefit_b : bool, optional
             In case estimator is either 'ml' or 'reml', should we start with a first
             LS fit of the noise parameters? Default is True.
         hessian : str, optional
@@ -4671,14 +4898,16 @@ class model:
                         print('    '+dim, file=out)
                         print('    '+'-'*len(dim), file=out)
                         print('', file=out)
-                    print('    '+str(date())+' : Initial fit', file=out)
 
                 # First fit with white noise only to get good a priori deterministic parameters
-                if (m[d].r.Q is not None):
-                    m[d].Q = m[d].r.Q
-                else:
-                    m[d].Q = np.ones(m[d].r.n)
-                m[d].fitx()
+                if (prefit_x):
+                    if not(quiet):
+                        print('    '+str(date())+' : Initial fit', file=out)
+                    if (m[d].r.Q is not None):
+                        m[d].Q = m[d].r.Q
+                    else:
+                        m[d].Q = np.ones(m[d].r.n)
+                    m[d].fitx()
                 
                 # Raise error if initial fit of deterministic parameters failed
                 if (m[d].v is None):
@@ -4687,13 +4916,13 @@ class model:
                 # Set possibly unset a priori noise parameters
                 m[d].set_b0(np.sum(m[d].v**2)/m[d].r.n/len(m[d].n))
                 
-                # In case there's just one noise component, with just one unknown variance factor,
+                # In case there's just one noise component, with just one unknown variance factor, and no constraint on any parameter,
                 # de-activate initial LS fit of noise parameters and switch to Nelder-Mead method,
                 # so that thanks to Williams' trick, no iterations are required.
                 b = True
                 if (len(m[d].n) > 1):
                     b = False
-                else:
+                if (b):
                     n = m[d].n[0]
                     if (n.par[0].fixed):
                         b = False
@@ -4702,7 +4931,12 @@ class model:
                             if not(n.par[i].fixed):
                                 b = False
                 if (b):
-                    ls_prefit = False
+                    for f in m[d].f:
+                        for p in f.par:
+                            if not(p.fixed) and (p.sigc is not None):
+                                b = False
+                if (b):
+                    prefit_b = False
                     method = 'Nelder-Mead'
                     
                 # 1st case : [RE]ML estimation of noise parameters
@@ -4710,7 +4944,7 @@ class model:
                 if (estimator in ['ml', 'reml']):
                     
                     # Initial LS fit of noise parameters
-                    if (ls_prefit):
+                    if (prefit_b):
                         m[d].fit(estimator='ls', finalize=False, quiet=True)
                         
                         # Raise error if initial LS fit of noise parameters failed
@@ -4913,6 +5147,7 @@ class model:
                                 for j in range(i+1):
                                     if (dQP[i].ndim == 2) and (dQP[j].ndim == 2):
                                         N[i,j] = trdot(dQP[i], dQP[j]) / 2
+                                        #N[i,j] = -trdot(dQP[i], dQP[j]) / 2 + np.sum(dQPv[i]*np.dot(P, dQPv[j]))
                                     elif (dQP[i].ndim == 1) and (dQP[j].ndim == 2):
                                         N[i,j] = np.sum(dQP[i]*np.diag(dQP[j])) / 2
                                     elif (dQP[i].ndim == 2) and (dQP[j].ndim == 1):
@@ -4932,15 +5167,15 @@ class model:
                             b = db_dbr*b
                             
                             # Solve normal equation
-                            db = linalg.solve(N, b)
+                            db = 0.5*linalg.solve(N, b)
                             
-                            # Compute correction to increment based on previous increment
-                            if (dbp is not None):
-                                c = np.sum(db*dbp)
-                                z = np.sum(dbp**2)
-                                d2b = c**2 / z / (z-c) * dbp
-                            else:
-                                d2b = 0
+                            ## Compute correction to increment based on previous increment
+                            #if (dbp is not None):
+                                #c = np.sum(db*dbp)
+                                #z = np.sum(dbp**2)
+                                #d2b = c**2 / z / (z-c) * dbp
+                            #else:
+                            d2b = 0
                             
                             # Update noise parameters
                             br = br + db + d2b
@@ -4969,7 +5204,7 @@ class model:
                     # Set observation covariance matrix
                     if not(finalize):
                         m[d].set_cov()
-                    if (hessian == 'expected'):
+                    elif (hessian == 'expected'):
                         m[d].set_cov(inv=True, set_dcov=True)
                     else:
                         m[d].set_cov(inv=True)                    
@@ -5243,7 +5478,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', ls_prefit=True, hessian='expected', fr=None, thr_raw=5, thr_norm=5, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -5282,7 +5517,10 @@ class model:
         method : str, optional
             Numerical maximization method to be used in case estimator is either
             'ml' or 'reml': either 'Nelder-Mead' or 'Newton'. Default is 'Newton'.
-        ls_prefit : bool, optional
+        prefit_x : bool, optional
+            Should we start with a first fit of the deterministic parameters
+            assuming white noise only?
+        prefit_b : bool, optional
             In case estimator is either 'ml' or 'reml', should we start with a quick
             LS fit of the noise parameters? Default is True.
         hessian : str, optional
@@ -5296,6 +5534,11 @@ class model:
             along each component, threshold = thr_raw * WRMS. Default is 5.
         thr_norm : float, optional
             Threshold for normalized residuals. Default is 5.
+        thr_mad : float, optional
+            Another threshold for raw residuals: along each component, points outside
+            a "running median +/- thr_mad * running MAD" limit will be rejected.
+        win_mad : float, optional
+            Length of the window used to compute running median and MAD
         finalize : bool, optional
             If False, then fit_iter() will stop right after the optimal noise parameters
             are found and set, but most other attributes of the model will not be set.
@@ -5317,10 +5560,29 @@ class model:
             
             # De-activate initial LS fit of noise parameters if we're after the 1st iteration
             if (i > 1):
-                ls_prefit = False
+                prefit_b = False
             
             # Fit model
-            m.fit(estimator=estimator, method=method, ls_prefit=ls_prefit, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
+            m.fit(estimator=estimator, method=method, prefit_x=prefit_x, prefit_b=prefit_b, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
+            
+            # If necessary, compute approximate normalized residuals and WRMS assuming VW only
+            # (This should be removed!)
+            if not(finalize):
+                for d in range(m.nd):
+                    m[d].sv = np.sqrt(m[d].s2*m[d].Q)
+                    m[d].vn = m[d].v / m[d].sv
+                    m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
+                    m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
+
+            # If necessary, compute running median and MAD of residuals
+            if (thr_mad is not None):
+                vmed = np.nan * np.ones((m.r.n, m.nd))
+                vmad = np.nan * np.ones((m.r.n, m.nd))
+                for i in range(m.r.n):
+                    ind = np.nonzero(np.abs(m.r.t-m.r.t[i]) <= (win_mad-1)/2)[0]
+                    for d in range(m.nd):
+                        vmed[i,d] = np.median(m[d].v[ind])
+                        vmad[i,d] = mad(m[d].v[ind])
             
             # Get outlier indices
             ind = []
@@ -5330,6 +5592,9 @@ class model:
             if (thr_norm is not None):
                 for d in range(m.nd):
                     ind = ind + np.nonzero(np.abs(m[d].vn) > thr_norm)[0].tolist()
+            if (thr_mad is not None):
+                for d in range(m.nd):
+                    ind = ind + np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
             ind = list(set(ind))
             
             # Clean outliers
@@ -5998,7 +6263,6 @@ class model:
         # Initializations
         T = np.zeros(m.r.n)
         t = m.r.t - m.t0
-        dt = np.hstack((0, m.r.t[1:]-m.r.t[:-1]))
         
         # Loop over dimensions
         for d in range(m.nd):
@@ -6010,11 +6274,11 @@ class model:
                 if (m[d].nx > 0):
                     CtPA = np.dot(CtP, m[d].A)
                 CtPv = np.dot(CtP, m[d].v)
-            else:
-                CtPC = np.cumsum(m[d].P*dt**2)
+            else:                
+                CtPC = np.cumsum(m[d].P*t**2) - 2*t*np.cumsum(m[d].P*t) + t**2*np.cumsum(m[d].P)
                 if (m[d].nx > 0):
-                    CtPA = np.cumsum((m[d].A.T*m[d].P*dt).T, axis=0)
-                CtPv = np.cumsum(m[d].Pv*dt)
+                    CtPA = np.cumsum((m[d].A.T*m[d].P*t).T, axis=0) - (np.cumsum((m[d].A.T*m[d].P), axis=1)*t).T
+                CtPv = np.cumsum(m[d].Pv*t) - t*np.cumsum(m[d].Pv)
                 
             # Update T-statistics
             for i in range(m.r.n):
