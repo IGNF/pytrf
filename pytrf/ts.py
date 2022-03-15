@@ -4991,13 +4991,17 @@ class model:
                             elif (estimator == 'reml'):
                                 return -m[d].loglr
                         
-                        # Search optimal reparameterized noise parameters
-                        if not(quiet):
-                            print('    '+str(date())+' : Search optimal noise parameters', file=out)
-                        br = optimize.minimize(loglr, m[d].get_br(), method=method, tol=1e-5).x
-
-                        # Set optimal noise parameters
-                        m[d].set_br(br)                    
+                        # Search optimal reparameterized noise parameters...
+                        if (len(m[d].get_br()) > 0):
+                            if not(quiet):
+                                print('    '+str(date())+' : Search optimal noise parameters', file=out)
+                            br = optimize.minimize(loglr, m[d].get_br(), method=method, tol=1e-5).x
+                            m[d].set_br(br)
+                        
+                        #... or just fit deterministic parameters
+                        else:
+                            m[d].set_cov(chol=True)
+                            m[d].fitx(vf=w)
                         
                         # If Williams' trick was used,
                         if (w):
@@ -5147,7 +5151,6 @@ class model:
                                 for j in range(i+1):
                                     if (dQP[i].ndim == 2) and (dQP[j].ndim == 2):
                                         N[i,j] = trdot(dQP[i], dQP[j]) / 2
-                                        #N[i,j] = -trdot(dQP[i], dQP[j]) / 2 + np.sum(dQPv[i]*np.dot(P, dQPv[j]))
                                     elif (dQP[i].ndim == 1) and (dQP[j].ndim == 2):
                                         N[i,j] = np.sum(dQP[i]*np.diag(dQP[j])) / 2
                                     elif (dQP[i].ndim == 2) and (dQP[j].ndim == 1):
@@ -6344,7 +6347,7 @@ class model:
 
     # Likelihood ratio test for periodic signals
     #-------------------------------------------
-    def glr_sine(m):
+    def glr_sine(m, use_fft=True):
 
         """
         Likelihood ratio test for periodic signals
@@ -6353,6 +6356,9 @@ class model:
         -------
         T : array
             T-statistics for possible periodic signals at each frequency of m.fr
+        use_fft : bool
+            Whether trigonometric sums should be computed using fast but approximate method
+            of Press & Rybicki (1989). Default is True.
 
         """
 
@@ -6389,14 +6395,14 @@ class model:
                 Pc[0] = np.sum(np.diag(Pf))
                 for i in range(1, len(tf)):
                     Pc[i] = 2*np.sum(np.diag(Pf, i))
-                (S0, C0) = trig_sum(m.r.T*np.arange(len(tf)), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                (S0, C0) = trig_sum(m.r.T*np.arange(len(tf)), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute sum(sin(2*pi*f*(ti+tj)*Pij)) and sum(cos(2*pi*f*(ti+tj)*Pij))
                 Pf = np.fliplr(Pf)
                 Pc = np.zeros(2*len(tf)-1)
                 for i in range(2*len(tf)-1):
                     Pc[i] = np.sum(np.diag(Pf, len(tf)-1-i))
-                (S1, C1) = trig_sum(2*tf[0]+m.r.T*np.arange(2*len(tf)-1), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                (S1, C1) = trig_sum(2*tf[0]+m.r.T*np.arange(2*len(tf)-1), Pc, m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute C^T*P*C at all frequencies
                 CtPC = np.zeros((len(m.fr), 2, 2))
@@ -6414,7 +6420,7 @@ class model:
                         PA[ind,:] = (m[d].A.T * m[d].P).T
                     CtPA = np.zeros((len(m.fr), 2, m[d].nx))
                     for i in range(m[d].nx):
-                        (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=True, Mfft=24)
+                        (CtPA[:,1,i], CtPA[:,0,i]) = trig_sum(tf, PA[:,i], m.fr[1]-m.fr[0], len(m.fr), f0=m.fr[0], use_fft=use_fft, Mfft=24)
 
                 # Compute C^T*P*v at all frequencies
                 Pv = np.zeros(len(tf))
@@ -6426,9 +6432,9 @@ class model:
                 for i in range(len(m.fr)):    
                     Nc = CtPC[i]
                     if (m[d].nx > 0):
-                        Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
-                    if (np.linalg.matrix_rank(Nc) == 2):
-                        xc = linalg.solve(Nc, CtPv[i])
+                        Nc2 = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                    if (np.linalg.det(Nc2)/np.linalg.det(Nc) > 1e-12):
+                        xc = linalg.solve(Nc2, CtPv[i])
                         T[i] = T[i] + np.dot(xc.T, CtPv[i])
             
         # Else (irregularly sampled series),
