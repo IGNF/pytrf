@@ -159,6 +159,8 @@ class sinex:
         propagate()        : Propagate station positions to specified date
         get_psd()          : Compute post-seismic deformation of given station at given date
         add_psd()          : Add post-seismic deformation models to a solution
+        get_seas()         : Compute seasonal signal of given station at given date
+        add_seas()         : Add seasonal signals to a solution
         calib_lod()        : Calibrate LOD estimates wrt reference series        
         map()              : Draw station map
         map_res()          : Draw station position residual map
@@ -208,6 +210,7 @@ class sinex:
         snx.ix = []
         snx.iv = []
         snx.ipsd = []
+        snx.iseas = []
         snx.irs = []
         snx.ixpo = []
         snx.ixpor = []
@@ -302,7 +305,7 @@ class sinex:
             line = f.readline()            
             while (line[0] != '-'):
                 if (line[0] != '*'):
-                    snx.comment.append(line[1:].strip())
+                    snx.comment.append(line[1:].rstrip())
                 line = f.readline()
 
         # Read INPUT/HISTORY block -> snx.input
@@ -789,8 +792,8 @@ class sinex:
         # Load everything but matrices
         snx = pickle.load(open(file, 'rb'))
         
-        # Load matrices if requested
-        if (load_mat):
+        # Load matrices if possible and requested
+        if (os.path.isfile(file+'.mat')) and (load_mat):
             mat = pickle.load(open(file+'.mat', 'rb'))
             snx.Q = mat.Q
             snx.N = mat.N
@@ -884,7 +887,7 @@ class sinex:
 
             # PATCH: add possibly missing stations in snx.sta
             keys = [s.code+s.pt for s in snx.sta]
-            for i in snx.ix+snx.ipsd:
+            for i in snx.ix+snx.ipsd+snx.iseas:
                 p = snx.param[i]
                 if not(p.code+p.pt in keys):
                     r = record()
@@ -920,7 +923,7 @@ class sinex:
                                 s.soln[0].soln = snx.param[snx.ix[inds[0]]].soln
 
             # Update snx.sta
-            keys = [p.code+p.pt for p in [snx.param[i] for i in snx.ix+snx.ipsd]]
+            keys = [p.code+p.pt for p in [snx.param[i] for i in snx.ix+snx.ipsd+snx.iseas]]
             i = 0
             while (i < len(snx.sta)):
                 if not(snx.sta[i].code+snx.sta[i].pt in keys):
@@ -986,37 +989,39 @@ class sinex:
             p = snx.param[i]
             if (p.type[0:3] in ['STA', 'VEL']):
                 keys.append('0'+p.code+p.pt+p.soln+p.type)
+            elif (p.type[0:5] in ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']):
+                keys.append('1'+p.code+p.pt+p.soln+p.type[0:2]+p.type[5]+p.type[2:5])
             elif (p.type[0:2] == 'RS'):
-                keys.append('1'+p.code+p.pt+p.soln+p.type[::-1])
+                keys.append('2'+p.code+p.pt+p.soln+p.type[::-1])
             elif (p.type[0:4] == 'SATA'):
-                keys.append('2'+p.code+p.pt+p.soln+p.type)
+                keys.append('3'+p.code+p.pt+p.soln+p.type)
             elif (p.type == 'XPO   '):
-                keys.append('30'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'XPOR  '):
-                keys.append('31'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'YPO   '):
-                keys.append('32'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'YPOR  '):
-                keys.append('33'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'UT    '):
-                keys.append('34'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'LOD   '):
-                keys.append('35'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'NUT_X '):
-                keys.append('36'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'NUT_Y '):
-                keys.append('37'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'XGC   '):
                 keys.append('40'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'YGC   '):
+            elif (p.type == 'XPOR  '):
                 keys.append('41'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'ZGC   '):
+            elif (p.type == 'YPO   '):
                 keys.append('42'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'DSC   '):
+            elif (p.type == 'YPOR  '):
                 keys.append('43'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'UT    '):
+                keys.append('44'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'LOD   '):
+                keys.append('45'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'NUT_X '):
+                keys.append('46'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'NUT_Y '):
+                keys.append('47'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'XGC   '):
+                keys.append('50'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'YGC   '):
+                keys.append('51'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'ZGC   '):
+                keys.append('52'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type == 'DSC   '):
+                keys.append('53'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']):
                 j = ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    '].index(p.type)
-                keys.append('5'+'{0:06d}{1}'.format(int(p.soln), j))
+                keys.append('6'+'{0:06d}{1}'.format(int(p.soln), j))
             else:
                 keys.append('9{0:06d}'.format(i))
                 
@@ -1049,63 +1054,69 @@ class sinex:
         
         """
         
-        # Array of parameter types
-        types = np.array([p.type for p in snx.param])
-        stypes = np.array([p.type[1:4] for p in snx.param])
+        if (snx.npar > 0):
         
-        # Station positions
-        snx.ix = np.nonzero(types == 'STAX  ')[0].tolist()
+            # Array of parameter types
+            types = np.array([p.type for p in snx.param])
+            types1 = np.array([p.type[1:4] for p in snx.param])
+            types2 = np.array([p.type[0:5] for p in snx.param])
+            
+            # Station positions
+            snx.ix = np.nonzero(types == 'STAX  ')[0].tolist()
 
-        # Station velocities
-        snx.iv = np.nonzero(types == 'VELX  ')[0].tolist()
-                    
-        # PSD parameters
-        snx.ipsd = np.nonzero(np.in1d(stypes, ['EXP', 'LOG']))[0].tolist()
-        
-        # Radiosource coordinates
-        snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
+            # Station velocities
+            snx.iv = np.nonzero(types == 'VELX  ')[0].tolist()
+            
+            # PSD parameters
+            snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
+            
+            # Seasonal terms
+            snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            
+            # Radiosource coordinates
+            snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
 
-        # X-pole coordinates
-        snx.ixpo = np.nonzero(types == 'XPO   ')[0].tolist()
+            # X-pole coordinates
+            snx.ixpo = np.nonzero(types == 'XPO   ')[0].tolist()
 
-        # X-pole rates
-        snx.ixpor = np.nonzero(types == 'XPOR  ')[0].tolist()
+            # X-pole rates
+            snx.ixpor = np.nonzero(types == 'XPOR  ')[0].tolist()
 
-        # Y-pole coordinates
-        snx.iypo = np.nonzero(types == 'YPO   ')[0].tolist()
+            # Y-pole coordinates
+            snx.iypo = np.nonzero(types == 'YPO   ')[0].tolist()
 
-        # Y-pole rates
-        snx.iypor = np.nonzero(types == 'YPOR  ')[0].tolist()
-        
-        # UT1-UTC offsets
-        snx.iut = np.nonzero(types == 'UT    ')[0].tolist()
+            # Y-pole rates
+            snx.iypor = np.nonzero(types == 'YPOR  ')[0].tolist()
+            
+            # UT1-UTC offsets
+            snx.iut = np.nonzero(types == 'UT    ')[0].tolist()
 
-        # LODs
-        snx.ilod = np.nonzero(types == 'LOD   ')[0].tolist()
-        
-        # X-nutations
-        snx.inutx = np.nonzero(types == 'NUT_X ')[0].tolist()
+            # LODs
+            snx.ilod = np.nonzero(types == 'LOD   ')[0].tolist()
+            
+            # X-nutations
+            snx.inutx = np.nonzero(types == 'NUT_X ')[0].tolist()
 
-        # Y-nutations
-        snx.inuty = np.nonzero(types == 'NUT_Y ')[0].tolist()
+            # Y-nutations
+            snx.inuty = np.nonzero(types == 'NUT_Y ')[0].tolist()
 
-        # Geocenter coordinates
-        snx.igc = np.nonzero(types == 'XGC   ')[0].tolist()
-        
-        # Scale factors
-        snx.isc = np.nonzero(types == 'DSC   ')[0].tolist()
+            # Geocenter coordinates
+            snx.igc = np.nonzero(types == 'XGC   ')[0].tolist()
+            
+            # Scale factors
+            snx.isc = np.nonzero(types == 'DSC   ')[0].tolist()
 
-        # Satellite x-PCOs
-        snx.isatax = np.nonzero(types == 'SATA_X')[0].tolist()
+            # Satellite x-PCOs
+            snx.isatax = np.nonzero(types == 'SATA_X')[0].tolist()
 
-        # Satellite y-PCOs
-        snx.isatay = np.nonzero(types == 'SATA_Y')[0].tolist()
+            # Satellite y-PCOs
+            snx.isatay = np.nonzero(types == 'SATA_Y')[0].tolist()
 
-        # Satellite z-PCOs
-        snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
-        
-        # Transformation parameters
-        snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            # Satellite z-PCOs
+            snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
+            
+            # Transformation parameters
+            snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
 
     # Write sinex instance into SINEX file
     #-------------------------------------
@@ -1377,6 +1388,7 @@ class sinex:
         pkl.ix = snx.ix
         pkl.iv = snx.iv
         pkl.ipsd = snx.ipsd
+        pkl.iseas = snx.iseas
         pkl.irs = snx.irs
         pkl.ixpo = snx.ixpo
         pkl.ixpor = snx.ixpor
@@ -1479,6 +1491,7 @@ class sinex:
         snx2.ix = snx.ix.copy()
         snx2.iv = snx.iv.copy()
         snx2.ipsd = snx.ipsd.copy()
+        snx2.iseas = snx.iseas.copy()
         snx2.irs = snx.irs.copy()
         snx2.ixpo = snx.ixpo.copy()
         snx2.ixpor = snx.ixpor.copy()
@@ -4423,7 +4436,7 @@ class sinex:
         ind = []
         for i in range(snx.npar):
             p = snx.param[i]
-            if ((p.code == code) and (p.type[5] == 'H') and (earlier(p.tref, t))):
+            if ((p.code == code) and (p.type[5] in 'HU') and (earlier(p.tref, t))):
                 ind.append(i)
             
         # Loop over model functions
@@ -4502,7 +4515,103 @@ class sinex:
                 if (snx.Q is not None):
                     snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz
                     snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                else:
+                    snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
 
+    # Compute seasonal signal of given station at given date
+    #-------------------------------------------------------
+    def get_seas(snx, code, pt, soln, t):
+
+        """
+        Compute seasonal signal of given station at given date
+
+        Returns
+        -------
+        dx : array_like
+            XYZ seasonal signal
+        sx : array_like
+            Sigma XYZ seasonal signal
+
+        Parameters
+        ----------
+        code : str
+            4-char station code
+        pt : str
+            PT code
+        soln : str
+            Solution number
+        t : str
+            Date (SINEX date format)
+        
+        """
+    
+        # Initializations
+        dx = np.zeros(3)
+        s2x = np.zeros(3)
+        mjd = date.from_tsnx(t).mjd
+        
+        # Set snx.codeptsoln if needed
+        if not(hasattr(snx, 'codeptsoln')):
+            snx.codeptsoln = np.array([snx.param[i].code + snx.param[i].pt + snx.param[i].soln for i in snx.iseas])
+        
+        # Indices of seasonal parameters of specified station
+        ind = np.nonzero(snx.codeptsoln == code+pt+soln)[0]
+        
+        # Loop over relevant parameters
+        for i in ind:
+            p = snx.param[snx.iseas[i]]
+            
+            # Component
+            j = 'XYZ'.index(p.type[5])
+            
+            # Annual harmonic
+            k = int(p.type[1])
+            
+            # Given date - reference date
+            dt = mjd - date.from_tsnx(p.tref).mjd
+            
+            # Add seasonal term
+            if (p.type[2:5] == 'COS'):
+                c = cos(2*pi*k*dt/365.25)
+            elif (p.type[2:5] == 'SIN'):
+                c = sin(2*pi*k*dt/365.25)
+            dx[j] = dx[j] + c*snx.x[i]
+            s2x[j] = s2x[j] + (c*snx.sig[i])**2
+
+        return (dx, np.sqrt(s2x))
+        
+    # Add seasonal signals to a solution
+    #-----------------------------------
+    def add_seas(snx, seas):
+        
+        """
+        Add seasonal signals to a solution
+
+        Parameters
+        ----------
+        seas : sinex instance
+            sinex instance containing seasonal signals
+        
+        """
+        
+        # Set useful attribute if needed
+        if not(hasattr(seas, 'codeptsoln')):
+            seas.codeptsoln = np.array([seas.param[i].code + seas.param[i].pt + seas.param[i].soln for i in seas.iseas])
+        
+        # Loop over STAX parameters
+        for i in snx.ix:
+            p = snx.param[i]
+            
+            # Compute seasonal signals
+            (dx, sx) = seas.get_seas(p.code, p.pt, p.soln, p.tref)
+            
+            # Add seasonal signals
+            snx.x[i:i+3] = snx.x[i:i+3] + dx
+            if (snx.Q is not None):
+                snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + np.diag(sx**2)
+                snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+            else:
+                snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
 
     # Calibrate LOD estimates wrt reference series
     #---------------------------------------------
