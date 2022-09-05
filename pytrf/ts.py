@@ -579,10 +579,16 @@ class ts:
             
             r.t0 = t0
             t = r.t - r.t0
-            for j in range(r.nd):
-                tr = trend(t, r.y[:,j])
-                r.ctrd[:,j] = r.ctrd[:,j] + tr
-                r.y[:,j] = r.y[:,j] - tr[0] - tr[1]*t 
+
+            if (r.nd == 1):
+                tr = trend(t, r.y)
+                r.ctrd = r.ctrd + tr
+                r.y = r.y - tr[0] - tr[1]*t 
+            else:
+                for j in range(r.nd):
+                    tr = trend(t, r.y[:,j])
+                    r.ctrd[:,j] = r.ctrd[:,j] + tr
+                    r.y[:,j] = r.y[:,j] - tr[0] - tr[1]*t 
 
     # Flag outliers
     #--------------
@@ -3356,7 +3362,7 @@ class model:
     # Initialize model instance from discontinuity list in (pseudo-)SINEX format
     #---------------------------------------------------------------------------
     @classmethod
-    def from_solns(m, r, solns, code, pt=None, t0=None, per=None, noise=None, psd=None, fix_tau=False, fix_amp=False, dims='ENH'):
+    def from_solns(m, r, solns, code, pt=None, t0=None, per=None, noise=None, psd=None, fix_tau=False, fix_amp=False, dims='ENU'):
         
         """
         Create model instance from discontinuity list in (pseudo-)SINEX format
@@ -3587,7 +3593,7 @@ class model:
         
     # Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
     #----------------------------------------------------------------------------------------------------
-    def add_psd(m, psd, code, pt=None, fix_amp=False, fix_tau=False, dims='ENH'):
+    def add_psd(m, psd, code, pt=None, fix_amp=False, fix_tau=False, dims='ENU'):
 
         """
         Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
@@ -3612,8 +3618,8 @@ class model:
             Whether relaxation times should be considered fixed. Default is False.
         dims: str, optional
             This keyword is needed to know the order of the ENH component(s) in the time
-            series m.r. dims must thus be a combination of the letters 'E', 'N' and/or 'H',
-            in the same order as those components are stored in m.r. Default is 'ENH'.
+            series m.r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
+            in the same order as those components are stored in m.r. Default is 'ENU'.
             
         """
         
@@ -5151,6 +5157,7 @@ class model:
                                 for j in range(i+1):
                                     if (dQP[i].ndim == 2) and (dQP[j].ndim == 2):
                                         N[i,j] = trdot(dQP[i], dQP[j]) / 2
+                                        #N[i,j] = -trdot(dQP[i], dQP[j]) / 2 + np.sum(dQPv[i]*np.dot(P, dQPv[j]))
                                     elif (dQP[i].ndim == 1) and (dQP[j].ndim == 2):
                                         N[i,j] = np.sum(dQP[i]*np.diag(dQP[j])) / 2
                                     elif (dQP[i].ndim == 2) and (dQP[j].ndim == 1):
@@ -5904,7 +5911,8 @@ class model:
             # Residuals and noise model spectra
             ax.loglog(fr, pv, 'k', zorder=3)
             ax.loglog(fr, m[d].pn, 'r', linewidth=2, zorder=4)
-            ax.fill_between(fr, m[d].pn-m[d].spn, m[d].pn+m[d].spn, color='r', alpha=0.6, zorder=4)
+            if (m[d].spn is not None):
+                ax.fill_between(fr, m[d].pn-m[d].spn, m[d].pn+m[d].spn, color='r', alpha=0.6, zorder=4)
             
             ## Debug
             #for n in m[d].n:
