@@ -99,9 +99,9 @@ def write_res(snx, acs, w, d, fres, fyml):
     fyml = open(fyml, 'w')
     
     # Write header
-    print('--------------------------------------------------------------------------------', file=fres)
-    print('Residuals from IGS combination of daily AC repro3 solutions for week {0}, day {1}'.format(w, d), file=fres)
-    print('--------------------------------------------------------------------------------', file=fres)
+    print('-------------------------------------------------------------------------------', file=fres)
+    print('Residuals from IGS combination of daily AC SINEX solutions for week {0}, day {1}'.format(w, d), file=fres)
+    print('-------------------------------------------------------------------------------', file=fres)
     print('', file=fres)
     print(' Daily AC solutions:', file=fres)
     for ac in acs:
@@ -115,9 +115,9 @@ def write_res(snx, acs, w, d, fres, fyml):
     print('', file=fres)
     
     # Write YML header
-    print('#---------------------------------------------------------------------------------', file=fyml)
-    print('# Residuals from IGS combination of daily AC repro3 solutions for week {0}, day {1}'.format(w, d), file=fyml)
-    print('#---------------------------------------------------------------------------------', file=fyml)
+    print('#--------------------------------------------------------------------------------', file=fyml)
+    print('# Residuals from IGS combination of daily AC SINEX solutions for week {0}, day {1}'.format(w, d), file=fyml)
+    print('#--------------------------------------------------------------------------------', file=fyml)
     print('', file=fyml)
     print('# Daily AC solutions:', file=fyml)
     print('ac:', file=fyml)
@@ -349,9 +349,9 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     fyml = open(fyml, 'w')
     
     # Write header
-    print('----------------------------------------------------------', file=fsum)
-    print('IGS combination of daily AC repro3 solutions for week {0}'.format(w), file=fsum)
-    print('----------------------------------------------------------', file=fsum)
+    print('---------------------------------------------------------', file=fsum)
+    print('IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fsum)
+    print('---------------------------------------------------------', file=fsum)
     print('', file=fsum)
     print(' Author:  Paul Rebischung', file=fsum)
     print(' Contact: igs-rf@ign.fr', file=fsum)
@@ -368,9 +368,9 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('  - BuA = finals2000A.data', file=fsum)
 
     # Write YML header
-    print('#-----------------------------------------------------------', file=fyml)
-    print('# IGS combination of daily AC repro3 solutions for week {0}'.format(w), file=fyml)
-    print('#-----------------------------------------------------------', file=fyml)
+    print('#----------------------------------------------------------', file=fyml)
+    print('# IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fyml)
+    print('#----------------------------------------------------------', file=fyml)
     print('', file=fyml)
     print('author: Paul Rebischung', file=fyml)
     print('contact: igs-rf@ign.fr', file=fyml)

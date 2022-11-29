@@ -221,8 +221,8 @@ class erp:
         r.sxpor = snx.sig[snx.ixpor]
         r.ypor = snx.x[snx.iypor]
         r.sypor = snx.sig[snx.iypor]
-        r.ut = snx.x[snx.iut]
-        r.sut = snx.sig[snx.iut]
+        r.ut1 = snx.x[snx.iut]
+        r.sut1 = snx.sig[snx.iut]
         r.lod = snx.x[snx.ilod]
         r.slod = snx.sig[snx.ilod]
 
@@ -258,8 +258,8 @@ class erp:
                 r.ypo = np.hstack((r.ypo, s.ypo))
             if (r.ypor is not None):
                 r.ypor = np.hstack((r.ypor, s.ypor))
-            if (r.ut is not None):
-                r.ut = np.hstack((r.ut, s.ut))
+            if (r.ut1 is not None):
+                r.ut1 = np.hstack((r.ut1, s.ut1))
             if (r.lod is not None):
                 r.lod = np.hstack((r.lod, s.lod))
             if (r.dX is not None):
@@ -278,8 +278,8 @@ class erp:
                 r.sypo = np.hstack((r.sypo, s.sypo))
             if (r.sypor is not None):
                 r.sypor = np.hstack((r.sypor, s.sypor))
-            if (r.sut is not None):
-                r.sut = np.hstack((r.sut, s.sut))
+            if (r.sut1 is not None):
+                r.sut1 = np.hstack((r.sut1, s.sut1))
             if (r.slod is not None):
                 r.slod = np.hstack((r.slod, s.slod))
             if (r.sdX is not None):
@@ -414,7 +414,7 @@ class erp:
         # Print header
         print('version 2', file=file)
         print('EOP  SOLUTION', file=file)
-        print('  MJD         X        Y     UT1-UTC    LOD   Xsig   Ysig   UTsig LODsig  Nr Nf Nt     Xrt    Yrt  Xrtsig Yrtsig   dpsi    deps', file=file)
+        print('  MJD       Xpole    Ypole   UT1-UTC    LOD   Xsig   Ysig   UTsig LODsig  Nr Nf Nt     Xrt    Yrt  Xrtsig Yrtsig   dpsi    deps', file=file)
         print('               10**-6"        .1us    .1us/d    10**-6"     .1us  .1us/d                10**-6"/d    10**-6"/d        10**-6', file=file)
 
         # Print records

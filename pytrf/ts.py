@@ -185,8 +185,10 @@ class ts:
                     r.T = T
                 else:
                     r.T = T.copy()
-            else:
+            elif (len(t) > 1):
                 r.T = np.min(r.t[1:]-r.t[:-1])
+            else:
+                r.T = 0
 
             # Set time and series units
             r.tunit = tunit

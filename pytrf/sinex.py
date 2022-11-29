@@ -152,13 +152,14 @@ class sinex:
         setup_gc()         : Set up geocenter coordinates in a normal equation
         prior2ref()        : Set a priori parameter values to reference values
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
+        add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
         compare_iter()     : Iterative Helmert comparison between two solutions
         propagate()        : Propagate station positions to specified date
         get_psd()          : Compute post-seismic deformation of given station at given date
-        add_psd()          : Add post-seismic deformation models to a solution
+        add_psd()          : Add or remove post-seismic deformation models to a solution
         get_seas()         : Compute seasonal signal of given station at given date
         add_seas()         : Add seasonal signals to a solution
         calib_lod()        : Calibrate LOD estimates wrt reference series        
@@ -738,7 +739,7 @@ class sinex:
 
         # Set parameter indices
         snx.set_par_ind()
-                
+        
         # Clean station list
         snx.clean_sta()
         
@@ -1665,14 +1666,18 @@ class sinex:
         if not(quiet):
             print('sinex.check_solns', file=out)
             print('-----------------', file=out)
+            
+        # Search keys
+        codept_soln = [s.code+s.pt for s in solns]
+        codept_sta = [s.code+s.pt for s in snx.sta]
 
         # Loop over STAX parameters
         for i in snx.ix:
             p = snx.param[i]
 
             # If current station is found in discontinuity list
-            if (p.code+p.pt in [s.code+s.pt for s in solns]):
-                ista = [s.code+s.pt for s in solns].index(p.code+p.pt)
+            if (p.code+p.pt in codept_soln):
+                ista = codept_soln.index(p.code+p.pt)
 
                 # Look for appropriate soln
                 isoln = 0
@@ -1699,7 +1704,7 @@ class sinex:
                 snx.param[i+2].soln = soln2
                 
                 # Modify soln in snx.sta
-                ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
+                ista = codept_sta.index(p.code+p.pt)
                 snx.sta[ista].soln[0].soln = soln2
                     
         # Print blank line in log file
@@ -2670,8 +2675,12 @@ class sinex:
             
         """
       
-        # Initialization
+        # Initializations
         A = np.zeros((snx.npar, 10))
+        if (snx.x0 is not None):
+            x = snx.x0
+        else:
+            x = snx.x
         
         # 1st case : Helmert parameters
         if (par == 'STA'):
@@ -2682,21 +2691,21 @@ class sinex:
                 A[ix[:,0], 0] =  ae
                 A[ix[:,1], 1] =  ae
                 A[ix[:,2], 2] =  ae
-                A[ix[:,0], 3] =  snx.x0[ix[:,0]]
-                A[ix[:,1], 3] =  snx.x0[ix[:,1]]
-                A[ix[:,2], 3] =  snx.x0[ix[:,2]]
-                A[ix[:,1], 4] = -snx.x0[ix[:,2]]
-                A[ix[:,2], 4] =  snx.x0[ix[:,1]]
-                A[ix[:,0], 5] =  snx.x0[ix[:,2]]
-                A[ix[:,2], 5] = -snx.x0[ix[:,0]]
-                A[ix[:,0], 6] = -snx.x0[ix[:,1]]
-                A[ix[:,1], 6] =  snx.x0[ix[:,0]]
+                A[ix[:,0], 3] =  x[ix[:,0]]
+                A[ix[:,1], 3] =  x[ix[:,1]]
+                A[ix[:,2], 3] =  x[ix[:,2]]
+                A[ix[:,1], 4] = -x[ix[:,2]]
+                A[ix[:,2], 4] =  x[ix[:,1]]
+                A[ix[:,0], 5] =  x[ix[:,2]]
+                A[ix[:,2], 5] = -x[ix[:,0]]
+                A[ix[:,0], 6] = -x[ix[:,1]]
+                A[ix[:,1], 6] =  x[ix[:,0]]
             
             # Radiosource positions partial derivatives
             ix = np.array([[i, i+1] for i in snx.irs])
             if (len(ix) > 0):
-                a = mas2rad * snx.x0[ix[:,0]]
-                d = mas2rad * snx.x0[ix[:,1]]
+                a = mas2rad * x[ix[:,0]]
+                d = mas2rad * x[ix[:,1]]
                 A[ix[:,0], 7] =  np.tan(d)*np.cos(a) / mas2rad
                 A[ix[:,1], 7] = -np.sin(a)           / mas2rad
                 A[ix[:,0], 8] =  np.tan(d)*np.sin(a) / mas2rad
@@ -2731,15 +2740,15 @@ class sinex:
             A[iv[:,0], 0] =  ae
             A[iv[:,1], 1] =  ae
             A[iv[:,2], 2] =  ae
-            A[iv[:,0], 3] =  snx.x[ix[:,0]]
-            A[iv[:,1], 3] =  snx.x[ix[:,1]]
-            A[iv[:,2], 3] =  snx.x[ix[:,2]]
-            A[iv[:,1], 4] = -snx.x[ix[:,2]]
-            A[iv[:,2], 4] =  snx.x[ix[:,1]]
-            A[iv[:,0], 5] =  snx.x[ix[:,2]]
-            A[iv[:,2], 5] = -snx.x[ix[:,0]]
-            A[iv[:,0], 6] = -snx.x[ix[:,1]]
-            A[iv[:,1], 6] =  snx.x[ix[:,0]]
+            A[iv[:,0], 3] =  x[ix[:,0]]
+            A[iv[:,1], 3] =  x[ix[:,1]]
+            A[iv[:,2], 3] =  x[ix[:,2]]
+            A[iv[:,1], 4] = -x[ix[:,2]]
+            A[iv[:,2], 4] =  x[ix[:,1]]
+            A[iv[:,0], 5] =  x[ix[:,2]]
+            A[iv[:,2], 5] = -x[ix[:,0]]
+            A[iv[:,0], 6] = -x[ix[:,1]]
+            A[iv[:,1], 6] =  x[ix[:,0]]
 
         # Express Helmert parameters in adequate units
         if (units is None):
@@ -2783,8 +2792,8 @@ class sinex:
             # Indices of parameters to keep
             indk = np.setdiff1d(range(snx.npar), ind)
             
-            # 1st case: solution + normal equation
-            if (snx.Q is not None) and (snx.N is not None):
+            # 1st case: solution + normal equation + constraints
+            if (snx.Q is not None) and (snx.N is not None) and (snx.Nc is not None):
                 R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
                 snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
                 snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
@@ -2793,8 +2802,8 @@ class sinex:
                 snx.sig0 = snx.sig0[indk]
                 snx.neqinv(clear_neq=False)
             
-            # 2nd case: normal equation only
-            elif (snx.N is not None):
+            # 2nd case: normal equation + constraints
+            elif (snx.N is not None) and (snx.Nc is not None):
                 R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
                 snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
                 snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
@@ -2804,7 +2813,7 @@ class sinex:
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
 
-            # 3rd case: solution only with constraints, including constraints on reduced parameters
+            # 3rd case: solution + constraints, including constraints on reduced parameters
             elif (snx.Q is not None) and (snx.Nc is not None):
                 if (np.any(snx.Nc[np.ix_(ind, ind)])) and not(keep_const):
                     snx.unconstrain(clear_const=False)
@@ -2816,29 +2825,37 @@ class sinex:
                     snx.sig0 = snx.sig0[indk]
                     snx.neqinv()
 
-            # 4th case: solution only with constraints, but without constraints on reduced parameters
+            # 4th case: solution + constraints, but without constraints on reduced parameters
                 else:
                     snx.Q = snx.Q[np.ix_(indk, indk)]
                     snx.x = snx.x[indk]
                     snx.sig = snx.sig[indk]
                     snx.Nc = snx.Nc[np.ix_(indk, indk)]
                     snx.x0 = snx.x0[indk]
-                    snx.sig0 = snx.sig0[indk]                        
+                    snx.sig0 = snx.sig0[indk]
                     
-            # 5th case: solution only without constraints
+            # 5th case: solution + normal equation
+            elif (snx.Q is not None) and (snx.N is not None):
+                R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
+                snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
+                snx.Q = snx.Q[np.ix_(indk, indk)]
+                snx.x = snx.x[indk]
+                snx.sig = snx.sig[indk]
+                    
+            # 6th case: solution only
             elif (snx.Q is not None):
                 snx.Q = snx.Q[np.ix_(indk, indk)]
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
                 
-            # 6th case: no matrix at all
+            # 7th case: no matrix at all
             else:
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
                 if (snx.x0 is not None):
                     snx.x0 = snx.x0[indk]
                     snx.sig0 = snx.sig0[indk]
-                
+                    
             # Update snx.npar and snx.param
             snx.npar = len(indk)
             snx.param = [snx.param[i] for i in indk]
@@ -3623,6 +3640,10 @@ class sinex:
         elif (par == 'STA'):
             irs = [[i, i+1] for i in snx.irs]
             irs = np.array(irs, dtype='int').flatten()
+            
+        # Else, 
+        elif (par == 'VEL'):
+            irs = np.array([], dtype='int')
         
         # If a threshold is specified, reject candidate stations with large uncertainties
         if (thr):
@@ -3676,6 +3697,63 @@ class sinex:
                 
         return A.shape[1]
 
+    # Add equality constraints between successive velocities to normal matrix of constraints
+    #---------------------------------------------------------------------------------------
+    def add_dvc(snx, solns, sigma=1e-6):
+        
+        """
+        Add equality constraints between successive velocities to normal matrix of constraints
+        
+        Returns
+        -------
+        nc : int
+            Number of constraints added
+
+        Parameters
+        ----------
+        solns : list
+            Reference discontinuity list (from ioutils.read_solns)
+        sigma : float, optional
+            Sigma of velocity equality constraints in m/y. Default is 1e-6.
+            
+        """
+        
+        # Initializations
+        nc = 0
+        keys = [s.code+s.pt for s in solns]
+        keys_v = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
+        
+        # Loop over stations
+        for sta in snx.sta:
+
+            # Index of current station in discontinuity list
+            if (sta.code+sta.pt in keys):
+                isoln = keys.index(sta.code+sta.pt)
+
+                # Loop over solns
+                for i in range(len(sta.soln)-1):
+                    
+                    # Get end date of current soln
+                    ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
+                    end = solns[isoln].P[ip].end
+                    
+                    # If current soln should be constrained with the next one,
+                    if not(end in [v.end for v in solns[isoln].V]):
+                        
+                        # Get indices of both velocities
+                        i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
+                        i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
+                        
+                        # Add constraints between them
+                        for k in range(3):
+                            snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
+                            snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
+                        nc += 3
+                        
+        return nc
+        
     # Invert normal equation
     #-----------------------
     def neqinv(snx, clear_neq=True):
@@ -4478,17 +4556,22 @@ class sinex:
 
         return (dx, sx)
         
-    # Add post-seismic deformation models to a solution
-    #--------------------------------------------------
-    def add_psd(snx, psd):
+    # Add or remove post-seismic deformation models to a solution
+    #------------------------------------------------------------
+    def add_psd(snx, psd, remove=False, update_cov=True):
         
         """
-        Add post-seismic deformation models to a solution
+        Add or remove post-seismic deformation models to a solution
 
         Parameters
         ----------
         psd : sinex instance
             sinex instance containing post-seismic deformation models
+        remove : bool, optional
+            Whether PSD models should be removed rather than added. Default is False.
+        update_cov : bool, optional
+            Whether covariance matrix of PSD models should be added to covariance
+            matrix of sinex instance. Default is True.
         
         """
       
@@ -4510,13 +4593,19 @@ class sinex:
                 dxyz = np.dot(R.T, denh)
                 Qxyz = np.dot(R.T, np.dot(np.diag(senh**2), R))
                 
-                # Add post-seismic deformations
-                snx.x[i:i+3] = snx.x[i:i+3] + dxyz
-                if (snx.Q is not None):
-                    snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz
-                    snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                # Add or remove post-seismic deformations
+                if (remove):
+                    snx.x[i:i+3] = snx.x[i:i+3] - dxyz
                 else:
-                    snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
+                    snx.x[i:i+3] = snx.x[i:i+3] + dxyz
+                    
+                # Update covariance matrix if required
+                if (update_cov):
+                    if (snx.Q is not None):
+                        snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz
+                        snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                    else:
+                        snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
 
     # Compute seasonal signal of given station at given date
     #-------------------------------------------------------

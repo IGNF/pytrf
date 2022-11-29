@@ -26,7 +26,7 @@ from pytrf.utils import record, earlier
 
 # Read and pre-process input solution
 #------------------------------------
-def read_input(sol, tref, solns=None, stack_gc=False, stack_sc=False, load_mat=True):
+def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False, stack_sc=False, load_mat=True):
 
     """
     Combination of SINEX solutions
@@ -44,6 +44,12 @@ def read_input(sol, tref, solns=None, stack_gc=False, stack_sc=False, load_mat=T
         Reference date (in SINEX format)
     solns : str or list, optional
         [File containing] discontinuity list (soln.snx). Default is None.
+    check_solns : bool, optional
+        Whether solution numbers should be checked in input solutions or not. Default is True.
+        To save time, check solution numbers in input solutions before combination.
+    psd : str or sinex object, optional
+        sinex instance with post-seismic deformation models to be removed from input solutions
+        before combination. Default is None.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -66,13 +72,21 @@ def read_input(sol, tref, solns=None, stack_gc=False, stack_sc=False, load_mat=T
         else:
             raise RuntimeError('No input specified for solution {0} ({1}). Please set either \'snx\' or \'file\' attribute for each input solution.'.format(isol, sol.name))
     
+    # Set default scale factor if needed
+    if not(hasattr(sol, 'sf')):
+        sol.sf = 1
+    
     # Set reference epoch of input solution
     sol.tref = date.from_mjd((date.from_tsnx(sol.snx.start).mjd + date.from_tsnx(sol.snx.end).mjd) / 2).tsnx()
     
     # Check solns if necessary
-    if (solns):
+    if (solns) and (check_solns):
         sol.snx.check_solns(solns, quiet=True)
         
+    # Remove PSD models if needed
+    if (psd):
+        sol.snx.add_psd(psd, remove=True, update_cov=False)
+
     # In case geocenter coordinates and scale factors should be stacked,
     # change their epochs in input solution
     if (stack_gc):
@@ -86,13 +100,17 @@ def read_input(sol, tref, solns=None, stack_gc=False, stack_sc=False, load_mat=T
     
     # Delete unsupported parameters
     sol.snx.del_unknown_par()
+    
+    # Delete specified stations
+    if hasattr(sol, 'stadel'):
+        sol.snx.del_sta(sol.stadel)
 
 
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='approx', store_inputs=True, quiet=False, out=sys.stdout):
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
+            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
 
     """
     Combination of SINEX solutions
@@ -110,8 +128,17 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         Reference date (in SINEX format)
     solns : str or list, optional
         [File containing] discontinuity list (soln.snx). Default is None.
+    check_solns : bool, optional
+        Whether solution numbers should be checked in input solutions or not. Default is True.
+        To save time, check solution numbers in input solutions before combination.
+    psd : str or sinex object, optional
+        sinex instance with post-seismic deformation models to be removed from input solutions
+        before combination. Default is None.
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. Default is False.
+    dv_sig : float, optional
+        Sigma of equality constraints to be applied between successive velocities [m/y].
+        Default is 1e-6.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -154,12 +181,24 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             standard deviations, or
         - 'approx' in which case residuals are normalized by the
             standard deviations of the observations (i.e., snx.sig).
-        Default is 'approx'.
+        Default is 'correct'.
+    vce : str, optional
+        Keyword indicating how a posteriori variance factors should be computed.
+        It can be either:
+        - 'correct' in which case Sillard's (1999) degree-of-freedom estimator is used, or
+        - 'approx' in which case a faster approximation is used.
+        Default is 'correct'.
     store_inputs : bool, optional
         If True, all input solutions will be stored in RAM simultaneously (faster option).
         If False, input solutions are successively read and deleted during the successive
         processing steps (slower, but uses less RAM).
         Default is True.
+    reduce_trans : bool, optional
+        Whether to reduce transformation parameters. Default is False.
+        Note that if transformation parameters are reduced, the options norm_res='correct'
+        and vce='correct' become unavailable.
+    clear_neq : bool, optional
+        Whether normal equation should be kept in combined sinex object. Default is True.
     quiet : bool, optional
         Whether not to print output messages. Default is False.
     out : file-like, optional
@@ -199,6 +238,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     combsnx.rs = []
     combsnx.param = []
     combsnx.x0 = []
+    combsnx.codept = []
 
     # Other initializations
     mjd0 = date.from_tsnx(tref).mjd
@@ -227,10 +267,13 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Read input
-        read_input(sol, tref, solns, stack_gc, stack_sc, load_mat=store_inputs)
-            
+        read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
+        
         # Shortcut for sol.snx
         snx = sol.snx
+        
+        # Search keys
+        snx.codept = [s.code+s.pt for s in snx.sta]
 
         # Update number of observations
         nobs = nobs + snx.npar
@@ -266,8 +309,8 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             p = snx.param[i]
             
             # Get indices of current station
-            ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
-            icmbsta = [s.code+s.pt for s in combsnx.sta].index(p.code+p.pt)
+            ista = snx.codept.index(p.code+p.pt)
+            icmbsta = combsnx.codept.index(p.code+p.pt)
 
             # Get indices of current soln
             isoln = [s.soln for s in snx.sta[ista].soln].index(p.soln)
@@ -286,11 +329,11 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             p = snx.param[i]
             
             # If current station is already in combsnx.sta (but not current soln)
-            if (p.code+p.pt in [s.code+s.pt for s in combsnx.sta]):
+            if (p.code+p.pt in combsnx.codept):
 
                 # Get indices of current station
-                ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
-                icmbsta = [s.code+s.pt for s in combsnx.sta].index(p.code+p.pt)
+                ista = snx.codept.index(p.code+p.pt)
+                icmbsta = combsnx.codept.index(p.code+p.pt)
 
                 # Get index of current soln in input solution
                 isoln = [s.soln for s in snx.sta[ista].soln].index(p.soln)
@@ -302,7 +345,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             else:
                 
                 # Get index of current station in input solution
-                ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
+                ista = snx.codept.index(p.code+p.pt)
                 
                 # Get index of current soln in input solution
                 isoln = [s.soln for s in snx.sta[ista].soln].index(p.soln)
@@ -310,6 +353,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
                 # Add new station into combined solution
                 combsnx.sta.append(copy.deepcopy(snx.sta[ista]))
                 combsnx.sta[-1].soln = [snx.sta[ista].soln[isoln]]
+                combsnx.codept.append(p.code+p.pt)
 
 
 
@@ -360,6 +404,9 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
                 combsnx.param[-3].type = 'VELX  '
                 combsnx.param[-2].type = 'VELY  '
                 combsnx.param[-1].type = 'VELZ  '
+                combsnx.param[-3].unit = 'm/y '
+                combsnx.param[-2].unit = 'm/y '
+                combsnx.param[-1].unit = 'm/y '
                 
                 # Update combsnx.iv and combsnx.x0
                 combsnx.iv.append(len(combsnx.param)-3)
@@ -580,79 +627,81 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     # Add transfomation parameters
     #-----------------------------
     
-    # Loop over input solutions
-    for isol in range(len(inputs)):
-        sol = inputs[isol]
+    if not(reduce_trans):
+    
+        # Loop over input solutions
+        for isol in range(len(inputs)):
+            sol = inputs[isol]
 
-        # Translations?
-        if ('T' in sol.params):
+            # Translations?
+            if ('T' in sol.params):
 
-            # Add new TX parameter into combined solution
-            r = record()
-            r.type = 'TX    '
-            r.code = '{0:<4}'.format(sol.name)[:4]
-            r.pt = '--'
-            r.soln = '{0:>4}'.format(isol+1)[-4:]
-            r.tref = sol.tref
-            r.unit = 'mm  '
-            r.const = 2
-            r.isol = isol
-            combsnx.param.append(r)
+                # Add new TX parameter into combined solution
+                r = record()
+                r.type = 'TX    '
+                r.code = '{0:<4}'.format(sol.name)[:4]
+                r.pt = '--'
+                r.soln = '{0:>4}'.format(isol+1)[-4:]
+                r.tref = sol.tref
+                r.unit = 'mm  '
+                r.const = 2
+                r.isol = isol
+                combsnx.param.append(r)
 
-            # Add new TY parameter into combined solution
-            combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-            combsnx.param[-1].type = 'TY    '
-            
-            # Add new TZ parameter into combined solution
-            combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-            combsnx.param[-1].type = 'TZ    '
+                # Add new TY parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'TY    '
+                
+                # Add new TZ parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'TZ    '
 
-            # Update combsnx.x0
-            combsnx.x0.extend([0, 0, 0])
+                # Update combsnx.x0
+                combsnx.x0.extend([0, 0, 0])
 
-        # Scale factor?
-        if ('S' in sol.params):
+            # Scale factor?
+            if ('S' in sol.params):
 
-            # Add new SC parameter into combined solution
-            r = record()
-            r.type = 'SC    '
-            r.code = '{0:<4}'.format(sol.name)[:4]
-            r.pt = '--'
-            r.soln = '{0:>4}'.format(isol+1)[-4:]
-            r.tref = sol.tref
-            r.unit = 'ppb '
-            r.const = 2
-            r.isol = isol
-            combsnx.param.append(r)
+                # Add new SC parameter into combined solution
+                r = record()
+                r.type = 'SC    '
+                r.code = '{0:<4}'.format(sol.name)[:4]
+                r.pt = '--'
+                r.soln = '{0:>4}'.format(isol+1)[-4:]
+                r.tref = sol.tref
+                r.unit = 'ppb '
+                r.const = 2
+                r.isol = isol
+                combsnx.param.append(r)
 
-            # Update combsnx.x0
-            combsnx.x0.append(0)
+                # Update combsnx.x0
+                combsnx.x0.append(0)
 
-        # Rotations?
-        if ('R' in sol.params):
+            # Rotations?
+            if ('R' in sol.params):
 
-            # Add new RX parameter into combined solution
-            r = record()
-            r.type = 'RX    '
-            r.code = '{0:<4}'.format(sol.name)[:4]
-            r.pt = '--'
-            r.soln = '{0:>4}'.format(isol+1)[-4:]
-            r.tref = sol.tref
-            r.unit = 'mas '
-            r.const = 2
-            r.isol = isol
-            combsnx.param.append(r)
+                # Add new RX parameter into combined solution
+                r = record()
+                r.type = 'RX    '
+                r.code = '{0:<4}'.format(sol.name)[:4]
+                r.pt = '--'
+                r.soln = '{0:>4}'.format(isol+1)[-4:]
+                r.tref = sol.tref
+                r.unit = 'mas '
+                r.const = 2
+                r.isol = isol
+                combsnx.param.append(r)
 
-            # Add new RY parameter into combined solution
-            combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-            combsnx.param[-1].type = 'RY    '
-            
-            # Add new RZ parameter into combined solution
-            combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-            combsnx.param[-1].type = 'RZ    '
+                # Add new RY parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'RY    '
+                
+                # Add new RZ parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'RZ    '
 
-            # Update combsnx.x0
-            combsnx.x0.extend([0, 0, 0])
+                # Update combsnx.x0
+                combsnx.x0.extend([0, 0, 0])
 
 
 
@@ -698,6 +747,15 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     # Change a priori coordinates of RF stations
     if (datum):
         combsnx.prior2ref(datum)
+        
+    # If velocities are going to be estimated, change a priori velocities of solns of RF stations
+    # that are not part of the datum
+    if (datum) and (set_vel):
+        keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
+        for i in combsnx.iv:
+            if (combsnx.param[i].code+combsnx.param[i].pt in keys) and not(np.any(combsnx.x0[i:i+3])):
+                j = keys.index(combsnx.param[i].code+combsnx.param[i].pt)
+                combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
     
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])
@@ -752,10 +810,10 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         # Print message
         if not(quiet):
             print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
-
+            
         # Re-read input solution if needed
         if not(store_inputs):
-            read_input(sol, tref, solns, stack_gc, stack_sc)
+            read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
 
         # Shortcut for sol.snx
         snx = sol.snx
@@ -773,7 +831,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         A_cols = icmb
         A_vals = [1]*len(isnx)
     
-        # Add position / velocity partial derivatives if needed
+        # Add position / velocity partial derivatives and update right-hand side if needed
         if (set_vel):
             keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iv]]
             for i in snx.ix:
@@ -783,25 +841,35 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
                 A_rows.extend([i, i+1, i+2])
                 A_cols.extend([j, j+1, j+2])
                 A_vals.extend([dt, dt, dt])
+                dy[-1][i:i+3] -= dt * combsnx.x0[j:j+3]
 
         # Add partial derivatives of transformation parameters
         H = snx.helmert_partials(sol.params, 'STA')
-        ind = np.nonzero(H)
-        A_rows.extend(ind[0].tolist())
-        A_cols.extend([sol.itrans[i] for i in ind[1]])
-        A_vals.extend(H[ind].tolist())
+        if not(reduce_trans):
+            ind = np.nonzero(H)
+            A_rows.extend(ind[0].tolist())
+            A_cols.extend([sol.itrans[i] for i in ind[1]])
+            A_vals.extend(H[ind].tolist())
 
         # Build sparse design matrix of current solution
-        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
+        A.append(sparse.csr_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
         # Get weight matrix of solution isol
-        if (snx.N is not None):
+        if (snx.N is not None) and (snx.Nc is not None):
             P = snx.N + snx.Nc
+        elif (snx.N is not None):
+            P = snx.N
         else:
             P = invspd(snx.Q)
+            
+        # Project weight matrix if transformation parameters are reduced
+        if (reduce_trans):
+            HtP = np.dot(H.T, P)
+            HtPHi = invspd(np.dot(HtP, H))
+            P = P - np.dot(HtP.T, np.dot(HtPHi, HtP))
 
-        # Divide weight matrix by a priori variance factor if provided
-        if (hasattr(sol, 'sf')):
+        # Divide weight matrix by a priori variance factor
+        if (sol.sf != 1):
             P = P / sol.sf**2
         
         # Update normal equation
@@ -845,7 +913,17 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
                 print('        Add minimal constraints to station velocities', file=out)
             nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
 
-      
+
+
+    # Add constraints between successive station velocities
+    #------------------------------------------------------
+    
+    if (set_vel):
+        if not(quiet):
+            print('        Add constraints between successive station velocities', file=out)
+        nc += combsnx.add_dvc(solns, dv_sig)
+
+
 
     # 4 - SOLVE NORMAL EQUATION
     #--------------------------
@@ -856,12 +934,12 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         print('    '+str(date())+' : Solve normal equation', file=out)
 
     # Solve normal equation
-    combsnx.neqinv()
+    combsnx.neqinv(clear_neq=clear_neq)
 
 
 
     # 5 - COMPUTE RESIDUALS AND STATISTICS
-    #---------------------------------
+    #-------------------------------------
 
     # Print message
     if not(quiet):
@@ -871,6 +949,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     # Initializations
     dx = combsnx.x - combsnx.x0
     vPv = 0
+    ntrans = 0
     
     
     
@@ -886,7 +965,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
 
         # Re-read input solution if needed
         if not(store_inputs):
-            read_input(sol, tref, solns, stack_gc, stack_sc)
+            read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
 
         # Shortcut for sol.snx
         snx = sol.snx
@@ -899,18 +978,40 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         
         # Get covariance matrix of input solution
         Q = snx.Q
-        if (hasattr(sol, 'sf')):
+        if (sol.sf != 1):
             Q = Q * sol.sf**2
-
-        # Covariance matrices of predicted observations
-        Ql = A[isol].dot((A[isol].dot(combsnx.Q)).T)
+        
+        # Get weight matrix of input solution
+        if (snx.N is not None) and (snx.Nc is not None):
+            P = (snx.N + snx.Nc)
+            if (sol.sf != 1):
+                P = P / sol.sf**2
+        elif (snx.N is not None):
+            P = snx.N / sol.sf**2      
+            if (sol.sf != 1):
+                P = P / sol.sf**2
+        else:
+            P = invspd(Q)
+            
+        # If transformation parameters were reduced, project residuals
+        # and update number of reduced transformation parameters
+        if (reduce_trans):
+            H = snx.helmert_partials(sol.params, 'STA')
+            HtP = np.dot(H.T, P)
+            HtPHi = invspd(np.dot(HtP, H))
+            sol.v = sol.v - np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v)))
+            ntrans = ntrans + H.shape[1]
+            
+        # Covariance matrices of predicted observations if needed
+        if not(reduce_trans) and ((norm_res == 'correct') or (vce == 'correct')):
+            Ql = A[isol].dot((A[isol].dot(combsnx.Q)).T)
         
         # Compute covariance matrix of residuals if needed
-        if (norm_res == 'correct'):
+        if not(reduce_trans) and (norm_res == 'correct'):
             Qv = Q - Ql
         
         # Standard deviations of residuals
-        if (norm_res == 'correct'):
+        if not(reduce_trans) and (norm_res == 'correct'):
             sol.sv = np.sqrt(np.diag(Qv))
         else:
             sol.sv = np.sqrt(np.diag(Q))
@@ -933,7 +1034,10 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
         vPv = vPv + sol.vPv
 
         # Compute solution variance factor
-        sol.tr = trdot(Ql, P)
+        if not(reduce_trans) and (vce == 'correct'):
+            sol.tr = trdot(Ql, P)
+        else:
+            sol.tr = 0
         sol.vf = sol.vPv / (snx.npar - sol.tr)
         
         # Rotate residuals into ENH frames and compute variances of ENH observations
@@ -978,7 +1082,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     #-------------------------------
     
     # Global variance factor
-    vf = vPv / (nobs + nc - combsnx.npar)
+    vf = vPv / (nobs + nc - combsnx.npar - ntrans)
 
     # Update standard devations of residuals, normalized residuals and median ENH formal errors
     # with global variance factor
@@ -995,7 +1099,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
     # Set content of SOLUTION/STATISTICS block
     combsnx.stats = record()
     combsnx.stats.nobs = nobs + nc
-    combsnx.stats.nunk = combsnx.npar
+    combsnx.stats.nunk = combsnx.npar + ntrans
     combsnx.stats.vf = vf
     
 
@@ -1016,7 +1120,7 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
             name = '{0:4}'.format(sol.name)[:4]
             print('         {0} | {1.nobs:6d} {1.tr:10.3f} {1.vPv:10.3f} {2:8.3f} {3:8.3f} {4:8.3f} |'.format(name, sol, sol.sf, sqrt(sol.vf), sol.sf*sqrt(sol.vf)), file=out)
         print('        ------|---------------------------------------------------------|', file=out)
-        print('         comb | {0:6d} {1:10.3f} {2:10.3f}          sigma0 = {3:8.3f} |'.format(nobs, combsnx.npar, vPv, sqrt(vf)), file=out)
+        print('         comb | {0:6d} {1:10.3f} {2:10.3f}          sigma0 = {3:8.3f} |'.format(nobs, combsnx.npar+ntrans, vPv, sqrt(vf)), file=out)
         print('', file=out)
         print('              |         WRMS [mm]          |      median sigma [mm]     |', file=out)
         print('         sol_ | East____ North___ Up______ | East____ North___ Up______ |', file=out)
@@ -1052,8 +1156,8 @@ def combine(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=Fa
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='approx', store_inputs=True,
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
+            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
             thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
 
     """
@@ -1072,8 +1176,17 @@ def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_
         Reference date (in SINEX format)
     solns : str or list, optional
         [File containing] discontinuity list (soln.snx). Default is None.
+    check_solns : bool, optional
+        Whether solution numbers should be checked in input solutions or not. Default is True.
+        To save time, check solution numbers in input solutions before combination.
+    psd : str or sinex object, optional
+        sinex instance with post-seismic deformation models to be removed from input solutions
+        before combination. Default is None.
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. Default is False.
+    dv_sig : float, optional
+        Sigma of equality constraints to be applied between successive velocities [m/y].
+        Default is 1e-6.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -1116,12 +1229,24 @@ def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_
             standard deviations, or
         - 'approx' in which case residuals are normalized by the
             standard deviations of the observations (i.e., snx.sig).
-        Default is 'approx'.
+        Default is 'correct'.
+    vce : str, optional
+        Keyword indicating how a posteriori variance factors should be computed.
+        It can be either:
+        - 'correct' in which case Sillard's (1999) degree-of-freedom estimator is used, or
+        - 'approx' in which case a faster approximation is used.
+        Default is 'correct'.
     store_inputs : bool, optional
         If True, all input solutions will be stored in RAM simultaneously (faster option).
         If False, input solutions are successively read and deleted during the successive
         processing steps (slower, but uses less RAM).
         Default is True.
+    reduce_trans : bool, optional
+        Whether to reduce transformation parameters. Default is False.
+        Note that if transformation parameters are reduced, the options norm_res='correct'
+        and vce='correct' become unavailable.
+    clear_neq : bool, optional
+        Whether normal equation should be kept in combined sinex object. Default is True.
     thr_raw : float, optional
         Multiplicative factor defining thresholds for flagging stations with large residuals
         as outliers: along each ENH component, threshold = thr_raw * WRMS.
@@ -1147,14 +1272,14 @@ def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, set_vel, stack_gc, stack_sc, datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, store_inputs, quiet, out)
+        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, stack_gc, stack_sc, datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:
             
             # Re-read input solution if needed
             if not(store_inputs):
-                read_input(sol, tref, solns, stack_gc, stack_sc, load_mat=False)
+                read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=False)
                 
             # Set shortcut to sol.snx
             snx = sol.snx
@@ -1262,7 +1387,7 @@ def combine_iter(inputs, tref, solns=None, set_vel=False, stack_gc=False, stack_
                 
                 # Re-read input solution if needed
                 if not(store_inputs):
-                    read_input(sol, tref, solns, stack_gc, stack_sc)
+                    read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
                 
                 # Reject outliers
                 sol.snx.del_sta(sol.codeout, sol.ptout, sol.solnout)
