@@ -983,11 +983,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Get weight matrix of input solution
         if (snx.N is not None) and (snx.Nc is not None):
-            P = (snx.N + snx.Nc)
+            P = snx.N + snx.Nc
             if (sol.sf != 1):
                 P = P / sol.sf**2
         elif (snx.N is not None):
-            P = snx.N / sol.sf**2      
+            P = snx.N
             if (sol.sf != 1):
                 P = P / sol.sf**2
         else:
@@ -1018,14 +1018,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Normalized residuals
         sol.vn = sol.v / sol.sv
-        
-        # Get weight matrix of input solution
-        if (snx.N is not None):
-            P = snx.N + snx.Nc
-            if (hasattr(sol, 'sf')):
-                P = P / sol.sf**2
-        else:
-            P = invspd(Q)
 
         # Weighted squared sum of residuals
         sol.vPv = np.sum(sol.v * np.dot(P, sol.v))
