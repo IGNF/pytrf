@@ -213,18 +213,24 @@ class erp:
 
         r = erp()
         r.mjd = np.array([date.from_tsnx(p.tref).mjd for p in [snx.param[i] for i in snx.ixpo]])
-        r.xpo = snx.x[snx.ixpo]
-        r.sxpo = snx.sig[snx.ixpo]
-        r.ypo = snx.x[snx.iypo]
-        r.sypo = snx.sig[snx.iypo]
-        r.xpor = snx.x[snx.ixpor]
-        r.sxpor = snx.sig[snx.ixpor]
-        r.ypor = snx.x[snx.iypor]
-        r.sypor = snx.sig[snx.iypor]
-        r.ut1 = snx.x[snx.iut]
-        r.sut1 = snx.sig[snx.iut]
-        r.lod = snx.x[snx.ilod]
-        r.slod = snx.sig[snx.ilod]
+        if (len(snx.ixpo) > 0):
+            r.xpo = snx.x[snx.ixpo]
+            r.sxpo = snx.sig[snx.ixpo]
+        if (len(snx.iypo) > 0):
+            r.ypo = snx.x[snx.iypo]
+            r.sypo = snx.sig[snx.iypo]
+        if (len(snx.ixpor) > 0):
+            r.xpor = snx.x[snx.ixpor]
+            r.sxpor = snx.sig[snx.ixpor]
+        if (len(snx.iypor) > 0):
+            r.ypor = snx.x[snx.iypor]
+            r.sypor = snx.sig[snx.iypor]
+        if (len(snx.iut) > 0):
+            r.ut1 = snx.x[snx.iut]
+            r.sut1 = snx.sig[snx.iut]
+        if (len(snx.ilod) > 0):
+            r.lod = snx.x[snx.ilod]
+            r.slod = snx.sig[snx.ilod]
 
         return r
 

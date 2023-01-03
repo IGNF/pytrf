@@ -874,8 +874,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Update normal equation
         AtP = A[isol].T.dot(P)
-        combsnx.N = combsnx.N + A[isol].T.dot(AtP.T)
-        combsnx.b = combsnx.b + np.dot(AtP, dy[isol])
+        combsnx.N += A[isol].T.dot(AtP.T)
+        combsnx.b += np.dot(AtP, dy[isol])
         
         # Make room if needed
         if not(store_inputs):

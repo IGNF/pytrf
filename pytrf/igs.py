@@ -283,14 +283,14 @@ def write_res(snx, acs, w, d, fres, fyml):
     
 # Write summary of weekly IGS combination
 #----------------------------------------
-def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, dypo, dxpor, dypor, dlod, nolog, fsum, fyml):
+def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, dypo, dxpor, dypor, dlod, nolog, missing, fsum, fyml):
     
     """
     Write summary of weekly IGS combination
 
     Parameters
     ----------
-    acs : list
+    dacs : list
         List of list of daily combination inputs
     w : str
         GPS week
@@ -322,6 +322,8 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
         "Bulletin A - IGS" LOD differences
     nolog : list
         List of stations without sitelogs
+    missing : list
+        List of IGS stations missing from daily combined solutions
     fsum : str
         Output summary file
     fyml : str
@@ -331,18 +333,21 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     # Build full list of ACs
     acs = []
     files = []
+    comb = []
     for d in range(7):
         for ac in dacs[d]:
             if not(ac.name in acs):
                 acs.append(ac.name)
                 file = os.path.basename(ac.file)
-                files.append(file[:11] + '${yyyy}${doy}' + file[18:])
+                if (len(file) == 12):
+                    files.append(file[:3] + '${week}${dow}' + file[8:])
+                else:
+                    files.append(file[:11] + '${yyyy}${doy}' + file[18:])
+                comb.append(ac.comb)
     ind = np.argsort(acs)
     acs = [acs[i] for i in ind]
     files = [files[i] for i in ind]
-    
-    # Read list of sitelog sources
-    logsource = read_yaml(opt.logsource)
+    comb = [comb[i] for i in ind]
     
     # Open output files
     fsum = open(fsum, 'w')
@@ -353,7 +358,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fsum)
     print('---------------------------------------------------------', file=fsum)
     print('', file=fsum)
-    print(' Author:  Paul Rebischung', file=fsum)
+    print(' Author:  Anne Duret, Paul Rebischung', file=fsum)
     print(' Contact: igs-rf@ign.fr', file=fsum)
     print('', file=fsum)
     print(' Daily AC solutions:', file=fsum)
@@ -364,6 +369,11 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     file = opt.dailysnx[:11] + '${yyyy}${doy}' + opt.dailysnx[18:]
     print('  - igs = {0}'.format(file), file=fsum)
     print('', file=fsum)
+    print(' Daily AC solutions not used in the combination:', file=fsum)
+    for i in range(len(acs)):
+        if not(comb[i]):
+            print('  - {0}'.format(acs[i]), file=fsum)
+    print('', file=fsum)
     print(' IERS Bulletin A:', file=fsum)
     print('  - BuA = finals2000A.data', file=fsum)
 
@@ -372,13 +382,13 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('# IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fyml)
     print('#----------------------------------------------------------', file=fyml)
     print('', file=fyml)
-    print('author: Paul Rebischung', file=fyml)
+    print('author: Anne Duret, Paul Rebischung', file=fyml)
     print('contact: igs-rf@ign.fr', file=fyml)
     print('', file=fyml)
     print('# Daily AC solutions:', file=fyml)
     print('ac:', file=fyml)
     for i in range(len(acs)):
-        print('  - {{name: {0}, file: \'{1}\'}}'.format(acs[i], files[i]), file=fyml)
+        print('  - {{name: {0}, file: \'{1}\', weighted: {2}}}'.format(acs[i], files[i], comb[i]), file=fyml)
     print('', file=fyml)
     print('# Daily combined solutions:', file=fyml)
     print('igs: {{file: \'{0}\'}}'.format(file), file=fyml)
@@ -424,8 +434,23 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
         for d in range(7):
             if (acs[i] in [ac.name for ac in dacs[d]]):
                 ac = dacs[d][[ac.name for ac in dacs[d]].index(acs[i])]
-                print(' {0.name}   {1} {0.nsta:5d} {0.ndat:5d} {0.ncore:5d} {0.sf:10.6f} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}'.format(ac, d, ac.wrms, ac.sigm), file=fsum)
-                print('    - {{ac: {0.name}, day: {1}, nsta: {0.nsta:5d}, nrf: {0.ndat:5d}, ncore: {0.ncore:5d}, sqrtvf: {0.sf:10.6f}, wrms: [{2[0]:9.3f},{2[1]:9.3f},{2[2]:9.3f}], sigm: [{3[0]:9.3f},{3[1]:9.3f},{3[2]:9.3f}]}}'.format(ac, d, ac.wrms, ac.sigm), file=fyml)
+                s = ' {0.name}   {1} {0.nsta:5d} {0.ndat:5d} {0.ncore:5d} '.format(ac, d)
+                y = '    - {{ac: {0.name}, day: {1}, nsta: {0.nsta:5d}, nrf: {0.ndat:5d}, ncore: {0.ncore:5d}, '.format(ac, d)
+                if hasattr(ac, 'sf'):
+                    s = s + '{0:10.6f} '.format(ac.sf)
+                    y = y + 'sqrtvf: {0:10.6f}, '.format(ac.sf)
+                else:
+                    s = s + '           '
+                    y = y + 'sqrtvf:           , '
+                s = s + '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f} '.format(ac.wrms)
+                y = y + 'wrms: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}], '.format(ac.wrms)
+                if hasattr(ac, 'sigm'):
+                    s = s + '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f}'.format(ac.sigm)
+                    y = y + 'sigm: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}]}}'.format(ac.sigm)
+                else:
+                    y = y[:-2] + '}'
+                print(s, file=fsum)
+                print(y, file=fyml)
         print(' ------------------------------------------------------------------------------------------------', file=fsum)
     
     print('  -', file=fyml)
@@ -652,7 +677,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('', file=fsum)
     print(' 6) Station metadata inconsistencies:', file=fsum)
     print(' ------------------------------------', file=fsum)
-    for source in logsource:
+    for source in opt.logsource:
         print('  - {0.name:<6s} = {0.server}{0.remotedir}'.format(source), file=fsum)
     print('', file=fsum)
     s = '  - No sitelog found for station(s): '
@@ -665,7 +690,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print(' AC    sta    ___metadata_type___   __info_from_sinex___   _info_from_sitelog__   source', file=fsum)
     print(' ---------------------------------------------------------------------------------------', file=fsum)
 
-    # Station metadata inconsistencies header
+    # Station metadata inconsistencies YAML header
     print('', file=fyml)
     print('', file=fyml)
     print('', file=fyml)
@@ -676,7 +701,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('# - errors  = inconsistencies between AC solutions and site logs', file=fyml)
     print('', file=fyml)
     print('sources:', file=fyml)
-    for source in logsource:
+    for source in opt.logsource:
         print('  - {{name: {0.name:<6s}, address: \'{0.server}{0.remotedir}\'}}'.format(source), file=fyml)
     print('', file=fyml)
     s = 'nologs: ['
@@ -702,7 +727,34 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
                 print(' {0}   {1}'.format(ac.name, err), file=fsum)
                 print('  - {{ac: {0}, sta: {1}, type: {2}, from_ac: {3}, from_log: {4}, source: {5}}}'.format(ac.name, err[0:4], err[7:26], err[29:49], err[52:72], err[75:81]), file=fyml)
             print(' ---------------------------------------------------------------------------------------', file=fsum)
-
+            
+    # IGS stations not processed
+    print('', file=fsum)
+    print('', file=fsum)
+    print('', file=fsum)
+    print(' 7) Missing IGS stations:', file=fsum)
+    print(' ------------------------', file=fsum)
+    print('  Below is a list of IGS stations that had data available but were not processed by any AC.', file=fsum)
+    print('', file=fsum)
+    for s in missing:
+        print(' '+s, file=fsum)
+    
+    # IGS stations not processed
+    print('', file=fyml)
+    print('', file=fyml)
+    print('', file=fyml)
+    print('# 7) Missing IGS stations:', file=fyml)
+    print('# ------------------------', file=fyml)
+    print('# - missing = IGS stations with data available but not processed by any AC', file=fyml)
+    print('', file=fyml)
+    s = 'missing: ['
+    for sta in missing:
+        s = s + sta + ', '
+    if (len(missing) > 0):
+        s = s[:-2]
+    s = s + ']'
+    print(s, file=fyml)
+    
     # Close output files
     fsum.close()
     fyml.close()

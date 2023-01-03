@@ -731,41 +731,44 @@ class sinex:
             snx.x = np.zeros(snx.npar)
             snx.sig = np.zeros(snx.npar)
         
-        # Clean prior information
-        snx.clean_prior()
+        # If SINEX file contains any parameter,
+        if (snx.param is not None):
 
-        # Sort parameters
-        snx.sort_params()
+            # Clean prior information
+            snx.clean_prior()
 
-        # Set parameter indices
-        snx.set_par_ind()
-        
-        # Clean station list
-        snx.clean_sta()
-        
-        # Clean radiosource list and attribute IERS names to radiource coordinate parameters
-        snx.clean_rs()
-        
-        # Convert radiosource coordinates into mas if needed
-        if (len(snx.irs) > 0):
-            if (snx.param[snx.irs[0]].unit == 'rad '):
-                irs = snx.irs + [i+1 for i in snx.irs]
-                f = np.ones(snx.npar)
-                f[irs] = 1/mas2rad
-                snx.x = f*snx.x
-                snx.sig = f*snx.sig
-                if (snx.Q is not None):
-                    snx.Q = (snx.Q*f).T*f
-                if (snx.x0 is not None):
-                    snx.x0 = f*snx.x0
-                    snx.sig0 = f*snx.sig0
-                if (snx.N is not None):
-                    snx.N = (snx.N/f).T/f
-                    snx.b = snx.b/f
-                if (snx.Nc is not None):
-                    snx.Nc = (snx.Nc/f).T/f
-                for i in irs:
-                    snx.param[i].unit = 'mas '
+            # Sort parameters
+            snx.sort_params()
+
+            # Set parameter indices
+            snx.set_par_ind()
+            
+            # Clean station list
+            snx.clean_sta()
+            
+            # Clean radiosource list and attribute IERS names to radiource coordinate parameters
+            snx.clean_rs()
+            
+            # Convert radiosource coordinates into mas if needed
+            if (len(snx.irs) > 0):
+                if (snx.param[snx.irs[0]].unit == 'rad '):
+                    irs = snx.irs + [i+1 for i in snx.irs]
+                    f = np.ones(snx.npar)
+                    f[irs] = 1/mas2rad
+                    snx.x = f*snx.x
+                    snx.sig = f*snx.sig
+                    if (snx.Q is not None):
+                        snx.Q = (snx.Q*f).T*f
+                    if (snx.x0 is not None):
+                        snx.x0 = f*snx.x0
+                        snx.sig0 = f*snx.sig0
+                    if (snx.N is not None):
+                        snx.N = (snx.N/f).T/f
+                        snx.b = snx.b/f
+                    if (snx.Nc is not None):
+                        snx.Nc = (snx.Nc/f).T/f
+                    for i in irs:
+                        snx.param[i].unit = 'mas '
 
         return snx
 
@@ -1881,9 +1884,12 @@ class sinex:
 
                     # Any clear mistake to report about antenna orientation?
                     if (len(ant) == 1) and (len(s.ant) == 1):
-                        if (abs(int(s.ant[0].daz)%360 - int(ant[0].daz)%360) > 1):
+                        daz = (int(s.ant[0].daz) - int(ant[0].daz)) % 360
+                        if (daz > 180):
+                            daz = daz - 360
+                        if (abs(daz) >= 1):
                             metaerr.append('{0}   antenna orientation   {1:<20d}   {2:<20d}   {3:<6s}'.format(s.code, int(s.ant[0].daz), int(ant[0].daz), source))
-                        if (abs(int(s.ant[0].daz)%360 - int(ant[0].daz)%360) > 10):
+                        if (abs(daz) > 10):
                             rej.append(s.code)
                             
                     # Update antenna metadata

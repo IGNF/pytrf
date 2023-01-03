@@ -185,7 +185,7 @@ class ts:
                     r.T = T
                 else:
                     r.T = T.copy()
-            elif (len(t) > 1):
+            elif (len(r.t) > 1):
                 r.T = np.min(r.t[1:]-r.t[:-1])
             else:
                 r.T = 0
@@ -392,7 +392,7 @@ class ts:
         T = None
         if ('T' in format):
             j = format.index('T')
-            r.T = dat[:,j]
+            T = dat[:,j]
             
         # Create ts instance
         r = ts(y, t=t, T=T, Q=Q, tunit=tunit, yunit=yunit, dims=dims, rotate=rotate, t0=t0, dtrd=dtrd)
