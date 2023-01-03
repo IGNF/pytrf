@@ -14,7 +14,7 @@ import pickle
 from math import pi, sqrt, exp, log, ceil, factorial
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
-from scipy.stats import median_absolute_deviation as mad
+from scipy.stats import median_abs_deviation as mad
 import matplotlib.pyplot as pp
 pp.rcParams['font.family'] = 'monospace'
 pp.rcParams['font.size'] = 12
