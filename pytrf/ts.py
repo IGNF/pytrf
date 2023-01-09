@@ -1788,6 +1788,7 @@ class noise:
         dt   : Original noise sampling
         per  : Period of possible modulating sine wave
         flow : Keyword indicating how the noise is assumed to propagate
+        tn   : Dates of the noise's beginning and end (first and final epochs if set to None)
         par  : List of param instances (initialized to [])
         c    : Covariance vector (in case of stationary noise - initialized to None)
         dc   : Partial derivatives of c wrt noise parameters (initialized to None)
@@ -1812,7 +1813,7 @@ class noise:
 
     # Initialize a noise instance
     #----------------------------
-    def __init__(n, dt=None, per=None, flow=None):
+    def __init__(n, dt=None, per=None, flow=None, tn=None):
       
         """
         Initialize a noise instance
@@ -1831,6 +1832,7 @@ class noise:
         n.dt = dt
         n.per = per
         n.flow = flow
+        n.tn = tn
         n.par = []
         n.c = None
         n.dc = None
@@ -1893,13 +1895,21 @@ class noise:
         
         # Noise sampling
         dt = n.get_dt(m)
-            
+        
+        # Date of the noise's beginning and end
+        if n.tn is None :
+            n.tn = [t[0],t[-1]]
+        if np.isscalar(n.tn) :
+            n.tn = [n.tn,t[-1]]
+        elif len(n.tn) == 1 :
+            n.tn = [n.tn[0],t[-1]]
+                
         # Dates of original noise
         if np.isscalar(T):
-            tf = np.arange(t[0]-(T-dt)/2, t[-1]+T/2, dt)
+            tf = np.arange(n.tn[0]-(T-dt)/2, n.tn[-1]+T/2, dt)
         else:
-            tf = np.arange(t[0]-T[0]/2+dt/2, t[-1]+T[-1]/2, dt)
-
+            tf = np.arange(n.tn[0]-T[0]/2+dt/2, n.tn[-1]+T[-1]/2, dt)
+        
         return tf
 
     # Set covariance matrix [and its partial derivatives]
@@ -1946,7 +1956,7 @@ class noise:
         if np.isscalar(T) and (T/dt).is_integer():
             
             # Dates of averaged noise
-            td = np.arange(t[0], t[-1]+T, T)
+            td = np.arange(n.tn[0],n.tn[-1]+T, T)
             nd = len(td)
 
             # Averaging factor
@@ -2129,6 +2139,7 @@ class noise:
                 A_cols.extend(range(j, k))
                 A_vals.extend(np.ones(len(ind))/len(ind))
                 j = k
+                
             A = sparse.csr_matrix((A_vals, (A_rows, A_cols)))
                 
             # Covariance matrix of averaged noise
@@ -2258,8 +2269,6 @@ class noise:
                 n.dP.append(trig_sum(tau, dq[k]/nf, fr[1]-fr[0], len(fr), f0=fr[0], Mfft=24)[1])
         else:
             n.dP = None
-
-
 
 # wn class
 #---------
@@ -2779,7 +2788,7 @@ class pl(noise):
 
     # Initialize a pl instance
     #-------------------------
-    def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tunit='d', yunit='m'):
+    def __init__(n, dt=None, per=None, flow='2-way', tn=None, s2=None, fix_s2=False, a=None, fix_a=False, tunit='d', yunit='m'):
 
         """
         Initialize a pl instance
@@ -2803,6 +2812,11 @@ class pl(noise):
               of the series and to propagate backward.
             - 'stationary' means that the noise is assumed to have started infinitely long ago.
             Default if '2-way'.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.        
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -2820,7 +2834,7 @@ class pl(noise):
 
         """
         
-        super().__init__(dt=dt, per=per, flow=flow)
+        super().__init__(dt=dt, per=per, flow=flow, tn=tn)
         n.par.append(scale_param(type='PL variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
         n.par.append(pl_index(type='PL spectral index', x=a, fixed=fix_a))
         
@@ -2927,7 +2941,7 @@ class ggm(noise):
 
     # Initialize a ggm instance
     #-------------------------
-    def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
+    def __init__(n, dt=None, per=None, flow='2-way', tn=None, s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False, tunit='d', yunit='m'):
 
         """
         Initialize a ggm instance
@@ -2951,6 +2965,11 @@ class ggm(noise):
               of the series and to propagate backward.
             - 'stationary' means that the noise is assumed to have started infinitely long ago.
             Default if '2-way'.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
         s2 : float, optional
             [A priori] variance factor
         fix_s2 : bool, optional
@@ -2973,7 +2992,7 @@ class ggm(noise):
 
         """
         
-        super().__init__(dt=dt, per=per, flow=flow)
+        super().__init__(dt=dt, per=per, flow=flow, tn=tn)
         n.par.append(scale_param(type='GGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
         n.par.append(pl_index(type='GGM spectral index', x=a, fixed=fix_a))
         n.par.append(scale_param(type='GGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
@@ -3208,7 +3227,7 @@ class model:
 
     # Initialize a model instance
     #----------------------------
-    def __init__(m, r, t0=None, deg=None, per=None, noise=None):
+    def __init__(m, r, t0=None, deg=None, per=None, noise=None, tn=None):
       
         """
         Initialize a model instance
@@ -3225,7 +3244,11 @@ class model:
             List of sine wave periods
         noise : list, optional
             List of noise types
-
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
         Returns
         -------
         m : model instance
@@ -3309,13 +3332,13 @@ class model:
                 elif (n == 'ar1'):
                     m.add_ar1()
                 elif (n == 'pl'):
-                    m.add_pl()
+                    m.add_pl(tn=tn)
                 elif (n == 'fn'):
-                    m.add_fn()
+                    m.add_fn(tn=tn)
                 elif (n == 'rw'):
-                    m.add_rw()
+                    m.add_rw(tn=tn)
                 elif (n == 'ggm'):
-                    m.add_ggm()
+                    m.add_ggm(tn=tn)
     
     # Load model instance from pickle file
     #-------------------------------------
@@ -3756,7 +3779,7 @@ class model:
 
     # Add power-law noise to model
     #-----------------------------
-    def add_pl(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False):
+    def add_pl(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tn=None):
 
         """
         Add power-law noise to model
@@ -3785,15 +3808,20 @@ class model:
         fix_a : bool, optional
             Whether provided spectral index should be fixed (or only used as a priori).
             Default is False.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
             
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tn=tn, yunit=m.r.yunit))
 
     # Add flicker noise to model
     #---------------------------
-    def add_fn(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False):
+    def add_fn(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, tn=None):
 
         """
         Add flicker noise to model
@@ -3817,15 +3845,20 @@ class model:
         fix_s2 : bool, optional
             Whether provided variance factor should be fixed (or only used as a priori).
             Default is False.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
             
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=1, fix_a=True, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, tn=tn, a=1, fix_a=True, yunit=m.r.yunit))
 
     # Add random walk to model
     #-------------------------
-    def add_rw(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False):
+    def add_rw(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, tn=None):
 
         """
         Add random walk to model
@@ -3849,15 +3882,20 @@ class model:
         fix_s2 : bool, optional
             Whether provided variance factor should be fixed (or only used as a priori).
             Default is False.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
             
         """
         
         for d in range(m.nd):
-            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=2, fix_a=True, yunit=m.r.yunit))
+            m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, tn=tn, a=2, fix_a=True, yunit=m.r.yunit))
 
     # Add GGM process to model
     #-------------------------
-    def add_ggm(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False):
+    def add_ggm(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a=None, fix_a=False, tau=None, fix_tau=False, tn=None):
 
         """
         Add GGM process to model
@@ -3889,11 +3927,16 @@ class model:
               and to propagate forward, and half of the noise is assumed to start at the end
               of the series and to propagate backward.
             Default if '2-way'.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
             
         """
         
         for d in range(m.nd):
-            m[d].n.append(ggm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
+            m[d].n.append(ggm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tn=tn, tunit=m.r.tunit, yunit=m.r.yunit))
 
     # Add jumps to specified polynomial and/or sine wave functions of model
     #----------------------------------------------------------------------
