@@ -21,7 +21,7 @@ import cartopy.feature as cfeature
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve
+from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
 from pytrf.io import get_sitelog, read_sitelog
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
@@ -165,6 +165,8 @@ class sinex:
         calib_lod()        : Calibrate LOD estimates wrt reference series        
         map()              : Draw station map
         map_res()          : Draw station position residual map
+        print_table()      : Print table of parameters
+        print_coord()      : Print table of (instantaneous) station positions
         
     """
 
@@ -1121,6 +1123,28 @@ class sinex:
             
             # Transformation parameters
             snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            
+        else:
+            
+            snx.ix = []
+            snx.iv = []
+            snx.ipsd = []
+            snx.iseas = []
+            snx.irs = []
+            snx.ixpo = []
+            snx.ixpor = []
+            snx.iypo = []
+            snx.iypor = []
+            snx.iut = []
+            snx.ilod = []
+            snx.inutx = []
+            snx.inuty = []
+            snx.igc = []
+            snx.isc = []
+            snx.isatax = []
+            snx.isatay = []
+            snx.isataz = []
+            snx.itrans = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------
@@ -4864,3 +4888,96 @@ class sinex:
         # ...or show it
         else:
             pp.show()
+
+    # Print table of parameters
+    #--------------------------
+    def print_table(snx):
+        
+        """
+        Print table of parameters
+        
+        """
+        
+        # Print table header
+        print('#code pt   _________parameter_type__________   _____t0_____   _valid_from_ _valid_till_   ________value________   ___sigma___   unit')
+        print('#-----------------------------------------------------------------------------------------------------------------------------------')
+        
+        # Loop over parameters
+        for i in range(snx.npar):
+            p = snx.param[i]
+            
+            # Station position, velocity, annual or semi-annual signal?
+            if (p.type[:3] in ['STA', 'VEL']) or (p.type[:5] in ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']):
+                if (p.type[:3] == 'STA'):
+                    t = p.type[3]+' position'
+                elif (p.type[:3] == 'VEL'):
+                    t = p.type[3]+' velocity'
+                elif (p.type[:5] == 'A1COS'):
+                    t = p.type[3]+' annual cosine amplitude'
+                elif (p.type[:5] == 'A1SIN'):
+                    t = p.type[3]+' annual sine amplitude'
+                elif (p.type[:5] == 'A2COS'):
+                    t = p.type[3]+' semi-annual cosine amplitude'
+                elif (p.type[:5] == 'A2SIN'):
+                    t = p.type[3]+' semi-annual sine amplitude'
+                ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
+                isoln = [s.soln for s in snx.sta[ista].solns].index(p.soln)
+                start = snx.sta[ista].solns[isoln].start
+                end = snx.sta[ista].solns[isoln].end
+                
+            # PSD parameter?
+            elif (p.type[1:4] in ['EXP', 'LOG']):
+                if (p.type == 'AEXP_E'):
+                    t = 'East exponential amplitude'
+                elif (p.type == 'TEXP_E'):
+                    t = 'East exponential relaxation time'
+                elif (p.type == 'AEXP_N'):
+                    t = 'North exponential amplitude'
+                elif (p.type == 'TEXP_N'):
+                    t = 'North exponential relaxation time'
+                elif (p.type in ['AEXP_H', 'AEXP_U']):
+                    t = 'Up exponential amplitude'
+                elif (p.type in ['TEXP_H', 'TEXP_U']):
+                    t = 'Up exponential relaxation time'
+                elif (p.type == 'ALOG_E'):
+                    t = 'East logarithm amplitude'
+                elif (p.type == 'TLOG_E'):
+                    t = 'East logarithm relaxation time'
+                elif (p.type == 'ALOG_N'):
+                    t = 'North logarithm amplitude'
+                elif (p.type == 'TLOG_N'):
+                    t = 'North logarithm relaxation time'
+                elif (p.type in ['ALOG_H', 'ALOG_U']):
+                    t = 'Up logarithm amplitude'
+                elif (p.type in ['TLOG_H', 'TLOG_U']):
+                    t = 'Up logarithm relaxation time'
+                start = p.tref
+                end = '00:000:00000'
+                
+            # Other parameter?
+            else:
+                t = p.type
+                start = 12*'-'
+                end = 12*'-'
+                
+            # Print parameter
+            print(' {0.code} {0.pt}   {1:<33s}   {0.tref}   {2} {3}   {4:21.14e}   {5:11.5e}   {0.unit}'.format(p, t, start, end, snx.x[i], snx.sig[i]))
+            
+    # Print table of (instantaneous) station positions
+    #-------------------------------------------------
+    def print_coord(snx):
+        
+        """
+        Print table of (instantaneous) station positions
+        
+        """
+        
+        # Print table header
+        print('#code pt   ________X[m]_________ ________Y[m]_________ ________Z[m]_________   sigma(X)[m] sigma(Y)[m] sigma(Z)[m]   _corr(X,Y)__ _corr(X,Z)__ _corr(Y,Z)__')
+        print('#----------------------------------------------------------------------------------------------------------------------------------------------------------')
+        
+        # Loop over STAX parameters
+        for i in snx.ix:
+            p = snx.param[i]
+            c = cov2corr(snx.Q[i:i+3,i:i+3])
+            print(' {0.code} {0.pt}   {1[0]:21.14e} {1[1]:21.14e} {1[2]:21.14e}   {2[0]:11.5e} {2[1]:11.5e} {2[2]:11.5e}   {3[0][1]:12.5e} {3[0][2]:12.5e} {3[1][2]:12.5e}'.format(p, snx.x[i:i+3], snx.sig[i:i+3], c))

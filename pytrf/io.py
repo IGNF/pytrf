@@ -1033,6 +1033,7 @@ def sitelogs2snx(logsource):
                 r.X = X
                 (r.rec, r.ant, r.ecc) = read_sitelog(source.localdir+'/'+f, sinex_formatted=True)
                 r.source = source.name
+                r.sitelog = source.server + source.remotedir + '/' + f
                 snx.sta.append(r)
                 
     # Sort snx.sta
