@@ -2745,7 +2745,7 @@ class ar1(noise):
         tau = n.par[1].x
         phi = exp(-dt/tau)
         phik = phi**np.arange(nf)
-        phi2 = np.abs(phik[2])
+        # phi2 = np.abs(phik[2])
         
         # Coefficients of MA representation
         n.h = sqrt(s2) * phik
@@ -3159,6 +3159,7 @@ class model:
         dN    : Log-determinant of normal matrix of deterministic parameters
         dH    : Log-determinant of normal matrix of noise parameters
         s2    : Global variance factor
+        y2x   : Weighted Least-Squares Estimator (WLSE) transition matrix
         Qx    : Covariance matrix of deterministic parameters
         Qb    : Covariance matrix of noise parameters
         Qc    : Covariance matrix of predicted observations
@@ -3283,12 +3284,12 @@ class model:
             m.Qpn = None
             m.spn = None
             m.pv = None            
-            
             m.nx = None
             m.nb = None
             m.dN = None
             m.dH = None
             m.s2 = None
+            m.y2x = None
             m.Qx = None
             m.Qb = None
             m.Qc = None
@@ -4777,12 +4778,16 @@ class model:
             # Else, just update observation equations
             else:
                 m.set_oeq()
+                
+            # WLSQE transition matrix
+            m.y2x = m.Qx@AtP   
 
         # Else (no parameter to estimate),
         else:
             m.Qx = np.array([[]])
             m.dN = 0
             
+        
         # Compute residuals
         m.set_oeq()
         m.v = m.r.y - m.yc
@@ -5147,7 +5152,7 @@ class model:
                         nb = len(br)
                         db = np.ones(nb)
                         d2b = np.zeros(nb)
-                        dbp = None
+                        # dbp = None
                         
                         # Iterations until reparameterized noise parameters have converged
                         while (np.max(np.abs(db+d2b)) > 1e-5):
@@ -5237,7 +5242,7 @@ class model:
                             m[d].set_br(br)
                             
                             # Store increment
-                            dbp = db
+                            # dbp = db
 
                     # Final fit + compute covariance matrix of noise parameters
                     #----------------------------------------------------------
