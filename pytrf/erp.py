@@ -122,7 +122,7 @@ class erp:
         os.system('grep -P "[0-9]{{5}}\\.[0-9]{{2}}" {0} > {1}'.format(file, tmp))
         
         # Read temporary file
-        (r.mjd, r.xpo, r.ypo, r.ut1, r.lod, r.sxpo, r.sypo, r.sut1, r.slod, r.xpor, r.ypor, r.sxpor, r.sypor) = np.loadtxt(tmp, usecols=(0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15), unpack=True)
+        (r.mjd, r.xpo, r.ypo, r.ut1, r.lod, r.sxpo, r.sypo, r.sut1, r.slod, r.xpor, r.ypor, r.sxpor, r.sypor) = np.loadtxt(tmp, usecols=(0, 1, 2, 3, 4, 5, 6, 7, 8, 12, 13, 14, 15), ndmin=2, unpack=True)
 
         # Convert EOPs into mas and ms
         r.xpo   *= 1e-3

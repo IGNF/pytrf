@@ -3579,7 +3579,7 @@ class sinex:
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=False):
+    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -4755,38 +4755,41 @@ class sinex:
         # Print header in log file
         print('sinex.calib_lod', file=out)
         print('---------------', file=out)
+        
+        # If there are any historical LOD estimates,
+        if (len(rec.mjd) > 0):
 
-        # Loop over LOD parameters in sinex instance
-        for i in snx.ilod:
-            p = snx.param[i]
+            # Loop over LOD parameters in sinex instance
+            for i in snx.ilod:
+                p = snx.param[i]
 
-            # Initializations
-            b = 0
-            n = 0
-            mjdref = (date.from_tsnx(p.tref)).mjd
+                # Initializations
+                b = 0
+                n = 0
+                mjdref = (date.from_tsnx(p.tref)).mjd
 
-            # Loop over the 10 previous days
-            for mjd in np.arange(mjdref-10, mjdref):
-                if (mjd in rec.mjd) and (mjd in ref.mjd):
-                    irec = (np.nonzero(rec.mjd == mjd))[0][0]
-                    iref = (np.nonzero(ref.mjd == mjd))[0][0]
-                    b = b + ref.lod[iref] - rec.lod[irec]
-                    n = n+1
+                # Loop over the 10 previous days
+                for mjd in np.arange(mjdref-10, mjdref):
+                    if (mjd in rec.mjd) and (mjd in ref.mjd):
+                        irec = (np.nonzero(rec.mjd == mjd))[0][0]
+                        iref = (np.nonzero(ref.mjd == mjd))[0][0]
+                        b = b + ref.lod[iref] - rec.lod[irec]
+                        n = n+1
 
-            # If at least one previous day was available,
-            if (n > 0):
+                # If at least one previous day was available,
+                if (n > 0):
 
-                # Modify normal equation
-                b = b / n
-                snx.b = snx.b + b*snx.N[:,i]
+                    # Modify normal equation
+                    b = b / n
+                    snx.b = snx.b + b*snx.N[:,i]
 
-                # Print message
-                if not(quiet):
-                    print('    LOD    {0.soln} {0.tref} corrected by {1:11.4e} ms (mean over {2:2d} days)'.format(p, b, n), file=out)
+                    # Print message
+                    if not(quiet):
+                        print('    LOD    {0.soln} {0.tref} corrected by {1:11.4e} ms (mean over {2:2d} days)'.format(p, b, n), file=out)
 
-            # Else, just print message
-            elif not(quiet):
-                print('    LOD    {0.soln} {0.tref} not corrected'.format(p), file=out)
+                # Else, just print message
+                elif not(quiet):
+                    print('    LOD    {0.soln} {0.tref} not corrected'.format(p), file=out)
 
         # Print blank line in log file
         if not(quiet):

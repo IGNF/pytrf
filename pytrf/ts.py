@@ -794,10 +794,8 @@ class param:
         ----------
         type : str
             Parameter type
-        start : date instance, optional
+        t : date instance, optional
             Start of validity
-        end : date instance, optional
-            End of validity
         x : float, optional
             Parameter value
         fixed : bool, optional
@@ -861,14 +859,14 @@ class scale_param(param):
         ----------
         type : str
             Parameter type
-        start : date instance, optional
+        t : date instance, optional
             Start of validity
-        end : date instance, optional
-            End of validity
         x : float, optional
             Parameter value
         fixed : bool, optional
             Fixed or estimated parameter?
+        unit : str, optional
+            Parameter unit. Default is ''.
         xc : float, optional
             Reference value of constraint
         sigc : float, optional
@@ -943,6 +941,125 @@ class scale_param(param):
 
 
 
+# tanh_param class
+#-----------------
+class tanh_param(param):
+  
+    """
+    Sub-class of the param class for parameters in ]-1,1[ (e.g., MA(1) coefficients)
+    whose inverse hyperbolic tangents are internally estimated
+
+    A tanh_param instance is initialized by:
+    
+        p = tanh_param()
+
+    A tanh_param instance inherits the attributes from a param instance.
+        
+    Each tanh_param instance additionally has the following methods:
+
+        x2xr()   : Compute reparameterized value (xr=atanh(x)) from original value
+        xr2x()   : Compute original value (x=tanh(xr)) from reparameterized value
+        dx_dxr() : Compute partial derivative of original value wrt reparameterized value
+        
+    """
+
+    # Initialize a tanh_param instance
+    #---------------------------------
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
+      
+        """
+        Initialize an tanh_param instance
+
+        Returns
+        -------
+        p : tanh_param instance
+        
+        Parameters
+        ----------
+        type : str
+            Parameter type
+        t : date instance, optional
+            Start of validity
+        x : float, optional
+            Parameter value
+        fixed : bool, optional
+            Fixed or estimated parameter?
+        unit : str, optional
+            Parameter unit. Default is ''.
+        xc : float, optional
+            Reference value of constraint
+        sigc : float, optional
+            Sigma of constraint
+            
+        """
+
+        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
+        
+    # Compute reparameterized value (xr=atanh(x)) from original value
+    #----------------------------------------------------------------
+    def x2xr(p, x):
+        
+        """
+        Compute reparameterized value (xr=atanh(x)) from original value
+
+        Returns
+        -------
+        xr : float
+            Reparameterized value (xr=atanh(x))
+        
+        Parameter
+        ---------
+        x : float
+            Original value
+            
+        """
+        
+        return atanh(x)
+
+    # Compute original value (x=tanh(xr)) from reparameterized value
+    #---------------------------------------------------------------
+    def xr2x(p, xr):
+        
+        """
+        Compute original value (x=tanh(xr)) from reparameterized value
+
+        Returns
+        -------
+        x : float
+            Original value (x=tanh(xr))
+        
+        Parameter
+        ---------
+        xr : float
+            Reparameterized value
+            
+        """
+        
+        return tanh(xr)
+    
+    # Compute partial derivative of original value wrt reparameterized value
+    #-----------------------------------------------------------------------
+    def dx_dxr(p, x):
+        
+        """
+        Compute partial derivative of original value wrt reparameterized value
+
+        Returns
+        -------
+        dx : float
+            Partial derivative of original value wrt reparameterized value
+        
+        Parameter
+        ---------
+        x : float
+            Original value
+            
+        """
+        
+        return 1-x**2
+
+
+
 # pl_index class
 #---------------
 class pl_index(param):
@@ -980,7 +1097,7 @@ class pl_index(param):
         ----------
         type : str
             Parameter type
-        start : date instance, optional
+        t : date instance, optional
             Start of validity
         end : date instance, optional
             End of validity
@@ -988,6 +1105,8 @@ class pl_index(param):
             Parameter value
         fixed : bool, optional
             Fixed or estimated parameter?
+        unit : str, optional
+            Parameter unit. Default is ''.
         xc : float, optional
             Reference value of constraint
         sigc : float, optional
@@ -2763,6 +2882,204 @@ class ar1(noise):
         # Partial derivative wrt correlation time
         if (set_dh) and not(n.par[1].fixed):
             n.dh.append(dt/tau**2 * np.arange(nf)*n.h)
+
+
+
+## ma1 class
+##----------
+#class ma1(noise):
+
+    #"""
+    #Sub-class of the noise class for MA(1) processes
+
+    #An ma1 instance is initialized by:
+    
+        #n = ma1()
+
+    #An ma1 instance inherits the attributes and methods from a noise instance.
+    
+    #Each ma1 instance additionally has the following methods:
+
+        #set_x0() : Set default a priori values for unknown parameters
+        #set_c()  : Compute covariance vector [and its partial derivatives] (in case of stationary noise)
+        #set_h()  : Compute coefficients of MA representation [and their partial derivatives] (in case of stationary noise)
+
+    #"""
+
+    ## Initialize an ma1 instance
+    ##---------------------------
+    #def __init__(n, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, theta=None, fix_theta=False, tunit='d', yunit='m'):
+
+        #"""
+        #Initialize an ma1 instance
+
+        #Returns
+        #-------
+        #n : ma1 instance
+        
+        #Parameters
+        #----------
+        #dt : float, optional
+            #Noise sampling
+        #per : float, optional
+            #Period of possible modulating sine wave
+        #flow : str, optional
+            #Keyword indicating how the noise is assumed to propagate:
+            #- '1-way' means that the noise is assumed to start at the beginning of the series
+              #and to propagate forward.
+            #- '2-way' means that half of the noise is assumed to start at the beginning of the series
+              #and to propagate forward, and half of the noise is assumed to start at the end
+              #of the series and to propagate backward.
+            #- 'stationary' means that the noise is assumed to have started infinitely long ago.
+            #Default if '2-way'.
+        #s2 : float, optional
+            #[A priori] variance factor
+        #fix_s2 : bool, optional
+            #Whether provided variance factor should be fixed (or only used as a priori).
+            #Default is False.
+        #theta : float, optional
+            #[A priori] MA coefficient
+        #fix_theta : bool, optional
+            #Whether provided MA coefficient should be fixed (or only used as a priori).
+            #Default is False.
+        #tunit : str, optional
+            #Time unit. Default is 'm'.
+        #yunit : str, optional
+            #Time series unit. Default is 'm'.
+
+        #"""
+        
+        #super().__init__(dt=dt, per=per, flow=flow)
+        #n.par.append(scale_param(type='MA(1) variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
+        #n.par.append(tanh_param(type='MA(1) coefficient', x=theta, fixed=fix_theta, unit=tunit))
+        
+    ## Set default a priori values for unknown parameters
+    ##---------------------------------------------------
+    #def set_x0(n, m, v0):
+
+        #"""
+        #Set default a priori values for unknown parameters
+
+        #Parameters
+        #----------
+        #m : model instance
+            #The parent model
+        #v0 : float
+            #A priori variance
+            
+        #"""
+        
+        ## Noise sampling
+        #dt = n.get_dt(m)
+        
+        ## Set a priori MA coefficient if needed
+        ## Here's where I stopped modifications on Feb 17, 2023.
+        #if (n.par[1].x is None):
+            #if (n.per is None):
+                #n.par[1].x = -dt/log(0.9)
+            #else:
+                #n.par[1].x = 5*n.per
+        
+        ## Set a priori variance factor if needed
+        #if (n.par[0].x is None):
+            #n.par[0].x = 1
+            #n.set_cov(m)
+            #v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
+            #n.par[0].x = v0 / v
+            
+    ## Compute covariance vector [and its partial derivatives]
+    ##--------------------------------------------------------
+    #def set_c(n, m, set_dc=False):
+
+        #"""
+        #Compute covariance vector [and its partial derivatives]
+
+        #set_c() does not return anything, but sets attributes c [and dc] of the ar1 instance.
+
+        #Parameters
+        #----------
+        #m : model instance
+            #The parent model
+        #set_dc : bool, optional
+            #Whether to compute partial derivatives of c wrt unknown parameters
+            
+        #"""
+
+        ## Original noise sampling and dates
+        #dt = n.get_dt(m)
+        #tf = n.get_dates(m)
+        #nf = len(tf)
+        
+        ## Get noise parameters
+        #s2 = n.par[0].x
+        #tau = n.par[1].x
+        #phi = exp(-dt/tau)
+        #phik = phi**np.arange(nf)
+        #phi2 = np.abs(phik[2])
+        
+        ## Covariance vector
+        #n.c = s2 * phik / (1 - phi2)
+
+        ## Initialize partial derivatives
+        #if (set_dc):
+            #n.dc = []
+        #else:
+            #n.dc = None
+            
+        ## Partial derivative wrt variance factor
+        #if (set_dc) and not(n.par[0].fixed):
+            #n.dc.append(n.c/s2)
+            
+        ## Partial derivative wrt correlation time
+        #if (set_dc) and not(n.par[1].fixed):
+            #n.dc.append(dt/tau**2 * (np.arange(nf) + 2*phi2/(1-phi2)) * n.c)
+
+    ## Compute coefficients of MA representation [and their partial derivatives]
+    ##-------------------------------------------------------------------------
+    #def set_h(n, m, set_dh=False):
+
+        #"""
+        #Compute coefficients of MA representation [and their partial derivatives]
+
+        #set_h() does not return anything, but sets attributes h [and dh] of the ar1 instance.
+
+        #Parameters
+        #----------
+        #m : model instance
+            #The parent model
+        #set_dh : bool, optional
+            #Whether to compute partial derivatives of h wrt unknown parameters
+            
+        #"""
+
+        ## Original noise sampling and dates
+        #dt = n.get_dt(m)
+        #tf = n.get_dates(m)
+        #nf = len(tf)
+        
+        ## Get noise parameters
+        #s2 = n.par[0].x
+        #tau = n.par[1].x
+        #phi = exp(-dt/tau)
+        #phik = phi**np.arange(nf)
+        ## phi2 = np.abs(phik[2])
+        
+        ## Coefficients of MA representation
+        #n.h = sqrt(s2) * phik
+
+        ## Initialize partial derivatives
+        #if (set_dh):
+            #n.dh = []
+        #else:
+            #n.dh = None
+            
+        ## Partial derivative wrt variance factor
+        #if (set_dh) and not(n.par[0].fixed):
+            #n.dh.append(n.h / (2*s2))
+            
+        ## Partial derivative wrt correlation time
+        #if (set_dh) and not(n.par[1].fixed):
+            #n.dh.append(dt/tau**2 * np.arange(nf)*n.h)
 
 
 
@@ -4856,7 +5173,7 @@ class model:
     
     # Fit deterministic + noise model
     #--------------------------------
-    def fit(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit(m, estimator='reml', method='BFGS', prefit_x=True, prefit_b=False, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model
