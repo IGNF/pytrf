@@ -3016,7 +3016,7 @@ class sinex:
     
     # Delete (reduce) specified stations
     #----------------------------------
-    def del_sta(snx, code, pt=None, soln=None):
+    def del_sta(snx, code, pt=None, soln=None, keep_const=False):
 
         """
         Delete (reduce) specified stations
@@ -3029,7 +3029,10 @@ class sinex:
             List of PT codes. Default is None.
         soln : list, optional
             List of solns. Default is None.
-        
+        keep_const : bool, optional
+            Whether not to remove constraints before reducing specified stations.
+            Default is False.
+            
         """
 
         if (len(code) > 0):
@@ -3057,7 +3060,7 @@ class sinex:
                     ind.extend(range(ixv[i], ixv[i]+3))
             
             # And delete them
-            snx.del_ind(ind)
+            snx.del_ind(ind, keep_const=keep_const)
 
     # Delete (reduce) specified radiosources
     #---------------------------------------
@@ -3124,7 +3127,7 @@ class sinex:
 
     # Keep specified stations - Delete (reduce) other stations
     #---------------------------------------------------------
-    def keep_sta(snx, code, pt=None, soln=None):
+    def keep_sta(snx, code, pt=None, soln=None, keep_const=False):
 
         """
         Keep specified stations - Delete (reduce) other stations
@@ -3137,6 +3140,9 @@ class sinex:
             List of PT codes. Default is None.
         soln : list, optional
             List of solns. Default is None.
+        keep_const : bool, optional
+            Whether not to remove constraints before reducing the other stations.
+            Default is False.
         
         """
 
@@ -3164,7 +3170,7 @@ class sinex:
                 ind.extend(range(ixv[i], ixv[i]+3))
 
         # And delete them
-        snx.del_ind(ind)
+        snx.del_ind(ind, keep_const=keep_const)
 
     # Keep specified radiosources - Delete (reduce) other radiosources
     #-----------------------------------------------------------------

@@ -264,7 +264,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
         # Print message
         if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+            print('\x1b[2K', end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
 
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
@@ -290,7 +291,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         r.const = snx.const
         r.content = snx.content
         r.file = '{0:<29}'.format(os.path.basename(snx.file)[:29])
-        r.description = sol.description
+        r.description = sol.description[:32]
         combsnx.input.append(r)
         
         # Get indices of common parameters
@@ -793,6 +794,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Print message
     if not(quiet):
         print('', file=out)
+        print('', file=out)
         print('    '+str(date())+' : Set up normal equation', file=out)
 
     # Initializations
@@ -809,7 +811,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Print message
         if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+            print('\x1b[2K', end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
             
         # Re-read input solution if needed
         if not(store_inputs):
@@ -889,6 +892,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Print message
     if not(quiet):
         print('', file=out)
+        print('', file=out)
         print('    '+str(date())+' : Add constraints', file=out)
 
     # Initialization
@@ -961,7 +965,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Print message
         if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+            print('\x1b[2K', end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
 
         # Re-read input solution if needed
         if not(store_inputs):
@@ -1100,6 +1105,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     #-----------------
 
     if not(quiet):
+        print('', file=out)
         print('', file=out)
         print('        Combination statistics', file=out)
         print('        ----------------------', file=out)
