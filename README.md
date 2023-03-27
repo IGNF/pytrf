@@ -13,7 +13,7 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
         1. [Update with latest version](#update-with-latest-version)
 1. [Tips and common issues](#tips-and-common-issues)  
     1. [IGN network](#ign-network)
-    1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git,-conda-and-pip)
+    1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
         1. [Run `git` behind a proxy server](#run-git-behind-a-proxy-server)
         1. [Run `conda` behind a proxy server](#run-conda-behind-a-proxy-server)
         1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)
@@ -32,8 +32,8 @@ This solution provides a first quick and minimal working environment for pytrf. 
 
 > [**_What is a virtual environment?_**](#what-is-a-virtual-environment)
 
-Note: this installation procedure has been tested on a Windows 11 machine, but Anaconda / Miniconda distributions also work on Linux-based machines.
-
+Note: this installation procedure has been tested on a Windows 11 machine, but Anaconda / Miniconda distributions also work on Linux-based machines.  
+<br>
 
 ### Install conda via Anaconda or Miniconda
 
@@ -52,31 +52,31 @@ $ conda
 If you have a error message "conda is not recognized as internal or external command.", it means that we have to set our PATH environment variable for Anaconda or Miniconda:
 
 - First, check `conda.exe` installed location:
-```sh
-$ where conda.exe
-```
+    ```sh
+    $ where conda.exe
+    ```
 
   In the tested machine, `conda.exe` is in:
-`C:\Users\cpov\Anaconda3\Scripts\`
+    `C:\Users\cpov\Anaconda3\Scripts\`
 
 - For Linux users, one mays refers to [this link](https://opensource.com/article/17/6/set-path-linux) .  
-For Windows users:
-  - Add this directory to the PATH environment variable:
-```sh
-$ set Path=%Path%;C:\Users\cpov\Anaconda3\Scripts
-```
+    For Windows users:
+    - Add this directory to the PATH environment variable:
+        ```sh
+        $ set Path=%Path%;C:\Users\cpov\Anaconda3\Scripts
+        ```
 
-    _Note: if you have installed Miniconda3, conda.exe may be located in:
-`C:\Users\cpov\AppData\Local\miniconda3\Scripts`_
+        _Note: if you have installed Miniconda3, conda.exe may be located in:
+    `C:\Users\cpov\AppData\Local\miniconda3\Scripts`_
 
 - Run
-```sh
-$ conda init
-```
+    ```sh
+    $ conda init
+    ```
 
 - For changes to take effect, close and re-open your current shell.
 
-
+<br>
 
 ### Clone the repository
 
@@ -85,16 +85,17 @@ $ conda init
 
 - Open a terminal and **clone the repository** with the following command.  
   IMPORTANT: you will be asked to enter your github username and *password*. **The *password* is your token, not your usual github password**.
-```sh
-$ git clone https://github.com/prebischung/pytrf
-```
+    ```sh
+    $ git clone https://github.com/prebischung/pytrf
+    ```
 
 - A `pytrf` folder should now be seen in the current directory.  
   Run:
-```sh
-$ cd pytrf
-```
+    ```sh
+    $ cd pytrf
+    ```
 
+<br>
 
 ### Setup the conda environment
 
@@ -129,23 +130,24 @@ This formatted file lists all the packages required for pytrf (see above) and th
 
 
 - Let's create a virtual environment named `pytrf_env` from the `environment.yml` file.
-```sh
-$ conda env create --name pytrf_env -f environment.yml
-```
+    ```sh
+    $ conda env create --name pytrf_env -f environment.yml
+    ```
 
 - Then activate it:
-```sh
-$ conda activate pytrf_env
-```
+    ```sh
+    $ conda activate pytrf_env
+    ```
 
-This command worked if in your command prompt, `(pytrf_env)` appears in front of your current directory, for example:
+    This command worked if in your command prompt, `(pytrf_env)` appears in front of your current directory, for example:
 
-```
-C:\Users\cpov>
-C:\Users\cpov>conda activate pytrf_env
-(pytrf_env) C:\Users\cpov>
-```
+    ```
+    C:\Users\cpov>
+    C:\Users\cpov>conda activate pytrf_env
+    (pytrf_env) C:\Users\cpov>
+    ```
 
+<br>
 
 ### Install pytrf
 
@@ -162,12 +164,14 @@ C:\Users\cpov>conda activate pytrf_env
   ```
 
 - Open a python interpreter and try to import `pytrf`.
-```sh
->>> import pytrf
->>>
->>> exit()
-```
-You should be able to import the library without any error.
+    ```sh
+    >>> import pytrf
+    >>>
+    >>> exit()
+    ```
+    You should be able to import the library without any error.
+
+<br>
 
 ### Generate documentation
 
@@ -177,6 +181,7 @@ $ pdoc --html pytrf
 A folder should have been created:
 - `html`: contains the project documentation
 
+<br>
 
 ### Update with latest version
 
@@ -195,7 +200,6 @@ $ git pull
 
 #### Connectivity problems with `git`, `conda` and `pip`
 
-
 `git`, `conda` and `pip` commands that require internet connection may fail because of the network configuration (firewall, proxy server, etc.)
 
 If you do use a proxy and need to keep it activated for security reasons, this section will detail how to use `git`, `conda` and `pip` behind a proxy server.
@@ -207,6 +211,7 @@ Issues (and solutions) detailed were encountered (has worked) for a:
 
 but it can still be useful for users with a different configuration.
 
+<br>
 
 #### IGN network
 
@@ -222,7 +227,8 @@ It should have download a `.pac` file in your usual `Downloads` folder.
 <br></br>
 > - Open the file. Identify your proxy address used for http requests (around the comment `// toutes les autres demandes (sauf ftp) => proxy`). The format is `myproxy.com:portnumber`.
 
-<br></br>
+<br>
+
 ##### Run `git` behind a proxy server
 
 ###### Example of proxy error
@@ -241,8 +247,8 @@ There are several ways to solve this problem depending on your needs and actual 
 One way is to set git config file (global or local one depending on your needs).
 
 >As a precaution, and before making any changes, please check your `http.proxy` git variable first and copy paste the current value somewhere. You can get its value by :
-- Checking your git config file
-- Running `git config --global --get http.proxy`
+>- Checking your git config file
+>- Running `git config --global --get http.proxy`
 
 
 Run the following command — replace `myproxy.com:portnumber` by the proxy address you have identified earlier):
@@ -251,7 +257,7 @@ Run the following command — replace `myproxy.com:portnumber` by the proxy addr
 git config --global http.proxy "myproxy.com:portnumber"
 ```
 
-<br></br>
+<br>
 
 
 ##### Run `conda` behind a proxy server
@@ -276,38 +282,38 @@ a support request with your network engineering team.
 
 The proxy address must be specified in conda configuration file (`.condarc`).
 
-Check if you already have one created. Run:
+- Check if you already have one created. Run:
 
-```sh
-$ conda info
-````
+    ```sh
+    $ conda info
+    ````
 
-And look for the field `user config file`.
-
-
->**If `user config file` value is not null:**
-<br></br>
->As a precaution, check if you already have a configuration value set for `proxy_servers.https` and copy paste the current value somewhere. You can get this value by:
-- Checking the existing `.condarc` file
-- Running the command `conda config --get proxy_servers.https`
+    And look for the field `user config file`.
 
 
-Run the following command — replace `myproxy.com:portnumber` by the proxy address you have identified earlier)
+    >**If `user config file` value is not null:**
+    <br></br>
+    >As a precaution, check if you already have a configuration value set for `proxy_servers.https` and copy paste the current value somewhere. You can get this value by:
+    >- Checking the existing `.condarc` file
+    >- Running the command `conda config --get proxy_servers.https`
 
-```sh
-$ conda config --set proxy_servers.https myproxy.com:portnumber
-```
 
-If your `user config file` value was `None`, this command will create a `.condarc` in your home directory with the following content:
+- Run the following command — replace `myproxy.com:portnumber` by the proxy address you have identified earlier)
 
-```txt
-proxy_servers:
-  https: myproxy.com:portnumber
-```
+    ```sh
+    $ conda config --set proxy_servers.https myproxy.com:portnumber
+    ```
 
-If you already had a configuration file, it will simply add a row in it.
+    If your `user config file` value was `None`, this command will create a `.condarc` in your home directory with the following content:
 
-<br></br>
+    ```txt
+    proxy_servers:
+      https: myproxy.com:portnumber
+    ```
+
+    If you already had a configuration file, it will simply add a row in it.
+
+<br>
 
 ##### Run `pip` behind a proxy server
 
@@ -354,6 +360,8 @@ Other advantages of virtual environments are:
 - easier to define and install packages specific to a project
 - easier for other developers to reproduce your development environment.
 
+
+
 <br></br>
 ### Conda useful commands
 
@@ -363,60 +371,60 @@ Other advantages of virtual environments are:
 
 
 - **Create an environment with python 3.9 installed**
-```sh
-$ conda create --name python39_env python=3.9
-```
+    ```sh
+    $ conda create --name python39_env python=3.9
+    ```
 
 
 - **Install a library**
-```sh
-$ conda install library_name
-```
-It is suggested that one searches on the internet for the exact command line recommended by the library author.
+    ```sh
+    $ conda install library_name
+    ```
+    It is suggested that one searches on the internet for the exact command line recommended by the library author.
 
 
 - **List all existing virtual environments**:
-```sh
-$ conda info --envs
-```
-You should see a `*` just after the name of the active one (and no `*` if none is activated.)  
-A possible output can be:
-```
-# conda environments:
-#
-base           *          C:\Users\cpov\Anaconda3
-pytrf_env                 C:\Users\cpov\Anaconda3\envs\pytrf_env
-ML_env                    C:\Users\cpov\Anaconda3\envs\ML_env
-```
-In this case, the active environment is `base`.
+    ```sh
+    $ conda info --envs
+    ```
+    You should see a `*` just after the name of the active one (and no `*` if none is activated.)  
+    A possible output can be:
+    ```
+    # conda environments:
+    #
+    base           *          C:\Users\cpov\Anaconda3
+    pytrf_env                 C:\Users\cpov\Anaconda3\envs\pytrf_env
+    ML_env                    C:\Users\cpov\Anaconda3\envs\ML_env
+    ```
+    In this case, the active environment is `base`.
 
 
 - **Deactivate the current active environment**:
-```sh
-$ conda deactivate environment_name
-```
-Note: Simply do `conda activate name_of_the_environment` to switch from one environment to another. You don't need to deactivate the current one, it will be automatically deactivated when another environment is activated. (This phenomena can be checked with `conda info --envs`. )
+    ```sh
+    $ conda deactivate environment_name
+    ```
+    Note: Simply do `conda activate name_of_the_environment` to switch from one environment to another. We don't need to deactivate the current one, it will be automatically deactivated when another environment is activated. (This phenomena can be checked with `conda info --envs`. )
 
 
 - **List all packages installed in an environment "E"**:
-```sh
-$ conda list -n environment_name
-```
-If one wants to list all packages of the current active environment:
-```sh
-$ conda list
-```
+    ```sh
+    $ conda list -n environment_name
+    ```
+    If one simply wants to list all packages of the current active environment:
+    ```sh
+    $ conda list
+    ```
 
 
 - **Create an `environment.yml` for the active environment**:
-```sh
-$ conda env export > environment.yml
-```
+    ```sh
+    $ conda env export > environment.yml
+    ```
 
 
 - **Directly clone an existing environment without the need of generating an `environment.yml`**:
-```sh
-$ conda create --name cloned_environment_name --clone name_of_environment_to_be_cloned
-```
-Possible use case: One wants to install a library "α" in a existing environment "`E`", but wants to prevent it from being broken by "α" installation (dependencies).
-One can consider installing "α" in a cloned environment "`E'`" first, and then check if projects usually run on "`E`" can also by run on "`E'`".
+    ```sh
+    $ conda create --name cloned_environment_name --clone name_of_environment_to_be_cloned
+    ```
+    Possible use case: One wants to install a library "α" in a existing environment "`E`", but wants to prevent it from being broken by "α" installation (dependencies).
+    One can consider installing "α" in a cloned environment "`E'`" first, and then check if projects usually run on "`E`" can also by run on "`E'`".
