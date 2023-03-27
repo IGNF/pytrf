@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as pp
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import platform
 
 # Internal imports
 #-----------------
@@ -204,7 +205,7 @@ def sed_keywords(s, t):
     s = re.subn('\$wk',   t.wk,   s)[0]
     
     # Operating system
-    s = re.subn('\$os', os.uname().sysname+', '+os.uname().machine, s)[0]
+    s = re.subn('\$os', platform.uname().system+', '+platform.uname().machine, s)[0]
     
     return s
 
