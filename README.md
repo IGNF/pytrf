@@ -16,39 +16,23 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git,-conda-and-pip)
         1. [Run `git` behind a proxy server](#run-git-behind-a-proxy-server)
         1. [Run `conda` behind a proxy server](#run-conda-behind-a-proxy-server)
-        1. ["Run `pip` behind a proxy server"](#run-pip-behind-a-proxy-server)
+        1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)
     1. [What is a virtual environment ?](#what-is-a-virtual-environment)
     1. [Conda useful commands](#conda-useful-commands)
 
-
-<!--
-  - [2. Clone the repository](#2-clone-the-repository)
-  - [3. Setup the conda environment](#3-setup-the-conda-environment)
-  - [4. Install pytrf](#4-install-pytrf')
-  - [5. Generate documentation](5-generate-documentation)
-  - [6. Update with latest version](6-update-with-latest-version)
-
- - [II. Tips and common issues](#II-tips-and-common-issues)
-  - [1. Proxy issues with IGN network](1.-proxy-issues-with-ign-network)
-      - [Connectivity problems with `git`, `conda` and `pip`](connectivity-problems-with-git,-conda-and-pip)
-      - [IGN network](ign-network)
-    - ["a. Run `git` behind a proxy server"](a.-run-`git`-behind-a-proxy-server)
-    - ["b. Run `conda` behind a proxy server"](a.-run-`conda`-behind-a-proxy-server)
-    - ["c. Run `pip` behind a proxy server"](c.-run-`pip`-behind-a-proxy-server)
-  - [What is a virtual environment?](what-is-a-virtual-environment?)
-
--->
 <br/><br/>
 
 
 
-## I. Installation
+## Installation
 
-The aim of this section is to setup a **conda virtual environment** with pytrf librairies and dependencies.  
+The aim of this section is to setup a **conda virtual environment** with pytrf libraries and dependencies.  
 
 This solution provides a first quick and minimal working environment for pytrf. Choose this option if you want to **test pytrf** tools for the first time, without the need of integrating it into another project at the moment.
 
 > [**_What is a virtual environment?_**](#what-is-a-virtual-environment)
+
+Note: this installation procedure has been tested on a Windows 11 machine, but Anaconda / Miniconda distributions also work on Linux-based machines.
 
 
 ### Install conda via Anaconda or Miniconda
@@ -65,22 +49,24 @@ After installing the distribution, open a shell and run:
 ```sh
 $ conda
 ```
-If you have a error message "conda is not recognized as internal or external command.", it means that we have to set our PATH environment variable for Anaconda or Miniconda :
+If you have a error message "conda is not recognized as internal or external command.", it means that we have to set our PATH environment variable for Anaconda or Miniconda:
 
 - First, check `conda.exe` installed location:
 ```sh
 $ where conda.exe
 ```
 
-  In the tested machine, `conda.exe` is in :
+  In the tested machine, `conda.exe` is in:
 `C:\Users\cpov\Anaconda3\Scripts\`
 
-- Add this directory to the PATH environment variable:
+- For Linux users, one mays refers to [this link](https://opensource.com/article/17/6/set-path-linux) .  
+For Windows users:
+  - Add this directory to the PATH environment variable:
 ```sh
 $ set Path=%Path%;C:\Users\cpov\Anaconda3\Scripts
 ```
 
-  _Note: if you have installed Miniconda3, conda.exe may be located in :
+    _Note: if you have installed Miniconda3, conda.exe may be located in:
 `C:\Users\cpov\AppData\Local\miniconda3\Scripts`_
 
 - Run
@@ -89,6 +75,8 @@ $ conda init
 ```
 
 - For changes to take effect, close and re-open your current shell.
+
+
 
 ### Clone the repository
 
@@ -111,8 +99,7 @@ $ cd pytrf
 ### Setup the conda environment
 
 
-~~We will use the `<path_to_pytrf_folder>/pytrf/environment.yml` file to set up our virtual environment.~~
-Since this file is not in the repo at the moment, move it from your Downloads folder to `<path_to_pytrf_folder>/pytrf/`.
+We will use the `<path_to_pytrf_folder>/pytrf/environment.yml` file to set up our virtual environment.
 
 This formatted file lists all the packages required for pytrf (see above) and their dependencies.
 
@@ -146,15 +133,23 @@ This formatted file lists all the packages required for pytrf (see above) and th
 $ conda env create --name pytrf_env -f environment.yml
 ```
 
-- Then activate it :
+- Then activate it:
 ```sh
 $ conda activate pytrf_env
+```
+
+This command worked if in your command prompt, `(pytrf_env)` appears in front of your current directory, for example:
+
+```
+C:\Users\cpov>
+C:\Users\cpov>conda activate pytrf_env
+(pytrf_env) C:\Users\cpov>
 ```
 
 
 ### Install pytrf
 
-- In `path_to_pytrf_folder/pytrf`, run one of the 2 following commands : use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
+- In `path_to_pytrf_folder/pytrf`, run one of the 2 following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
 
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
@@ -206,7 +201,7 @@ $ git pull
 If you do use a proxy and need to keep it activated for security reasons, this section will detail how to use `git`, `conda` and `pip` behind a proxy server.
 
 
-Issues (and solutions) detailed were encountered (has worked) for a :
+Issues (and solutions) detailed were encountered (has worked) for a:
 - Windows 11 machine
 - connected to IGN network  
 
@@ -258,10 +253,12 @@ git config --global http.proxy "myproxy.com:portnumber"
 
 <br></br>
 
+
 ##### Run `conda` behind a proxy server
 
+###### Example of proxy error
 
-Issues may occur when trying to install librairies with conda:
+Issues may occur when trying to install libraries with conda:
 
 ```sh
 (pytrf_env) C:\Users\cpov\pytrf> conda install pdoc3
@@ -313,7 +310,21 @@ If you already had a configuration file, it will simply add a row in it.
 <br></br>
 
 ##### Run `pip` behind a proxy server
-lorem ipsum
+
+###### Example of proxy error
+
+Issues may occur when trying to install libraries with `pip`:
+```sh
+(base) C:\Users\cpov>pip install library_name
+WARNING: Retrying (Retry(total=4, connect=None, read=None, redirect=None, status=None)) after connection broken by 'ConnectTimeoutError(<pip._vendor.urllib3.connection.HTTPSConnection object at 0x000002395E6B2460>, 'Connection to pypi.org timed out. (connect timeout=15)')': /simple/library_name/
+```
+
+Like conda, one possibility is to modify the configuration file. As a temporary solution, we can indicate the proxy server address in the command, using the `proxy` option:
+
+```sh
+$ pip install --proxy myproxy.com:portnumber library_name
+```
+
 
 <br></br>
 
@@ -325,7 +336,7 @@ A virtual environment helps you keep dependencies required by different projects
 
 Why it is useful?
 
-Let's say we work on a project1. To run it, we installed all the required dependencies in our machine :
+Let's say we work on a project1. To run it, we installed all the required dependencies in our machine:
 
 We then start to work on another project (project2) which will never overlap with project1. It requires a more recent version of python3 and numpy.
 
@@ -335,14 +346,77 @@ To run both project1 AND project2 without conflicts, multiple options can be con
 - Test which python and numpy versions are compatible for both projects
 - etc.
 
-For a larger number of projects and packages, having to manage many different version of packages <b>in a single environment</b> can be quite time consuming and painful. In fact, with this approach, we just have <b>one global installation</b> for Python and librairies.
+For a larger number of projects and packages, having to manage many different version of packages <b>in a single environment</b> can be quite time consuming and painful. In fact, with this approach, we just have <b>one global installation</b> for Python and libraries.
 
-Virtual environment will allow us to have <b>separated environment for each project</b>, hence isolate dependencies : each project can have its own dependencies, regardless of what dependencies other projects have.
+Virtual environments will allow us to have <b>separated environment for each project</b>, hence isolate dependencies: each project can have its own dependencies, regardless of what dependencies other projects have.
 
 Other advantages of virtual environments are:
 - easier to define and install packages specific to a project
 - easier for other developers to reproduce your development environment.
 
+<br></br>
 ### Conda useful commands
 
-lorem ipsum
+- [Link to conda cheat sheet](https://docs.conda.io/projects/conda/en/4.6.0/_downloads/52a95608c49671267e40c689e0bc00ca/conda-cheatsheet.pdf)
+
+- **The `base` virtual environment is created by default**. It is the default active one when an "Anaconda Prompt" is launched.
+
+
+- **Create an environment with python 3.9 installed**
+```sh
+$ conda create --name python39_env python=3.9
+```
+
+
+- **Install a library**
+```sh
+$ conda install library_name
+```
+It is suggested that one searches on the internet for the exact command line recommended by the library author.
+
+
+- **List all existing virtual environments**:
+```sh
+$ conda info --envs
+```
+You should see a `*` just after the name of the active one (and no `*` if none is activated.)  
+A possible output can be:
+```
+# conda environments:
+#
+base           *          C:\Users\cpov\Anaconda3
+pytrf_env                 C:\Users\cpov\Anaconda3\envs\pytrf_env
+ML_env                    C:\Users\cpov\Anaconda3\envs\ML_env
+```
+In this case, the active environment is `base`.
+
+
+- **Deactivate the current active environment**:
+```sh
+$ conda deactivate environment_name
+```
+Note: Simply do `conda activate name_of_the_environment` to switch from one environment to another. You don't need to deactivate the current one, it will be automatically deactivated when another environment is activated. (This phenomena can be checked with `conda info --envs`. )
+
+
+- **List all packages installed in an environment "E"**:
+```sh
+$ conda list -n environment_name
+```
+If one wants to list all packages of the current active environment:
+```sh
+$ conda list
+```
+
+
+- **Create an `environment.yml` for the active environment**:
+```sh
+$ conda env export > environment.yml
+```
+
+
+- **Directly clone an existing environment without the need of generating an `environment.yml`**:
+```sh
+$ conda create --name cloned_environment_name --clone name_of_environment_to_be_cloned
+```
+Possible use case: One wants to install a library "α" in a existing environment "`E`", but wants to prevent it from being broken by "α" installation (dependencies).
+One can consider installing "α" in a cloned environment "`E'`" first, and then check if projects usually run on "`E`" can also by run on "`E'`".
