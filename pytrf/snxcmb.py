@@ -63,14 +63,14 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
     # Raise error if input solution has no name
     if not(hasattr(sol, 'name')):
-        raise RuntimeError('No name specified for input solution {0}. Please set \'name\' attribute for each input solution.'.format(isol))
+        raise RuntimeError('No name specified for input solution {0}. Please set \'name\' attribute for each input solution.'.format(sol))
     
     # If sinex instance of current solution is not readily available, load it
     if not(hasattr(sol, 'snx')):
         if (hasattr(sol, 'file')):
             sol.snx = sinex.load(sol.file, load_mat)
         else:
-            raise RuntimeError('No input specified for solution {0} ({1}). Please set either \'snx\' or \'file\' attribute for each input solution.'.format(isol, sol.name))
+            raise RuntimeError('No input specified for solution {0} ({1}). Please set either \'snx\' or \'file\' attribute for each input solution.'.format(sol, sol.name))
     
     # Set default scale factor if needed
     if not(hasattr(sol, 'sf')):
@@ -109,8 +109,12 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
+            mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
+            ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, #Internal constraints
+            update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
+            
+            ):
 
     """
     Combination of SINEX solutions
@@ -147,6 +151,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         combined scale factor. Default is False.
     datum : str or sinex instance, optional
         [File containing] datum. Default is None.
+    
+    ---------- MINIMAL constraints parameters ----------
     mc_sta : str, optional
         String indicating which minimal constraints should be applied to station positions.
         It can be composed of any combination of letters 'T' (translations),
@@ -171,6 +177,27 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    
+    ---------- INTERNAL constraints parameters ----------
+    ic_mean : bool, optional. Default: False
+        Boolean indicating if you allow internal constraints to be applied to mean(s) of parameter(s).
+        If True, you must specify the "ic_mean" parameter in the YAML file for each solution that you want apply IC.
+        This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
+        If no "ic_mean" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+    ic_mean_sig : float or str, optional
+        Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc().
+    ic_trend : bool, optional. Default: False
+        Boolean indicating if you allow internal constraints to be applied to trend(s) of parameter(s).
+        If True, you must specify the "ic_trend" parameter in the YAML file for each solution that you want apply IC.
+        This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
+        If no "ic_trend" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+    ic_trend_sig : float, optional
+        Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc().    
+        
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
         Default is False.
@@ -197,6 +224,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Whether to reduce transformation parameters. Default is False.
         Note that if transformation parameters are reduced, the options norm_res='correct'
         and vce='correct' become unavailable.
+        ! WARNING !: in case of internal constraints (i.e. ic_trend or ic_mean == True), 'reduce_trans' must be 'False'.
+        In any case it is automatically reset to 'False' with internal constraints.
     clear_neq : bool, optional
         Whether normal equation should be kept in combined sinex object. Default is True.
     quiet : bool, optional
@@ -205,6 +234,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Log file. Default is sys.stdout.
     
     """
+    #look at reduce_trans exception, if internal constraints > reduce_trans=False 
+    if (ic_mean or ic_trend) and (reduce_trans) : #internal constraints, at least on mean or trend.
+        print("WARNING : case of internal constraints, 'reduce_trans' param set to False.", file=out)
+        reduce_trans=False
     
     # Print header in log file
     if not(quiet):
@@ -254,7 +287,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('', file=out)
         print('    '+str(date())+' : Set up parameter list', file=out)
 
-
+    # initialize internal constraints dict
+    ic_healmert_mean = {}
+    ic_healmert_trend = {}
 
     # Loop over input solutions
     #--------------------------
@@ -270,6 +305,20 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
         
+        ## Build internal constraints dict (which constraints for which solutions ?)
+        # ic_healmert_mean
+        if ic_mean: #allow IC on mean
+            if hasattr(sol, 'ic_mean'):
+                ic_healmert_mean[sol.name] = sol.ic_mean
+            else: #this sol has not ic_mean const
+                ic_healmert_mean[sol.name] = ''
+                
+        if ic_trend: #allow IC on trend
+            if hasattr(sol, 'ic_trend'):
+                ic_healmert_trend[sol.name] = sol.ic_trend
+            else: #this sol has not ic_mean const
+                ic_healmert_trend[sol.name] = ''
+                
         # Shortcut for sol.snx
         snx = sol.snx
         
@@ -916,7 +965,22 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             if not(quiet):
                 print('        Add minimal constraints to station velocities', file=out)
             nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
+            
+        
+    # Add internal constraints
+    #------------------------
+             
+    # Add internal constraints to MEAN
+    if (ic_mean):
+        if not(quiet):
+            print('        Add mean internal constraints', file=out)
+        nc += combsnx.add_ic(ic_healmert_mean, 'MEAN', sigma=ic_mean_sig)
 
+    # Add internal constraints to TREND
+    if (ic_trend):
+        if not(quiet):
+            print('        Add trend internal constraints', file=out)
+        nc += combsnx.add_ic(ic_healmert_trend, 'TREND', sigma=ic_trend_sig)
 
 
     # Add constraints between successive station velocities
@@ -1154,9 +1218,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
-            thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
+                 mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
+                 ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, #Internal constraints
+                 update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
+                 thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, flag_once=False, quiet=False, out=sys.stdout):
 
     """
     Iterative combination of SINEX solutions
@@ -1193,6 +1259,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         combined scale factor. Default is False.
     datum : str or sinex instance, optional
         [File containing] datum. Default is None.
+    
+    ---------- MINIMAL constraints parameters ----------
     mc_sta : str, optional
         String indicating which minimal constraints should be applied to station positions.
         It can be composed of any combination of letters 'T' (translations),
@@ -1217,6 +1285,27 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    
+    ---------- INTERNAL constraints parameters ----------
+    ic_mean : bool, optional. Default: False
+        Boolean indicating if you allow internal constraints to be applied to mean(s) of parameter(s).
+        If True, you must specify the "ic_mean" parameter in the YAML file for each solution that you want apply IC.
+        This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
+        If no "ic_mean" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+    ic_mean_sig : float or str, optional
+        Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc().
+    ic_trend : bool, optional. Default: False
+        Boolean indicating if you allow internal constraints to be applied to trend(s) of parameter(s).
+        If True, you must specify the "ic_trend" parameter in the YAML file for each solution that you want apply IC.
+        This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
+        If no "ic_trend" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+    ic_trend_sig : float, optional
+        Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc(). 
+    
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
         Default is False.
@@ -1243,6 +1332,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         Whether to reduce transformation parameters. Default is False.
         Note that if transformation parameters are reduced, the options norm_res='correct'
         and vce='correct' become unavailable.
+        ! WARNING !: in case of internal constraints (i.e. ic_trend or ic_mean == True), 'reduce_trans' must be 'False'.
+        In any case it is automatically reset to 'False' with internal constraints by combine().
     clear_neq : bool, optional
         Whether normal equation should be kept in combined sinex object. Default is True.
     thr_raw : float, optional
@@ -1251,6 +1342,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         Default is None.
     thr_norm : float, optional
         Threshold for flagging station with large normalized residuals as outliers.
+    thr_abs_E, thr_abs_N, thr_abs_H : float, optional
+            Absolute threshold for respectively east, north and up positional residuals
     flag_once : bool, optional
         If True, then each station can be flagged as outlier in only one input solution
         (i.e. the one with the largest 3D normalized residual for that station).
@@ -1293,6 +1386,13 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
             if (thr_norm):
                 for i in range(3):
                     sol.iout.extend(np.nonzero(np.abs(sol.vn[ix[:,i]]) > thr_norm)[0].tolist())
+            if (thr_abs_E):
+                sol.iout.extend(np.nonzero(np.abs(sol.v[ix[:,0]]) > thr_abs_E)[0].tolist())
+            if (thr_abs_N):
+                sol.iout.extend(np.nonzero(np.abs(sol.v[ix[:,1]]) > thr_abs_N)[0].tolist())
+            if (thr_abs_H):
+                sol.iout.extend(np.nonzero(np.abs(sol.v[ix[:,2]]) > thr_abs_H)[0].tolist())
+
             sol.iout = list(set(sol.iout))
             
             # Residuals and normalized residuals of outliers
