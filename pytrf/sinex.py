@@ -3736,8 +3736,8 @@ class sinex:
     
     # Add mean or trend Internal Constraints (on R,S and/or T parameters) to normal matrix of constraints.
     #--------------------------------------------------------------------
-    def add_ic(snx, dict_helmert, par, sigma=1e-5, proj=True):
-        
+    def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None):
+    
         """
         Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
         If you want both MEAN and TREND constraints, apply twice this method with par=MEAN and par=TREND
@@ -3750,11 +3750,11 @@ class sinex:
         Parameters
         ----------
         dict_helmert : dict of str
-            Indicates which Helmert parameters should be constrained, for a particular solution (snx.param[k].code).
+            Indicates which Helmert parameters should be constrained, for a particular solution (snx.param[k].isol).
             It can include 'T' (translations), 'S' (scale), 'R' (rotations)
             and 'A' (CRF rotations).
             Format example for combination of 3 soltutions : dict_helmert = {'sol1':'RST', 'sol2':'RS', 'sol3':''}
-        par : str
+        ic_type : str
             Indicates to which type of constraints should be applied.
             It can be either 'MEAN' (internal constraints on MEAN) or 'TREND' (internal constraints on TREND).
         sigma : float or str, optional
@@ -3763,144 +3763,64 @@ class sinex:
             median of the diagonal elements of the normal matrix that correspond to
             positions/velocities of stations to which constraints are applied:
             sigma = 0.01 / sqrt(median(N_{i,i})).
+        t0 : str
+            Reference date (SINEX date format)
+            Must be specified if par='TREND'
         """
-        
         # get all param TRANS indices
         all_transf_id = snx.get_par_ind('TRANS')
         
         # dict of id according to R, S,T (classication):
-            #in each list, we keep param only according to dict_helmert
-        dict_tranf = {'RX':[],
-                      'RY':[],
-                      'RZ':[],
-                      'TX':[],
-                      'TY':[],
-                      'TZ':[],
-                      'SC':[]}
+        #in each list, we keep param only according to dict_helmert from user YAML
+        dict_transf = {'R':[],
+                      'T':[],
+                      'S':[]}
+        
+        # Initialize ic_trend
+        vect_ic_trend = None
+        mat_ic_trend = None 
+        if ic_type == 'TREND' : #initialize tk-t0 vector
+            vect_ic_trend = np.zeros((snx.Nc.shape[0],1))
     
-        # name in snx.param. 1 object by line. We look "type" attribute.
+        # name are in snx.param. 1 object by line. We look "type" attribute.
         # filter id according code name in dict_helmert
         for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
-            if par.code in list(dict_helmert.keys()):
-                if any(letter in dict_helmert[par.code] for letter in par.type): #'letter' can be R, S or T
-                    #At least 1 Internal constraint apply on this TRANSF param
-                    #we looking for if 'R', 'S' or 'T' are in par.type
+            
+            if par.isol in list(dict_helmert.keys()):
+                if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T
+                    #Here, at least 1 Internal constraint apply on this TRANSF param
+                    #we are looking for if 'R', 'S' or 'T' are in par.type
                     
-                    #add to dict: par.type can also be with X, Y, Z dims
-                    dict_tranf[par.type.split(" ")[0]]= all_transf_id[num] #type.split(" ")[0] because par.type like 'RX    ' -> 'RX'
-
-
-        # names = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[list_id]]
-        # values = [snx.x[i] for i in list_id]
-        # sigs = [snx.sig[i] for i in list_id]
-    
+                    #add to list inside dict_transf: par.type can also be with X, Y, Z dims
+                    dict_transf[par.type[0]].append(all_transf_id[num]) #type[0] because par.type like 'RX    ' -> 'R'
+                    #we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
+                    
+                    if ic_type == 'TREND' :#complete vect_ic_trend
+                        vect_ic_trend[all_transf_id[num]] = date.from_tsnx(par.tref).ydec() - date.from_tsnx(t0).ydec() #decimal year conversion
         
-        # If a datum is specified,
-        if (datum):
+        ## convert sigma according to dim, giv by user in meter
+        sigma_T = sigma * 1000 #mm conversion
+        sigma_R = sigma * 1/(ae*mas2rad) #mas conversion
+        sigma_S = sigma * 1/(1e-9*ae) #ppb conversion
+        
+        if ic_type == 'MEAN' :
+            ## complet Nc matrix with 1/sigma²
+            snx.Nc[np.ix_(dict_transf['T'],dict_transf['T'])] += 1/(sigma_T**2)
+            snx.Nc[np.ix_(dict_transf['R'],dict_transf['R'])] += 1/(sigma_R**2)
+            snx.Nc[np.ix_(dict_transf['S'],dict_transf['S'])] += 1/(sigma_S**2)
             
-            # Get indices of common stations
-            if (par == 'STA'):
-                (isnx, iref) = snx.get_common_sta(datum)
-            elif (par == 'VEL'):
-                (isnx, iref) = snx.get_common_vel(datum)
-            isnx = np.array(isnx)
-            iref = np.array(iref)
-            ix = isnx.flatten()
-            ir = iref.flatten()
+        elif ic_type == 'TREND' :
+            #Same dim than Nc
+            mat_ic_trend = vect_ic_trend @  vect_ic_trend.T
+            ## complet Nc matrix with 1/sigma²
+            snx.Nc[np.ix_(dict_transf['T'],dict_transf['T'])] += 1/(sigma_T**2) * mat_ic_trend[np.ix_(dict_transf['T'],dict_transf['T'])]
+            snx.Nc[np.ix_(dict_transf['R'],dict_transf['R'])] += 1/(sigma_R**2) * mat_ic_trend[np.ix_(dict_transf['R'],dict_transf['R'])]
+            snx.Nc[np.ix_(dict_transf['S'],dict_transf['S'])] += 1/(sigma_S**2) * mat_ic_trend[np.ix_(dict_transf['S'],dict_transf['S'])]
             
-            # Modify a priori coordinates of common stations
-            dx0 = np.zeros(snx.npar)
-            dx0[ix] = datum.x[ir] - snx.x0[ix]
-            if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0
-                snx.b = snx.b - np.dot(snx.N, dx0)
+        nc = len(dict_transf['R'])+len(dict_transf['S'])+len(dict_transf['T'])
             
-        # Else,
-        else:
+        return nc, dict_transf,vect_ic_trend, mat_ic_trend
             
-            # Get indices of all stations
-            if (par == 'STA'):
-                isnx = [[i, i+1, i+2] for i in snx.ix]
-            elif (par == 'VEL'):
-                isnx = [[i, i+1, i+2] for i in snx.iv]
-            isnx = np.array(isnx)
-            ix = isnx.flatten()
-        
-        # If a CRF datum is specified,
-        if (crf_datum) and (par == 'STA'):
-
-            # Get indices of common radiosources
-            (irs, iref) = snx.get_common_rs(crf_datum)
-            irs = np.array(irs).flatten()
-            iref = np.array(iref).flatten()
-            
-            # Modify a priori coordinates of common radiosources
-            dx0 = np.zeros(snx.npar)
-            dx0[irs] = crf_datum.x[iref] - snx.x0[irs]
-            if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0
-                snx.b = snx.b - np.dot(snx.N, dx0)
-
-        # Else, get indices of all radiosources,
-        elif (par == 'STA'):
-            irs = [[i, i+1] for i in snx.irs]
-            irs = np.array(irs, dtype='int').flatten()
-            
-        # Else, 
-        elif (par == 'VEL'):
-            irs = np.array([], dtype='int')
-        
-        # If a threshold is specified, reject candidate stations with large uncertainties
-        # if (thr):
-        #     end = False
-        #     while not(end):
-        #         tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
-        #         ind = np.nonzero(tr > np.median(tr)/thr**2)[0]
-        #         if (len(ind) == len(isnx)):
-        #             end = True
-        #         else:
-        #             isnx = isnx[ind]
-        #     ix = isnx.flatten()
-
-        # If sigma of minimal constraints needs to be computed, compute it
-        if (sigma == 'auto'):
-            sigma = 0.01 / sqrt(np.median(snx.N[ix,ix]))
-        
-        # Design matrix of minimal constraints
-        ix = np.hstack((ix, irs))
-        A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
-        
-        # Indices of relevant columns of A
-        ind = []
-        if ('T' in helmerts):
-            ind.extend(range(0, 3))
-        if ('S' in helmerts):
-            ind.append(3)
-        if ('R' in helmerts):
-            ind.extend(range(4, 7))
-        if ('A' in helmerts):
-            ind.extend(range(7, 10))
-        
-        # Either reduce columns of A and compute B
-        if not(proj):
-            A = A[:,ind]
-            B = np.dot(invspd(np.dot(A.T, A)), A.T)
-        
-        # or compute B and reduce rows of B
-        else:
-            B = np.dot(invspd(np.dot(A.T, A)), A.T)
-            B = B[ind,:]
-        
-        # Add minimal constraints to normal matrix of constraints
-        ix2 = np.ix_(ix, ix)
-        snx.Nc[ix2] = snx.Nc[ix2] + np.dot(B.T, B) / sigma**2
-        
-        # Change constraint codes of constrained parameters
-        for i in ix:
-            if (snx.param[i].const == '2'):
-                snx.param[i].const = '1'
-                
-        return A.shape[1]
 
     # Add equality constraints between successive velocities to normal matrix of constraints
     #---------------------------------------------------------------------------------------

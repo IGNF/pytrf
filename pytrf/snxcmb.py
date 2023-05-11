@@ -113,7 +113,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
             ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, #Internal constraints
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
-            
             ):
 
     """
@@ -288,13 +287,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('    '+str(date())+' : Set up parameter list', file=out)
 
     # initialize internal constraints dict
-    ic_healmert_mean = {}
-    ic_healmert_trend = {}
+    ic_helmert_mean = {}
+    ic_helmert_trend = {}
 
     # Loop over input solutions
     #--------------------------
     
     for isol in range(len(inputs)):
+        #isol use as id of solution
+        
         sol = inputs[isol]
 
         # Print message
@@ -306,18 +307,18 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
         
         ## Build internal constraints dict (which constraints for which solutions ?)
-        # ic_healmert_mean
+        # ic_helmert_mean
         if ic_mean: #allow IC on mean
             if hasattr(sol, 'ic_mean'):
-                ic_healmert_mean[sol.name] = sol.ic_mean
+                ic_helmert_mean[isol] = sol.ic_mean
             else: #this sol has not ic_mean const
-                ic_healmert_mean[sol.name] = ''
+                ic_helmert_mean[isol] = ''
                 
         if ic_trend: #allow IC on trend
             if hasattr(sol, 'ic_trend'):
-                ic_healmert_trend[sol.name] = sol.ic_trend
+                ic_helmert_trend[isol] = sol.ic_trend
             else: #this sol has not ic_mean const
-                ic_healmert_trend[sol.name] = ''
+                ic_helmert_trend[isol] = ''
                 
         # Shortcut for sol.snx
         snx = sol.snx
@@ -974,13 +975,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if (ic_mean):
         if not(quiet):
             print('        Add mean internal constraints', file=out)
-        nc += combsnx.add_ic(ic_healmert_mean, 'MEAN', sigma=ic_mean_sig)
+            print('ic_healmert_mean dict : {}'.format(ic_helmert_mean), file=out)
+        nc += combsnx.add_ic(ic_helmert_mean, 'MEAN', sigma=ic_mean_sig, t0=tref)
 
     # Add internal constraints to TREND
     if (ic_trend):
         if not(quiet):
             print('        Add trend internal constraints', file=out)
-        nc += combsnx.add_ic(ic_healmert_trend, 'TREND', sigma=ic_trend_sig)
+            print('ic_healmert_trend dict : {}'.format(ic_helmert_trend), file=out)
+        nc += combsnx.add_ic(ic_helmert_trend, 'TREND', sigma=ic_trend_sig)
 
 
     # Add constraints between successive station velocities
@@ -1363,7 +1366,10 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, stack_gc, stack_sc, datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
+        combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
+                          mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr,
+                          ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig,
+                          update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:
