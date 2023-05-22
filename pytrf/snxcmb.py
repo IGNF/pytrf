@@ -977,7 +977,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             print('        Add mean internal constraints', file=out)
             print('ic_healmert_mean dict : {}'.format(ic_helmert_mean), file=out)
         nc += combsnx.add_ic(ic_helmert_mean, 'MEAN', sigma=ic_mean_sig)
-        print('Nc after IC : {}'.format(combsnx.Nc), file=out)
 
     # Add internal constraints to TREND
     if (ic_trend):
