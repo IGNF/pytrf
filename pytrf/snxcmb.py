@@ -976,14 +976,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(quiet):
             print('        Add mean internal constraints', file=out)
             print('ic_healmert_mean dict : {}'.format(ic_helmert_mean), file=out)
-        nc += combsnx.add_ic(ic_helmert_mean, 'MEAN', sigma=ic_mean_sig, t0=tref)
+        nc += combsnx.add_ic(ic_helmert_mean, 'MEAN', sigma=ic_mean_sig)
+        print('Nc after IC : {}'.format(combsnx.Nc), file=out)
 
     # Add internal constraints to TREND
     if (ic_trend):
         if not(quiet):
             print('        Add trend internal constraints', file=out)
             print('ic_healmert_trend dict : {}'.format(ic_helmert_trend), file=out)
-        nc += combsnx.add_ic(ic_helmert_trend, 'TREND', sigma=ic_trend_sig)
+        nc += combsnx.add_ic(ic_helmert_trend, 'TREND', sigma=ic_trend_sig, t0=tref)
 
 
     # Add constraints between successive station velocities

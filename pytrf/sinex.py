@@ -3736,7 +3736,7 @@ class sinex:
     
     # Add mean or trend Internal Constraints (on R,S and/or T parameters) to normal matrix of constraints.
     #--------------------------------------------------------------------
-    def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None):
+    def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None, debug=False):
     
         """
         Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
@@ -3767,14 +3767,20 @@ class sinex:
             Reference date (SINEX date format)
             Must be specified if par='TREND'
         """
+        #initialize nc : number of constraints
+        nc = 0
         # get all param TRANS indices
-        all_transf_id = snx.get_par_ind('TRANS')
+        all_transf_id = snx.itrans
         
         # dict of id according to R, S,T (classication):
         #in each list, we keep param only according to dict_helmert from user YAML
-        dict_transf = {'R':[],
-                      'T':[],
-                      'S':[]}
+        dict_transf = {'RX':[],
+                       'RY':[],
+                       'RZ':[],
+                       'TX':[],
+                       'TY':[],
+                       'TZ':[],
+                       'SC':[]}
         
         # Initialize ic_trend
         vect_ic_trend = None
@@ -3782,44 +3788,49 @@ class sinex:
         if ic_type == 'TREND' : #initialize tk-t0 vector
             vect_ic_trend = np.zeros((snx.Nc.shape[0],1))
     
-        # name are in snx.param. 1 object by line. We look "type" attribute.
+        # names are in snx.param. 1 object by line. We look "type" attribute.
         # filter id according code name in dict_helmert
         for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
             
-            if par.isol in list(dict_helmert.keys()):
-                if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T
+            if par.isol in list(dict_helmert.keys()): #ic_for this sol ?
+                if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T > which one ask by user ?
                     #Here, at least 1 Internal constraint apply on this TRANSF param
-                    #we are looking for if 'R', 'S' or 'T' are in par.type
+                    #we are looking for if 'R...', 'SC' or 'T...' are in par.type
                     
                     #add to list inside dict_transf: par.type can also be with X, Y, Z dims
-                    dict_transf[par.type[0]].append(all_transf_id[num]) #type[0] because par.type like 'RX    ' -> 'R'
+                    dict_transf[par.type[0:2]].append(all_transf_id[num]) #type[0:2] because par.type like 'RX    ' -> 'RX'
                     #we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
                     
                     if ic_type == 'TREND' :#complete vect_ic_trend
                         vect_ic_trend[all_transf_id[num]] = date.from_tsnx(par.tref).ydec() - date.from_tsnx(t0).ydec() #decimal year conversion
-        
+                        
+                    #we have 1 more constraint
+                    nc +=1
+                    
         ## convert sigma according to dim, giv by user in meter
         sigma_T = sigma * 1000 #mm conversion
         sigma_R = sigma * 1/(ae*mas2rad) #mas conversion
         sigma_S = sigma * 1/(1e-9*ae) #ppb conversion
         
+        dict_sigma = {'T':sigma_T, 'R':sigma_R, 'S':sigma_S}
+        
         if ic_type == 'MEAN' :
             ## complet Nc matrix with 1/sigma²
-            snx.Nc[np.ix_(dict_transf['T'],dict_transf['T'])] += 1/(sigma_T**2)
-            snx.Nc[np.ix_(dict_transf['R'],dict_transf['R'])] += 1/(sigma_R**2)
-            snx.Nc[np.ix_(dict_transf['S'],dict_transf['S'])] += 1/(sigma_S**2)
+            for key in dict_transf.keys():
+                snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) #key[0] : R, S or T
             
         elif ic_type == 'TREND' :
             #Same dim than Nc
             mat_ic_trend = vect_ic_trend @  vect_ic_trend.T
             ## complet Nc matrix with 1/sigma²
-            snx.Nc[np.ix_(dict_transf['T'],dict_transf['T'])] += 1/(sigma_T**2) * mat_ic_trend[np.ix_(dict_transf['T'],dict_transf['T'])]
-            snx.Nc[np.ix_(dict_transf['R'],dict_transf['R'])] += 1/(sigma_R**2) * mat_ic_trend[np.ix_(dict_transf['R'],dict_transf['R'])]
-            snx.Nc[np.ix_(dict_transf['S'],dict_transf['S'])] += 1/(sigma_S**2) * mat_ic_trend[np.ix_(dict_transf['S'],dict_transf['S'])]
+            for key in dict_transf.keys():
+                snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic_trend[np.ix_(dict_transf[key],dict_transf[key])]
             
-        nc = len(dict_transf['R'])+len(dict_transf['S'])+len(dict_transf['T'])
-            
-        return nc, dict_transf,vect_ic_trend, mat_ic_trend
+    
+        if debug :
+            return nc , dict_transf,vect_ic_trend, mat_ic_trend
+        else:
+            return nc
             
 
     # Add equality constraints between successive velocities to normal matrix of constraints
