@@ -16,6 +16,7 @@ import numpy as np
 import matplotlib.pyplot as pp
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import platform
 
 # Internal imports
 #-----------------
@@ -204,7 +205,7 @@ def sed_keywords(s, t):
     s = re.subn('\$wk',   t.wk,   s)[0]
     
     # Operating system
-    s = re.subn('\$os', os.uname().sysname+', '+os.uname().machine, s)[0]
+    s = re.subn('\$os', platform.uname().system+', '+platform.uname().machine, s)[0]
     
     return s
 
@@ -299,7 +300,7 @@ def rec2dict(r):
 
 # Execute multiple commands in parallel
 #--------------------------------------
-def parallel_sh(file, nproc):
+def parallel_sh(file, nproc, quiet=False):
   
     """
     Execute multiple commands in parallel
@@ -310,6 +311,8 @@ def parallel_sh(file, nproc):
         File containing list of commands to execute
     nproc : int
         Number of CPUs to use
+    quiet : bool
+        Whether not to print executed commands
     """
   
     # Read list of commands
@@ -327,7 +330,10 @@ def parallel_sh(file, nproc):
     f.close()
     
     # Execute make file
-    os.system('make -j{0} -f {1}'.format(nproc, makefile))
+    command = 'make -j{0} -f {1}'.format(nproc, makefile)
+    if (quiet):
+        command += ' -q'
+    os.system(command)
     
     # Remove make file
     os.system('rm {0}'.format(makefile))
