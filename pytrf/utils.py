@@ -332,7 +332,7 @@ def parallel_sh(file, nproc, quiet=False):
     # Execute make file
     command = 'make -j{0} -f {1}'.format(nproc, makefile)
     if (quiet):
-        command += ' -q'
+        command += ' -s'
     os.system(command)
     
     # Remove make file
