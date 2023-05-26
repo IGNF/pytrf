@@ -300,7 +300,7 @@ def rec2dict(r):
 
 # Execute multiple commands in parallel
 #--------------------------------------
-def parallel_sh(file, nproc, quiet=False):
+def parallel_sh(file, nproc, quiet=False, ignore_errors=False):
   
     """
     Execute multiple commands in parallel
@@ -313,6 +313,8 @@ def parallel_sh(file, nproc, quiet=False):
         Number of CPUs to use
     quiet : bool
         Whether not to print executed commands
+    ignore_errors : bool
+        Whether to run further jobs after one job failed
     """
   
     # Read list of commands
@@ -333,6 +335,8 @@ def parallel_sh(file, nproc, quiet=False):
     command = 'make -j{0} -f {1}'.format(nproc, makefile)
     if (quiet):
         command += ' -s'
+    if (ignore_errors):
+        command += ' -i'
     os.system(command)
     
     # Remove make file

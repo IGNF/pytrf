@@ -5929,60 +5929,65 @@ class model:
 
         """
         
-        # While there remains outliers,
-        i = 0
-        end = False
-        while (not(end)):
-            i = i+1
-            
-            # De-activate initial LS fit of noise parameters if we're after the 1st iteration
-            if (i > 1):
-                prefit_b = False
-            
-            # Fit model
-            m.fit(estimator=estimator, method=method, prefit_x=prefit_x, prefit_b=prefit_b, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
-            
-            # If necessary, compute approximate normalized residuals and WRMS assuming VW only
-            # (This should be removed!)
-            if not(finalize):
-                for d in range(m.nd):
-                    m[d].sv = np.sqrt(m[d].s2*m[d].Q)
-                    m[d].vn = m[d].v / m[d].sv
-                    m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
-                    m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
-
-            # If necessary, compute running median and MAD of residuals
-            if (thr_mad is not None):
-                vmed = np.nan * np.ones((m.r.n, m.nd))
-                vmad = np.nan * np.ones((m.r.n, m.nd))
-                for i in range(m.r.n):
-                    ind = np.nonzero(np.abs(m.r.t-m.r.t[i]) <= (win_mad-1)/2)[0]
-                    for d in range(m.nd):
-                        vmed[i,d] = np.median(m[d].v[ind])
-                        vmad[i,d] = mad(m[d].v[ind])
-            
-            # Get outlier indices
-            ind = []
-            if (thr_raw is not None):
-                for d in range(m.nd):
-                    ind = ind + np.nonzero(np.abs(m[d].v) > thr_raw*m[d].wrms)[0].tolist()
-            if (thr_norm is not None):
-                for d in range(m.nd):
-                    ind = ind + np.nonzero(np.abs(m[d].vn) > thr_norm)[0].tolist()
-            if (thr_mad is not None):
-                for d in range(m.nd):
-                    ind = ind + np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
-            ind = list(set(ind))
-            
-            # Clean outliers
-            if (len(ind) > 0):
-                m.r.del_points(ind)
-                for d in range(m.nd):
-                    m[d].r = m.r[d]
+        try:
+        
+            # While there remains outliers,
+            i = 0
+            end = False
+            while (not(end)):
+                i = i+1
                 
-            # Or exit
-            else:
-                end = True
+                # De-activate initial LS fit of noise parameters if we're after the 1st iteration
+                if (i > 1):
+                    prefit_b = False
+                
+                # Fit model
+                m.fit(estimator=estimator, method=method, prefit_x=prefit_x, prefit_b=prefit_b, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
+                
+                # If necessary, compute approximate normalized residuals and WRMS assuming VW only
+                # (This should be removed!)
+                if not(finalize):
+                    for d in range(m.nd):
+                        m[d].sv = np.sqrt(m[d].s2*m[d].Q)
+                        m[d].vn = m[d].v / m[d].sv
+                        m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
+                        m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
+
+                # If necessary, compute running median and MAD of residuals
+                if (thr_mad is not None):
+                    vmed = np.nan * np.ones((m.r.n, m.nd))
+                    vmad = np.nan * np.ones((m.r.n, m.nd))
+                    for i in range(m.r.n):
+                        ind = np.nonzero(np.abs(m.r.t-m.r.t[i]) <= (win_mad-1)/2)[0]
+                        for d in range(m.nd):
+                            vmed[i,d] = np.median(m[d].v[ind])
+                            vmad[i,d] = mad(m[d].v[ind])
+                
+                # Get outlier indices
+                ind = []
+                if (thr_raw is not None):
+                    for d in range(m.nd):
+                        ind = ind + np.nonzero(np.abs(m[d].v) > thr_raw*m[d].wrms)[0].tolist()
+                if (thr_norm is not None):
+                    for d in range(m.nd):
+                        ind = ind + np.nonzero(np.abs(m[d].vn) > thr_norm)[0].tolist()
+                if (thr_mad is not None):
+                    for d in range(m.nd):
+                        ind = ind + np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
+                ind = list(set(ind))
+                
+                # Clean outliers
+                if (len(ind) > 0):
+                    m.r.del_points(ind)
+                    for d in range(m.nd):
+                        m[d].r = m.r[d]
+                    
+                # Or exit
+                else:
+                    end = True
+                    
+        except:
+            pass
 
     # Plot time series + deterministic model
     #---------------------------------------
