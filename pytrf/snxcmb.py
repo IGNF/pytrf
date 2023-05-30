@@ -22,7 +22,78 @@ from pytrf.io import read_yaml, read_solns
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
 from pytrf.utils import record, earlier
 
+# Generate YAML configuration file
+#------------------------------------
+def generate_yaml_options(folder="inputs", set_vel=False, set_per=[], default={}):
+    """
+    Write option.yml file, with default combination options. This file could be edit to precise combination parameters for each solutions.
 
+    List of possible parameters & formats:
+        set for each solution :
+        - "description": "my center description"
+        - "params":"RST"
+        - "ic_mean":"RST","ic_trend":"RST"
+        
+        set for each frequency(if set_per != []):
+        - "mc_per":"RST", "ic_per":"RST"
+
+    Parameters
+    ----------
+    folder : str, optional
+        Path to folder that contains SINEX files. The default is "inputs" folder.
+        WARNING : this folder must contain only SINEX solution files. 
+    set_vel : bool, optional
+        Whether velocities should be estimated for all stations. The default is False.
+    set_per : list of float, optional
+        List of frequencies if periodic signals should be estimated for all stations. The default is [] : an empty list means that no periodic signal is estimated.
+        Example of frequencies : 365.25 (annual), 182.625 (semi-annual)
+    default : dict, optional
+        Provides default values that will be applied for each solutions. Specify these arguments as dict : ex. {"description": "IGS solution"}
+
+    Returns
+    -------
+    None.
+
+    """
+    ### Build default frequency dictionary
+    dict_freq = {}
+    for freq in set_per :
+        # mc_per: minimal constraints on periodic amplitude
+        # ic_per: internal constraints on periodic amplitude
+        
+        # freq is key
+        dict_freq[freq] = {"mc_per":"RST", "ic_per":"RST"}
+        dict_freq[freq]["ic_per"] = default["ic_per"]
+        dict_freq[freq]["mc_per"] = default["mc_per"]
+        
+        #default value ?
+        for key in default.keys():
+            if key in ["mc_per","ic_per"]: #key use for dict_freq
+                dict_freq[freq][key] = default[freq]
+        
+            
+    ### Build default solution dictionary
+    dict_sol = {}
+    list_files = sorted(os.listdir(folder))
+    for num, file in enumerate(list_files):
+        sol={}
+        sol["name"] = file.split(".")[0]
+        sol["file"] = os.path.join(folder,file)
+        
+        #default
+        sol["description"] = "Solution {}".format(num)
+        sol["ic_mean"] = ""
+        sol["ic_trend"] = ""
+        
+        #default values provide ?
+        for key in default.keys():
+            if key in ["mc_per","ic_per"]: #key use for dict_freq
+                pass
+            else:
+                sol[key] = default[key]
+            
+            
+    
 
 # Read and pre-process input solution
 #------------------------------------
