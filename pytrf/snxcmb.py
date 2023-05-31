@@ -10,6 +10,7 @@ import sys
 #mkl.set_num_threads(1)
 import copy
 import pickle
+import yaml
 import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
@@ -24,24 +25,24 @@ from pytrf.utils import record, earlier
 
 # Generate YAML configuration file
 #------------------------------------
-def generate_yaml_options(folder="inputs", set_vel=False, set_per=[], default={}):
+def mkopt_file(folder="inputs", set_vel=False, set_per=[], default={}):
     """
-    Write option.yml file, with default combination options. This file could be edit to precise combination parameters for each solutions.
+    Creates options.yml file, with default combination options. This file could be edit to specify combination parameters for each solutions.
 
-    List of possible parameters & formats:
+    List of possible parameters & format:
         set for each solution :
         - "description": "my center description"
         - "params":"RST"
         - "ic_mean":"RST","ic_trend":"RST"
         
-        set for each frequency(if set_per != []):
+        set for each frequency (if set_per != []):
         - "mc_per":"RST", "ic_per":"RST"
 
     Parameters
     ----------
     folder : str, optional
         Path to folder that contains SINEX files. The default is "inputs" folder.
-        WARNING : this folder must contain only SINEX solution files. 
+        WARNING : this folder must contain only SINEX solution files use for combination or stacking. 
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. The default is False.
     set_per : list of float, optional
@@ -55,45 +56,63 @@ def generate_yaml_options(folder="inputs", set_vel=False, set_per=[], default={}
     None.
 
     """
+    ### Default YAML dict
+    dict_yml = {}
+    
     ### Build default frequency dictionary
-    dict_freq = {}
-    for freq in set_per :
-        # mc_per: minimal constraints on periodic amplitude
-        # ic_per: internal constraints on periodic amplitude
+    if len(set_per)!=0: #at leat 1 frequence
+        dict_freq = {}
+        for freq in set_per :
+            # mc_per: minimal constraints on periodic amplitude
+            # ic_per: internal constraints on periodic amplitude
+            
+            # freq is key
+            dict_freq[freq] = {"mc_per":"RST", "ic_per":"RST"}
+            
+            #default value ?
+            for key in default.keys():
+                if key in ["mc_per","ic_per"]: #key use for dict_freq
+                    dict_freq[freq][key] = default[freq]
         
-        # freq is key
-        dict_freq[freq] = {"mc_per":"RST", "ic_per":"RST"}
-        dict_freq[freq]["ic_per"] = default["ic_per"]
-        dict_freq[freq]["mc_per"] = default["mc_per"]
-        
-        #default value ?
-        for key in default.keys():
-            if key in ["mc_per","ic_per"]: #key use for dict_freq
-                dict_freq[freq][key] = default[freq]
-        
+        #add to global YAML file
+        dict_yml["FREQUENCIES"] = dict_freq
+            
             
     ### Build default solution dictionary
-    dict_sol = {}
+    dict_sol = {} #add freq param as 1st element
     list_files = sorted(os.listdir(folder))
     for num, file in enumerate(list_files):
         sol={}
-        sol["name"] = file.split(".")[0]
+        name = file.split(".")[0]
         sol["file"] = os.path.join(folder,file)
         
         #default
         sol["description"] = "Solution {}".format(num)
         sol["ic_mean"] = ""
-        sol["ic_trend"] = ""
         
-        #default values provide ?
+        if set_vel: #VELOCITY will be estimate, add constraints
+            sol["VEL"] = {}
+            #add constraints on VEL
+            sol["VEL"]["ic_trend"] = ""
+        
+        #default values provides ?
         for key in default.keys():
             if key in ["mc_per","ic_per"]: #key use for dict_freq
                 pass
             else:
                 sol[key] = default[key]
-            
-            
-    
+                
+        ## add current sol with its attributes to global dict_sol
+        dict_sol[name] = sol
+        
+    ### Write YAML file
+    dict_yml["SOLUTIONS"] = dict_sol
+    #yaml format
+    file_yml = yaml.dump(dict_yml,sort_keys=False)
+    with open('options.yml', 'w') as file:
+        file.write(file_yml)
+        
+
 
 # Read and pre-process input solution
 #------------------------------------
