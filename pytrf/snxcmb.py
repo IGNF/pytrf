@@ -19,13 +19,14 @@ from math import sqrt
 #-----------------
 from pytrf import date, sinex
 from pytrf.const import agency, mas2rad, dera_dt
-from pytrf.io import read_yaml, read_solns
+from pytrf.io import read_yaml, read_solns, write_yaml
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
 from pytrf.utils import record, earlier
+from pytrf.const import PERIODS
 
 # Generate YAML configuration file
 #------------------------------------
-def mkopt_file(folder="inputs", set_vel=False, set_per=[], default={}):
+def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     """
     Creates options.yml file, with default combination options. This file could be edit to specify combination parameters for each solutions.
 
@@ -45,9 +46,12 @@ def mkopt_file(folder="inputs", set_vel=False, set_per=[], default={}):
         WARNING : this folder must contain only SINEX solution files use for combination or stacking. 
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. The default is False.
-    set_per : list of float, optional
-        List of frequencies if periodic signals should be estimated for all stations. The default is [] : an empty list means that no periodic signal is estimated.
-        Example of frequencies : 365.25 (annual), 182.625 (semi-annual)
+    per : list of str, optional
+        List of periods if periodic signals should be estimated for all stations. A period is given with a 2 character code : type+harmonic number
+            * type "A" = "annual"
+            * type "D" = "draconitic"
+        The default value is '[]', means no periodic signal estimated.
+        Example of periods : "A1" (annual, 365.25 days),  "A2" (semi-annual, 182.625 days), "D1" (draconitic 1)
     default : dict, optional
         Provides default values that will be applied for each solutions. Specify these arguments as dict : ex. {"description": "IGS solution"}
 
@@ -60,40 +64,48 @@ def mkopt_file(folder="inputs", set_vel=False, set_per=[], default={}):
     dict_yml = {}
     
     ### Build default frequency dictionary
-    if len(set_per)!=0: #at leat 1 frequence
-        dict_freq = {}
-        for freq in set_per :
+    if len(per)!=0: #at leat 1 period
+        list_per= []
+        for pe in per :
             # mc_per: minimal constraints on periodic amplitude
             # ic_per: internal constraints on periodic amplitude
             
-            # freq is key
-            dict_freq[freq] = {"mc_per":"RST", "ic_per":"RST"}
+            # str period is key
+            dict_per = {"name":pe, "value":PERIODS[pe], "mc_per":"RST", "ic_per":"RST", "unit":"year"}
             
             #default value ?
             for key in default.keys():
                 if key in ["mc_per","ic_per"]: #key use for dict_freq
-                    dict_freq[freq][key] = default[freq]
+                    dict_per[key] = default[key]
+                    
+            list_per.append(dict_per)
         
         #add to global YAML file
-        dict_yml["FREQUENCIES"] = dict_freq
+        dict_yml["PERIODS"] = list_per
             
             
     ### Build default solution dictionary
-    dict_sol = {} #add freq param as 1st element
+    list_sol = [] #add freq param as 1st element
     list_files = sorted(os.listdir(folder))
+    
+    if len(list_files)==0:
+        raise ValueError("No solution file found at '{}'".format(folder))
     for num, file in enumerate(list_files):
         sol={}
         name = file.split(".")[0]
+        sol["name"] = name
         sol["file"] = os.path.join(folder,file)
         
         #default
         sol["description"] = "Solution {}".format(num)
+        sol["params"] = "RST"
         sol["ic_mean"] = ""
         
+        
         if set_vel: #VELOCITY will be estimate, add constraints
-            sol["VEL"] = {}
+            sol["velocity"] = {}
             #add constraints on VEL
-            sol["VEL"]["ic_trend"] = ""
+            sol["velocity"]["ic_trend"] = ""
         
         #default values provides ?
         for key in default.keys():
@@ -103,12 +115,12 @@ def mkopt_file(folder="inputs", set_vel=False, set_per=[], default={}):
                 sol[key] = default[key]
                 
         ## add current sol with its attributes to global dict_sol
-        dict_sol[name] = sol
+        list_sol.append(sol)
         
     ### Write YAML file
-    dict_yml["SOLUTIONS"] = dict_sol
+    dict_yml["INPUTS"] = list_sol
     #yaml format
-    file_yml = yaml.dump(dict_yml,sort_keys=False)
+    file_yml = yaml.dump(dict_yml, sort_keys=False) #no sorted >> name 1st key to identify solutions
     with open('options.yml', 'w') as file:
         file.write(file_yml)
         
@@ -199,7 +211,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
             ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, #Internal constraints
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
@@ -229,6 +241,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         before combination. Default is None.
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. Default is False.
+    periods: list of objects (built with pytrf.utils.record), optional
+        Period of possible periodic signals.
+        'value','mc_per' (minimal constraints) & 'ic_per' (internal constraints) attributes must be set up for each Period object in this list.
     dv_sig : float, optional
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
@@ -552,7 +567,30 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 # Update combsnx.iv and combsnx.x0
                 combsnx.iv.append(len(combsnx.param)-3)
                 combsnx.x0.extend([0, 0, 0])
-
+                
+            # If periodic signals estimation need to be set up,
+            if (len(periods)!=0): #at leats 1 period
+                
+                for (num, per) in enumerate(periods): #per: 1, 0.5, etc unit : year.
+                    # Add new periodic parameters into combined solution
+                    # Add 6 params by Period (3 cos+ 3 sin), copy correct code, soln, tref
+                    combsnx.param.extend(2*copy.deepcopy(combsnx.param[-3:]))
+                    
+                    #order period p : ApCOSX, ApSINX, ApCOSY, ApSINY, ApCOSZ, ApSINZ
+                    for nu, k in enumerate(['X','Y','Z']):
+                        #num correspond to Period order inside list
+                        combsnx.param[-6+2*nu].type = 'A{}COS{}'.format(num,k)
+                        combsnx.param[-5+2*nu].type = 'A{}SIN{}'.format(num,k)
+                        combsnx.param[-6+2*nu].unit = 'm '
+                        combsnx.param[-5+2*nu].unit = 'm '
+                        
+                    # Update combsnx.iseas and combsnx.x0
+                    # 1id by amplitude >> 6 element
+                    combsnx.iseas.append(len(combsnx.param)-6) # 1 id by 6 params (consistent with ix and iv param)
+                    combsnx.x0.extend([0, 0, 0, 0, 0, 0])
+                    
+   
+        
         # Loop over non-common radiosource coordinates
         for i in np.intersect1d(jsnx, snx.irs):
 
@@ -845,7 +883,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 combsnx.x0.extend([0, 0, 0])
 
 
-
+    print("##### iseas:{}".format(len(combsnx.iseas))) 
     # Format combined solution
     #-------------------------
     
@@ -917,6 +955,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Sort parameters
     combsnx.sort_params()
     
+    print("<<<<<< Before reset iseas:{}".format(len(combsnx.iseas)))
     # Reset parameter indices
     combsnx.set_par_ind()
 
@@ -926,8 +965,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         ind = np.nonzero(keys == isol)[0]
         inputs[isol].itrans = [combsnx.itrans[i] for i in ind]
 
-
-
+    
+    print("<<<<<< iseas:{}".format(len(combsnx.iseas)))
     # 2 - SET UP NORMAL EQUATION
     #---------------------------
     
@@ -941,7 +980,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     A = []
     dy = []
     
-
+    
 
     # Loop over input solutions
     #--------------------------
@@ -985,6 +1024,28 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 A_cols.extend([j, j+1, j+2])
                 A_vals.extend([dt, dt, dt])
                 dy[-1][i:i+3] -= dt * combsnx.x0[j:j+3]
+                
+        # Add periodic signals partial derivatives and update right-hand side if needed
+        if (len(periods)!=0):# at leat 1 period ask
+            #keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iseas]]
+            for j in snx.iseas:
+                p = snx.param[i]
+                dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25 #year conversion
+                #j = combsnx.iseas[keys.index(p.code+p.pt+p.soln)] #
+                A_rows.extend([j, j+1, j+2, j+3, j+4, j+5])
+                A_cols.extend([j, j+1, j+2, j+3, j+4, j+5])
+            
+                # which period value ?
+                num = int(p.type[1]) #A1, A2, A3, etc.
+                per = periods[num].value
+                
+                # Add seasonal term value
+                v_cos = np.cos(2*np.pi*(1/per)*dt)
+                v_sin = np.sin(2*np.pi*(1/per)*dt)
+                
+                #order period p : ApCOSX, ApSINX, ApCOSY, ApSINY, ApCOSZ, ApSINZ
+                A_vals.extend(3*[v_cos, v_sin])
+                dy[-1][j] -= dt * combsnx.x0[j]
 
         # Add partial derivatives of transformation parameters
         H = snx.helmert_partials(sol.params, 'STA')
@@ -1023,7 +1084,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Make room if needed
         if not(store_inputs):
             del sol.snx
-
+            
+    print("\n>>>>> DIM STATS <<<<< ix {}, iv:{}, iseas {}; param {}; A {}; dy {}".format(len(combsnx.ix), len(combsnx.iv), combsnx.iseas, len(combsnx.param), len(A), len(dy)))
 
 
     # 3 - ADD CONSTRAINTS
@@ -1311,7 +1373,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
                  mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
                  ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, #Internal constraints
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
@@ -1341,6 +1403,9 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         before combination. Default is None.
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. Default is False.
+    periods: list of objects (built with pytrf.utils.record), optional
+        Period of possible periodic signals.
+        'value','mc_per' (minimal constraints) & 'ic_per' (internal constraints) attributes must be set up for each Period object in this list.
     dv_sig : float, optional
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
@@ -1456,7 +1521,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
+        combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
                           mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr,
                           ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig,
                           update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)

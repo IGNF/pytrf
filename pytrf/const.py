@@ -50,3 +50,11 @@ be = ae * math.sqrt(1 - ee**2)
 
 # Rate of advance of ERA
 dera_dt = 1.00273781191135448
+
+
+# periods codes & values
+PERIODS = {
+    "A1":365.25,
+    "A2":182.625,
+    "D1":351.00
+    }

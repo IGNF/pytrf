@@ -162,7 +162,7 @@ class sinex:
         get_psd()          : Compute post-seismic deformation of given station at given date
         add_psd()          : Add or remove post-seismic deformation models to a solution
         get_seas()         : Compute seasonal signal of given station at given date
-        add_seas()         : Add seasonal signals to a solution
+        add_seas()         : Add seasonal signals to a solution, from a sinex file
         calib_lod()        : Calibrate LOD estimates wrt reference series        
         map()              : Draw station map
         map_res()          : Draw station position residual map
@@ -4837,6 +4837,8 @@ class sinex:
                 snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
             else:
                 snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
+                
+
 
     # Calibrate LOD estimates wrt reference series
     #---------------------------------------------
