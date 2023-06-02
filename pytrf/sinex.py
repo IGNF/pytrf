@@ -214,7 +214,7 @@ class sinex:
         snx.ix = []
         snx.iv = []
         snx.ipsd = []
-        snx.iseas = []
+        snx.iper = []
         snx.irs = []
         snx.ixpo = []
         snx.ixpor = []
@@ -894,7 +894,7 @@ class sinex:
 
             # PATCH: add possibly missing stations in snx.sta
             keys = [s.code+s.pt for s in snx.sta]
-            for i in snx.ix+snx.ipsd+snx.iseas:
+            for i in snx.ix+snx.ipsd+snx.iper:
                 p = snx.param[i]
                 if not(p.code+p.pt in keys):
                     r = record()
@@ -930,7 +930,7 @@ class sinex:
                                 s.soln[0].soln = snx.param[snx.ix[inds[0]]].soln
 
             # Update snx.sta
-            keys = [p.code+p.pt for p in [snx.param[i] for i in snx.ix+snx.ipsd+snx.iseas]]
+            keys = [p.code+p.pt for p in [snx.param[i] for i in snx.ix+snx.ipsd+snx.iper]]
             i = 0
             while (i < len(snx.sta)):
                 if not(snx.sta[i].code+snx.sta[i].pt in keys):
@@ -1066,7 +1066,8 @@ class sinex:
             # Array of parameter types
             types = np.array([p.type for p in snx.param])
             types1 = np.array([p.type[1:4] for p in snx.param])
-            types2 = np.array([p.type[0:5] for p in snx.param])
+            types2 = np.array([p.type[2:6] for p in snx.param]) #'A1'+'COSX'
+            #print([ t for t in types if 'COS' in t])
             
             # Station positions
             snx.ix = np.nonzero(types == 'STAX  ')[0].tolist()
@@ -1077,8 +1078,9 @@ class sinex:
             # PSD parameters
             snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
             
-            # Seasonal terms
-            snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            # Periodic terms
+            #snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            snx.iper = np.nonzero(types2 == 'COSX')[0].tolist() #bloc of 6 params, order : COSX, SINX, COSY, SINY, COSZ, SINZ
             
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
@@ -1130,7 +1132,7 @@ class sinex:
             snx.ix = []
             snx.iv = []
             snx.ipsd = []
-            snx.iseas = []
+            snx.iper = []
             snx.irs = []
             snx.ixpo = []
             snx.ixpor = []
@@ -1417,7 +1419,7 @@ class sinex:
         pkl.ix = snx.ix
         pkl.iv = snx.iv
         pkl.ipsd = snx.ipsd
-        pkl.iseas = snx.iseas
+        pkl.iper = snx.iper
         pkl.irs = snx.irs
         pkl.ixpo = snx.ixpo
         pkl.ixpor = snx.ixpor
@@ -1520,7 +1522,7 @@ class sinex:
         snx2.ix = snx.ix.copy()
         snx2.iv = snx.iv.copy()
         snx2.ipsd = snx.ipsd.copy()
-        snx2.iseas = snx.iseas.copy()
+        snx2.iper= snx.iper.copy()
         snx2.irs = snx.irs.copy()
         snx2.ixpo = snx.ixpo.copy()
         snx2.ixpor = snx.ixpor.copy()
@@ -3889,6 +3891,66 @@ class sinex:
                         nc += 3
                         
         return nc
+    
+    # Add equality constraints between successive periodic signals to normal matrix of constraints
+    #---------------------------------------------------------------------------------------
+    def add_dpc(snx, solns, sigma=1e-6):
+        
+        """
+        Add equality constraints between successive periodic signals to normal matrix of constraints
+        
+        Returns
+        -------
+        nc : int
+            Number of constraints added
+
+        Parameters
+        ----------
+        solns : list
+            Reference discontinuity list (from io.read_solns)
+        sigma : float, optional
+            Sigma of velocity equality constraints in m/y. Default is 1e-6.
+            
+        """
+        
+        # Initializations
+        nc = 0
+        keys = [s.code+s.pt for s in solns]
+        keys_per = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper]]
+       
+        # Loop over stations
+        for sta in snx.sta:
+            
+            # Index of current station in discontinuity list
+            if (sta.code+sta.pt in keys):
+                isoln = keys.index(sta.code+sta.pt)
+                print("key is inside", sta.code+sta.pt, sta.soln[0].soln)
+                # Loop over solns
+                for i in range(len(sta.soln)-1):
+                    
+                    # Get end date of current soln
+                    ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
+                    end = solns[isoln].P[ip].end
+                    
+                    print("A in soln", [a.end for a in solns[isoln].A])
+                    
+                    # If current soln should be constrained with the next one,
+                    if not(end in [a.end for a in solns[isoln].A]): #based on code 'A' in soln
+                        
+                        # Get indices of both amplitude
+                        i1 = keys_per.index(sta.code+sta.pt+sta.soln[i].soln)
+                        i2 = keys_per.index(sta.code+sta.pt+sta.soln[i+1].soln)
+                        print("const amplitude", i1,i2)
+                        
+                        # Add constraints between them
+                        for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
+                            snx.Nc[snx.iper[i1]+k,snx.iper[i1]+k] += 1 / sigma**2
+                            snx.Nc[snx.iper[i1]+k,snx.iper[i2]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iper[i2]+k,snx.iper[i1]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iper[i2]+k,snx.iper[i2]+k] += 1 / sigma**2
+                        nc += 3
+                        
+        return nc
         
     # Invert normal equation
     #-----------------------
@@ -4777,14 +4839,14 @@ class sinex:
         
         # Set snx.codeptsoln if needed
         if not(hasattr(snx, 'codeptsoln')):
-            snx.codeptsoln = np.array([snx.param[i].code + snx.param[i].pt + snx.param[i].soln for i in snx.iseas])
+            snx.codeptsoln = np.array([snx.param[i].code + snx.param[i].pt + snx.param[i].soln for i in snx.iper])
         
         # Indices of seasonal parameters of specified station
         ind = np.nonzero(snx.codeptsoln == code+pt+soln)[0]
         
         # Loop over relevant parameters
         for i in ind:
-            p = snx.param[snx.iseas[i]]
+            p = snx.param[snx.iper[i]]
             
             # Component
             j = 'XYZ'.index(p.type[5])
@@ -4821,7 +4883,7 @@ class sinex:
         
         # Set useful attribute if needed
         if not(hasattr(seas, 'codeptsoln')):
-            seas.codeptsoln = np.array([seas.param[i].code + seas.param[i].pt + seas.param[i].soln for i in seas.iseas])
+            seas.codeptsoln = np.array([seas.param[i].code + seas.param[i].pt + seas.param[i].soln for i in seas.iper])
         
         # Loop over STAX parameters
         for i in snx.ix:
