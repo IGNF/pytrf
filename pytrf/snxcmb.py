@@ -21,8 +21,7 @@ from pytrf import date, sinex
 from pytrf.const import agency, mas2rad, dera_dt
 from pytrf.io import read_yaml, read_solns, write_yaml
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
-from pytrf.utils import record, earlier
-from pytrf.const import PERIODS
+from pytrf.utils import record, earlier, Period
 
 # Generate YAML configuration file
 #------------------------------------
@@ -46,7 +45,7 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         WARNING : this folder must contain only SINEX solution files use for combination or stacking. 
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. The default is False.
-    per : list of str, optional
+    per : list of str, optional.
         List of periods if periodic signals should be estimated for all stations. A period is given with a 2 character code : type+harmonic number
             * type "A" = "annual"
             * type "D" = "draconitic"
@@ -70,8 +69,8 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
             # mc_per: minimal constraints on periodic amplitude
             # ic_per: internal constraints on periodic amplitude
             
-            # str period is key
-            dict_per = {"name":pe, "value":PERIODS[pe], "mc_per":"RST", "ic_per":"RST", "unit":"year"}
+            # period build from Period class
+            dict_per = Period(pe).__dict__
             
             #default value ?
             for key in default.keys():

@@ -21,7 +21,7 @@ import platform
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.const import mjd_leap, gps_utc
+from pytrf.const import mjd_leap, gps_utc, PERIODS
 
 
 
@@ -382,3 +382,122 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
     # ...or show it
     else:
         pp.show()
+        
+        
+# Period object
+#-----------------
+class Period():
+    """
+    This class builds a Period object. Useful to ensures the correct format and attribute values given by user
+            
+    Constructors:
+        - Period()                  : blank object with default attibuts, useful to create file option.
+        - Period.from_record()      : from record object, for example after reading YAML file
+       
+        
+    Code format : 2 characters (type + harmonic number)
+    Possible types :
+        A : annual (A1, A2, etc)
+        D : draconitic (D1, D2, etc)
+        P : other period, in this case 2nd characters is not a harmonic but a simple id
+            
+    """
+    #####----------------------------------------------------------------------------------------
+    #####                               Constructors
+    #####----------------------------------------------------------------------------------------
+    def __init__(self, code="P1", **kwargs):
+        """
+        Default constructor. 2 characters code is necessary
+        If 'code' in PERIODS, setup 'value', else 'value'=0.
+        Useful to build blank file options
+        
+        Other attributes can bee specify manually witn kwargs : mc_per, ic_per, etc
+
+        Parameters
+        ----------
+        code : str, 2 characters optional
+            Period code value. The default is "P1", user can setup a custom value
+
+        Returns
+        -------
+        None.
+
+        """
+        ## init Period attributes
+        self.code = code
+        
+        # necessary attributes and default values
+        self.value = 0
+        self.mc_per = ""
+        self.ic_per = ""
+        
+        #if necessary, update attributes from kwargs
+        self.__dict__.update(kwargs)
+        
+        if code in PERIODS.keys():
+            self.value = PERIODS[code]
+        
+    @classmethod   
+    def from_record(self, record_obj):
+        
+        """
+        Period builds from record() object
+        
+        Check:
+            * if record_obj values are consistent
+            * if record_obj.name is key in PERIODS dict, or create a default code "P1", "P2" etc values
+            * In case where value is not consistent with code, value is setup from PERIODS[code]
+        
+        Parameters
+        ----------
+        record_obj : record object
+            record object, at least with "code" and "value" attribute
+
+        """
+        ## update with record_obj value or correct if necessary
+        if record_obj.code in PERIODS.keys():
+            code = record_obj.code
+            value = PERIODS[code] # anyway take PERIODS value
+        elif (record_obj.code[0] =="P") and (len(record_obj.code)==2): #P1...P9
+            code = record_obj.code
+            value = record_obj.value
+        else:
+            raise ValueError(""""Code must be a value in {}. If you want to specify another period value,
+                             code format must be a 2 characters string as 'Pk', where k is an int between 0 and 9.""".format(list(PERIODS.keys())))
+        
+        ## check constraints format
+        if self.check_RST(record_obj.mc_per):
+            mc_per = record_obj.mc_per
+        else:
+            raise ValueError(""""{}: mc_per = '{}'. Must be a combination of 'R', 'S', 'T' or ''. """.format(record_obj.code, record_obj.mc_per))
+            
+        if self.check_RST(record_obj.ic_per):
+            ic_per = record_obj.ic_per
+        else:
+            raise ValueError(""""{}: ic_per = '{}'. Must be a combination of  'R', 'S', 'T' or ''. """.format(record_obj.code, record_obj.ic_per))
+        
+        return Period(code=code, value=value, mc_per=mc_per, ic_per=ic_per)
+    
+    #####----------------------------------------------------------------------------------------
+    #####                                   Help functions
+    #####----------------------------------------------------------------------------------------
+    def check_RST(s):
+        """
+        Verify constraints format "RST"
+
+        Parameters
+        ----------
+        s : string
+            check if s contains maximum once R,S,T
+
+        Returns
+        -------
+        bool
+
+        """
+        pattern = r"^(?!.*([RST]).*\1)[RST]{0,3}$"
+        match = re.match(pattern, s)
+        if match:
+            return True
+        else:
+            return False
