@@ -1103,6 +1103,14 @@ class sinex:
             # LODs
             snx.ilod = np.nonzero(types == 'LOD   ')[0].tolist()
             
+            # case "LODR"
+            lodr_id = np.nonzero(types == 'LODR  ')[0].tolist() 
+            if len(lodr_id) !=0 : #at least 'LODR' in snx
+                snx.ilod += lodr_id
+                #rename 'LODR' to 'LOD'
+                for i in lodr_id:
+                    snx.param[i].type = 'LOD   '
+                
             # X-nutations
             snx.inutx = np.nonzero(types == 'NUT_X ')[0].tolist()
 
@@ -4109,6 +4117,7 @@ class sinex:
         
         # Normalized residuals
         snx.vn = np.zeros(snx.npar)
+        #print("common PAR",(isnx, isnx2,snx.sv[isnx]))
         snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
         
         # Rotate station position residuals to ENH frames and convert them into mm
