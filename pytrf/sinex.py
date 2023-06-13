@@ -11,6 +11,7 @@ import re
 #mkl.set_num_threads(1)
 import copy
 import pickle
+import pandas as pd
 from math import pi, sqrt, cos, sin, acos, exp, log
 import numpy as np
 from scipy import sparse
@@ -147,6 +148,7 @@ class sinex:
         trim_metadata()    : Delete metadata that are not relevant for specified period
         unconstrain()      : Recover unconstrained normal equation
         clear_const()      : Clear constraints
+        loose_const()      : Add loose constraints
         fix_ind()          : Fix parameters with specified indices in a normal equation
         fix_params()       : Fix parameters of specified types in a normal equation
         setup_gc()         : Set up geocenter coordinates in a normal equation
@@ -168,6 +170,7 @@ class sinex:
         map_res()          : Draw station position residual map
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
+        status3()          : Print and write status3.out table (catref equivalent), with a summary of transformation parameters
         
     """
 
@@ -3382,6 +3385,34 @@ class sinex:
         snx.sig0 = np.zeros(snx.npar)
         for p in snx.param:
             p.const = '2'
+    
+    # Add loose constraints
+    #------------------
+    def loose_const(snx, sigma):
+        """
+        Apply loose constraints on POSITION parameters (snx.ix)
+        Catref equivalence: used in particular by the "premixs" and "neqloose" modules.
+        
+        Parameters
+        ----------
+        sigma : float
+            sigma loose constraint value
+
+        Returns
+        -------
+        Nc : Update of snx.Nc matrix values with loose contraints
+
+        """
+        ## Loose constraint, only for POSITION coord line
+        val = 1/sigma**2
+        #only for pos station
+        isnx = [[i, i+1, i+2] for i in snx.ix]
+        isnx = np.array(isnx)
+        ix = isnx.flatten()
+        for i in ix :
+            snx.Nc[i,i] = val
+            
+        return snx.Nc
 
     # Fix parameters with specified indices in a normal equation
     #-----------------------------------------------------------
@@ -4117,7 +4148,6 @@ class sinex:
         
         # Normalized residuals
         snx.vn = np.zeros(snx.npar)
-        #print("common PAR",(isnx, isnx2,snx.sv[isnx]))
         snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
         
         # Rotate station position residuals to ENH frames and convert them into mm
@@ -5163,3 +5193,88 @@ class sinex:
             p = snx.param[i]
             c = cov2corr(snx.Q[i:i+3,i:i+3])
             print(' {0.code} {0.pt}   {1[0]:21.14e} {1[1]:21.14e} {1[2]:21.14e}   {2[0]:11.5e} {2[1]:11.5e} {2[2]:11.5e}   {3[0][1]:12.5e} {3[0][2]:12.5e} {3[1][2]:12.5e}'.format(p, snx.x[i:i+3], snx.sig[i:i+3], c))
+
+
+    # Print table of transformation parameters, as "status3.out" in catref software
+    #-------------------------------------------------
+    def status3(snx, inputs, out="status3.out", quiet=False):
+        """
+        Summarizes for each individual solution listed in "inputs" the transformation parameters, number of common points, WRMS
+        Writes defaults status3.out file.
+        The equivalent of "status3" catref module.
+        
+        Apply this function to sinex object built after the combination process (i.e. snxcmb.combine() or snxcmb.combine_iter())
+
+        Parameters
+        ----------
+        snx : sinex object
+            sinex built as a result of the combination process, from several analyses center
+        inputs : list of record() objects
+            Provides list of sinex solution object, particularly with ".snx" attribute of each elements.
+            Solutions read and build with read_yaml() function.
+        out: str
+            path of output status3 file. Default "status3.out"
+        quiet : bool, optional
+            Whether not to print output messages. Default is False.
+
+        Returns
+        -------
+        None. Print status3 content and write table at out path (default: "status3.out")
+
+        """
+        list_id = snx.get_par_ind('TRANS')
+        
+        #name in snx.param. 1 object by line. We look "type" attribute.
+        codes = [record.code for record in np.array(snx.param)[list_id]]
+        names = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[list_id]]
+        values = [snx.x[i] for i in list_id]
+        sigs = [snx.sig[i] for i in list_id]
+        
+        #create df objetc
+        df_transf = pd.DataFrame()
+        df_transf["codes"] = codes
+        df_transf["names"] = names
+        df_transf["values"] = values
+        df_transf["sigs"] = sigs
+        
+        df = df_transf.pivot(index='codes', columns = 'names', values='values')
+        df_sigs = df_transf.pivot(index='codes', columns = 'names', values='sigs')
+        
+        #reorder as catref : T,S,R
+        order = ["TX[mm]" ,"TY[mm]","TZ[mm]","SC[ppb]","RX[mas]","RY[mas]","RZ[mas]"]
+        df = df.reindex(columns=order)
+        df_sigs = df_sigs.reindex(columns=order)
+        
+        centers = df.index
+        dims = df.columns
+        
+        text = "{0:<10}".format("Solutions")
+        for d in dims:
+            text+="{0:>10}".format(d)
+            
+        text += "\n------------------------------------------------------------------------------------------"
+        
+        for cent in centers:
+            text += "\n\n{0:<10}".format(cent)
+            for d in dims:
+                text+="{0:10.3f}".format(df.loc[cent,d])
+            
+            text += "\n{0:>10}".format("")
+            for d in dims:
+                text+="{0:10.3f}".format(df_sigs.loc[cent,d])
+                
+        ### add WRMS
+        text += '\n\n__________________WRMS_________________'
+        text += '\n{0:9}{1:9}{2:9}{3:9}{4:9}{5:9}'.format('AC','N','E[mm]','N[mm]','H[mm]','vf')
+        text += '\n-----------------------------------------------'
+        for ac in inputs:
+            text+= '\n{0}{1:9}{2[0]:9.3f}{2[1]:9.3f}{2[2]:9.3f}{3:9.3f}'.format(ac.name, ac.nobs, ac.wrms, ac.vf)
+        
+        #global varince factor
+        text+= "\n\nGlobal var factor : {}".format(np.sqrt(snx.stats.vf))
+        
+        if not quiet:
+            print(text)
+        
+        with open(out, 'w') as f:
+            f.write(text)

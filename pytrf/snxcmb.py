@@ -97,8 +97,9 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         
         #default
         sol["description"] = "Solution {}".format(num)
-        sol["params"] = "RST"
-        sol["ic_mean"] = ""
+        sol["params"] = "RST" # wich Transormation Parameters will be estimated?
+        sol["sf"] = 1.0 # scale factor
+        sol["ic_mean"] = "" #no internal constraints on mean
         
         
         if set_vel: #VELOCITY will be estimate, add constraints
@@ -903,7 +904,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.end = date.from_mjd(np.max(mjd)).tsnx()
 
     # Set combsnx.tech
-    techs = [s.tech for s in snx.sta]
+    techs = np.unique([s.tech for s in combsnx.sta])
     if (len(techs) > 1):
         combsnx.tech = 'C'
     else:

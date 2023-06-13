@@ -9,6 +9,9 @@ setuptools.setup(
     author='Paul Rebischung',
     author_email='paul.rebischung@ign.fr',
     packages=setuptools.find_packages(),
+    install_requires=[
+          'pandas',
+      ],
     entry_points = {'gui_scripts': ['fits=pytrf.fits:main']},
 )
 
