@@ -100,8 +100,7 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         sol["params"] = "RST" # wich Transormation Parameters will be estimated?
         sol["sf"] = 1.0 # scale factor
         sol["ic_mean"] = "" #no internal constraints on mean
-        
-        
+                
         if set_vel: #VELOCITY will be estimate, add constraints
             sol["velocity"] = {}
             #add constraints on VEL
@@ -124,7 +123,6 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     with open('options.yml', 'w') as file:
         file.write(file_yml)
         
-
 
 # Read and pre-process input solution
 #------------------------------------
@@ -1034,7 +1032,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             #add periodic eq value for each station in each solution
             for i in snx.ix:
                 p = snx.param[i]
-                dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25 #year conversion
+                dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25 #ratio
                 j = combsnx.iper[keys.index(p.code+p.pt+p.soln)] 
                 
                 for per in periods: #Period object unit : day.
@@ -1155,10 +1153,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if (len(periods)!=0):
         if not(quiet):
             print('        Add constraints between successive station amplitudes', file=out)
-        nc += combsnx.add_dpc(solns, dv_sig)
-
-
-
+        nc += combsnx.add_dac(solns, dv_sig)
+        
+        
 
     # 4 - SOLVE NORMAL EQUATION
     #--------------------------

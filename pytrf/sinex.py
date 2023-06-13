@@ -156,6 +156,7 @@ class sinex:
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
         add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
         add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
+        add_dac()          : Add equality constraints between successive amplitudes (periodic signals) to normal matrix of constraints
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -1695,7 +1696,7 @@ class sinex:
         Parameters
         ----------
         solns : list
-            Reference discontinuity list (from ioutils.read_solns)
+            Reference discontinuity list (from io.read_solns)
         quiet : bool, optional
             Whether not to print output messages. Default is False.
         out : file-like, optional
@@ -3931,12 +3932,12 @@ class sinex:
                         
         return nc
     
-    # Add equality constraints between successive periodic signals to normal matrix of constraints
+    # Add equality constraints between successive amplitudes (periodic signals) to normal matrix of constraints
     #---------------------------------------------------------------------------------------
-    def add_dpc(snx, solns, sigma=1e-6):
+    def add_dac(snx, solns, sigma=1e-6):
         
         """
-        Add equality constraints between successive periodic signals to normal matrix of constraints
+        Add equality constraints between amplitudes of successive periodic signals to normal matrix of constraints
         
         Returns
         -------
@@ -3963,7 +3964,7 @@ class sinex:
             # Index of current station in discontinuity list
             if (sta.code+sta.pt in keys):
                 isoln = keys.index(sta.code+sta.pt)
-                print("key is inside", sta.code+sta.pt, sta.soln[0].soln)
+                print("key is inside", sta.code+sta.pt, len(sta.soln))
                 # Loop over solns
                 for i in range(len(sta.soln)-1):
                     
@@ -3987,7 +3988,7 @@ class sinex:
                             snx.Nc[snx.iper[i1]+k,snx.iper[i2]+k] -= 1 / sigma**2
                             snx.Nc[snx.iper[i2]+k,snx.iper[i1]+k] -= 1 / sigma**2
                             snx.Nc[snx.iper[i2]+k,snx.iper[i2]+k] += 1 / sigma**2
-                        nc += 3
+                        nc += 6
                         
         return nc
         

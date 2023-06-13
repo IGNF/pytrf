@@ -388,7 +388,7 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
 #-----------------
 class Period():
     """
-    This class builds a Period object. Useful to ensures the correct format and attribute values given by user
+    This class builds a Period object. Useful to ensures the correct format and attribute values given by users.
             
     Constructors:
         - Period()                  : blank object with default attibuts, useful to create file option.
@@ -407,8 +407,8 @@ class Period():
     #####----------------------------------------------------------------------------------------
     def __init__(self, code="P1", **kwargs):
         """
-        Default constructor. 2 characters code is necessary
-        If 'code' in PERIODS, setup 'value', else 'value'=0.
+        Default constructor. A code with 2 characters is necessary
+        If 'code' in PERIODS (dict var), setup 'value', else 'value'=0.
         Useful to build blank file options
         
         Other attributes can bee specify manually witn kwargs : mc_per, ic_per, etc
@@ -428,13 +428,14 @@ class Period():
         
         # necessary attributes and default values
         self.value = 0
-        self.mc_per = ""
         self.ic_per = ""
+        self.mc_per = ""
+        self.unit = "day"
         
         #if necessary, update attributes from kwargs
         self.__dict__.update(kwargs)
         
-        if code in PERIODS.keys():
+        if code in PERIODS.keys(): #if 'code' in PERIODS dict, set in any case value from this reference dictionary
             self.value = PERIODS[code]
         
     @classmethod   
