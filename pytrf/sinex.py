@@ -24,7 +24,7 @@ import cartopy.feature as cfeature
 from pytrf import date
 from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
 from pytrf.io import get_sitelog, read_sitelog
-from pytrf.utils import record, isfloat, earlier, station_map
+from pytrf.utils import record, isfloat, earlier, station_map, Period
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
 
 
@@ -112,6 +112,7 @@ class sinex:
         clean_sta()        : Clean station list (remove stations and solns that do not correspond to parameters)
         clean_rs()         : Clean radiosource list (remove radiosources that do not correspond to parameters)
         sort_params()      : Sort parameters
+        is_period()        : Check if a snx parameter type belongs to "periodic type"
         set_par_ind()      : Set indices of parameter categories
         write()            : Write sinex instance into SINEX file
         dump()             : Dump sinex instance into pickle file
@@ -1000,7 +1001,7 @@ class sinex:
             p = snx.param[i]
             if (p.type[0:3] in ['STA', 'VEL']):
                 keys.append('0'+p.code+p.pt+p.soln+p.type)
-            elif (p.type[0:5] in ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']):
+            elif snx.is_period(p): #period type
                 keys.append('1'+p.code+p.pt+p.soln+p.type[0:2]+p.type[5]+p.type[2:5])
             elif (p.type[0:2] == 'RS'):
                 keys.append('2'+p.code+p.pt+p.soln+p.type[::-1])
@@ -1056,6 +1057,45 @@ class sinex:
             
         return ind
     
+    # Check if a snx parameter type belongs to "period type"
+    #------------------------------------
+    def is_period(snx, param_type):
+        """
+        Checks if a snx.param.type belongs to "periodic type"
+        Compatible with previous IRF2020 format: ['A1COSX', 'A1SINX', 'A1COSY', 'A1SINY', 'A1COSZ', 'A1SINZ']
+        New format:                              ['A001CX', 'A001SX', 'A001CY', 'A001SY', 'A100CZ', 'A001SZ']
+        
+        Criteria of "periodic type":
+            *The string must be exactly 6 characters long.
+            *The first character (param_type[0]) must be either 'A', 'D', or 'P'.
+            *The next three characters (param_type[1:4]) must be a numeric value between 1 and 999 (inclusive), previous format only param_type[1] is int.
+            *The fifth character (param_type[4]) must be either 'C' or 'S' or 'N' ('N' due to old SIN format such as A1SINX).
+            *The last character (param_type[5]) must be either 'X', 'Y', or 'Z'.
+
+        Parameters
+        ----------
+        param_type : str
+            snx.param.type
+
+        Returns
+        -------
+        bool
+            True if period type, else False.
+
+        """
+        if len(param_type) != 6:
+            return False
+        if param_type[0] not in ['A', 'D', 'P']:
+            return False
+        if param_type[1].isdigit(): # work also with new format A001CX
+            return False
+        if param_type[4] not in ['C', 'S', 'N']:
+            return False
+        if param_type[5] not in ['X', 'Y', 'Z']:
+            return False
+        return True
+
+    
     # Set indices of parameter categories
     #------------------------------------
     def set_par_ind(snx):
@@ -1070,9 +1110,7 @@ class sinex:
             # Array of parameter types
             types = np.array([p.type for p in snx.param])
             types1 = np.array([p.type[1:4] for p in snx.param])
-            types2 = np.array([p.type[2:6] for p in snx.param]) #'A1'+'COSX'
-            #print([ t for t in types if 'COS' in t])
-            
+           
             # Station positions
             snx.ix = np.nonzero(types == 'STAX  ')[0].tolist()
 
@@ -1083,9 +1121,13 @@ class sinex:
             snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
             
             # Periodic terms
-            #snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
-            snx.iper = np.nonzero(types2 == 'COSX')[0].tolist() #bloc of 6 params, order : COSX, SINX, COSY, SINY, COSZ, SINZ
-            
+            for num, p in enumerate(snx.param) :
+                if snx.is_period(p.type): 
+                    # belongs to 'period type' according to snx.is_period() method, built Period object
+                    per = Period.from_snx_param(p.type)
+                    if per.cs == 'COS' and per.dim == 'X': #bloc of 6 params, order : COSX, SINX, COSY, SINY, COSZ, SINZ
+                        snx.iper.append(num) #append 1st param only 'COSX'
+                    
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
 
@@ -4898,12 +4940,15 @@ class sinex:
             dt = mjd - date.from_tsnx(p.tref).mjd
             
             # Add seasonal term
-            if (p.type[2:5] == 'COS'):
-                c = cos(2*pi*k*dt/365.25)
-            elif (p.type[2:5] == 'SIN'):
-                c = sin(2*pi*k*dt/365.25)
-            dx[j] = dx[j] + c*snx.x[i]
-            s2x[j] = s2x[j] + (c*snx.sig[i])**2
+            if snx.is_period(p.type): #it is a periodic param
+                #built period object (compatible old and new syntax A1COSX & A001CX)
+                per = Period.from_snx_param(p.type)
+                if (per.cs == 'COS'):
+                    c = cos(2*pi*k*dt/365.25)
+                elif (per.cs == 'SIN'):
+                    c = sin(2*pi*k*dt/365.25)
+                dx[j] = dx[j] + c*snx.x[i]
+                s2x[j] = s2x[j] + (c*snx.sig[i])**2
 
         return (dx, np.sqrt(s2x))
         
@@ -5120,19 +5165,24 @@ class sinex:
             p = snx.param[i]
             
             # Station position, velocity, annual or semi-annual signal?
-            if (p.type[:3] in ['STA', 'VEL']) or (p.type[:5] in ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']):
+            if (p.type[:3] in ['STA', 'VEL']) or (snx.is_period(p.type)):
                 if (p.type[:3] == 'STA'):
                     t = p.type[3]+' position'
                 elif (p.type[:3] == 'VEL'):
                     t = p.type[3]+' velocity'
-                elif (p.type[:5] == 'A1COS'):
-                    t = p.type[3]+' annual cosine amplitude'
-                elif (p.type[:5] == 'A1SIN'):
-                    t = p.type[3]+' annual sine amplitude'
-                elif (p.type[:5] == 'A2COS'):
-                    t = p.type[3]+' semi-annual cosine amplitude'
-                elif (p.type[:5] == 'A2SIN'):
-                    t = p.type[3]+' semi-annual sine amplitude'
+                    
+                elif snx.is_period(p.type): #work for any periodic type value A, D or P
+                    t = Period.from_snx_param(p.type).verbose
+    
+                # elif (p.type[:5] == 'A1COS'):
+                #     t = p.type[3]+' annual cosine amplitude'
+                # elif (p.type[:5] == 'A1SIN'):
+                #     t = p.type[3]+' annual sine amplitude'
+                # elif (p.type[:5] == 'A2COS'):
+                #     t = p.type[3]+' semi-annual cosine amplitude'
+                # elif (p.type[:5] == 'A2SIN'):
+                #     t = p.type[3]+' semi-annual sine amplitude'
+                
                 ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
                 isoln = [s.soln for s in snx.sta[ista].solns].index(p.soln)
                 start = snx.sta[ista].solns[isoln].start

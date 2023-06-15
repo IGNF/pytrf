@@ -46,11 +46,12 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     set_vel : bool, optional
         Whether velocities should be estimated for all stations. The default is False.
     per : list of str, optional.
-        List of periods if periodic signals should be estimated for all stations. A period is given with a 2 character code : type+harmonic number
+        List of periods if periodic signals should be estimated for all stations. A period is given with a 4 characters code : type+harmonic number
             * type "A" = "annual"
             * type "D" = "draconitic"
+            * type "P" = other period value
         The default value is '[]', means no periodic signal estimated.
-        Example of periods : "A1" (annual, 365.25 days),  "A2" (semi-annual, 182.625 days), "D1" (draconitic 1)
+        Example of periods : "A001" (annual, 365.25 days),  "A002" (semi-annual, 182.625 days), "D001" (draconitic 351.5)
     default : dict, optional
         Provides default values that will be applied for each solutions. Specify these arguments as dict : ex. {"description": "IGS solution"}
 
@@ -69,14 +70,23 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
             # mc_per: minimal constraints on periodic amplitude
             # ic_per: internal constraints on periodic amplitude
             
-            # period build from Period class
-            dict_per = Period(pe).__dict__
+            ### period dict build from Period class
+            per_obj = Period(pe)
+            #del useless attributes, only from 'code'
+            dict_per = {"code": per_obj.code,
+                        "ic_per": per_obj.ic_per,
+                        "mc_per": per_obj.mc_per,
+                        "unit": per_obj.unit,
+                        "value": per_obj.value
+                        }
             
             #default value ?
             for key in default.keys():
                 if key in ["mc_per","ic_per"]: #key use for dict_freq
                     dict_per[key] = default[key]
                     
+            #sort key:
+            dict_per = dict(sorted(dict_per.items(), key=lambda x: x[0]))
             list_per.append(dict_per)
         
         #add to global YAML file
@@ -580,11 +590,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                     combsnx.param.extend(copy.deepcopy(combsnx.param[-3:]))
                     combsnx.param.extend(copy.deepcopy(combsnx.param[-3:]))
                     
-                    #order period p : ApCOSX, ApSINX, ApCOSY, ApSINY, ApCOSZ, ApSINZ
+                    #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ with "C" <> "COS" & "S" <> "SIN"
                     for (nu, dim) in enumerate(['X','Y','Z']):
                         #num correspond to Period order inside list
-                        combsnx.param[-6+2*nu].type = '{}COS{}'.format(per.code, dim)
-                        combsnx.param[-5+2*nu].type = '{}SIN{}'.format(per.code, dim)
+                        combsnx.param[-6+2*nu].type = '{}C{}'.format(per.code, dim)
+                        combsnx.param[-5+2*nu].type = '{}S{}'.format(per.code, dim)
                         combsnx.param[-6+2*nu].unit = 'm '
                         combsnx.param[-5+2*nu].unit = 'm '
                     
@@ -1039,7 +1049,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                     # Add new periodic parameters into combined solution
                     # Add 6 params by Period (3 cos+ 3 sin)
           
-                    #order period p : ApCOSX, ApSINX, ApCOSY, ApSINY, ApCOSZ, ApSINZ
+                    #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ
                     A_rows.extend([i, i+1, i+2, i+3, i+4, i+5])
                     A_cols.extend([j, j+1, j+2, j+3, j+4, j+5])
                     
@@ -1047,7 +1057,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                     v_cos = np.cos(2*np.pi*(1/per.value)*dt)
                     v_sin = np.sin(2*np.pi*(1/per.value)*dt)
                     
-                    #order period p : ApCOSX, ApSINX, ApCOSY, ApSINY, ApCOSZ, ApSINZ
+                    #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ
                     A_vals.extend(3*[v_cos, v_sin])
                     dy[-1][i:i+6] -= dt * combsnx.x0[j:j+6]
 

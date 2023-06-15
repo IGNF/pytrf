@@ -393,50 +393,85 @@ class Period():
     Constructors:
         - Period()                  : blank object with default attibuts, useful to create file option.
         - Period.from_record()      : from record object, for example after reading YAML file
+        - Period.from_snx_param()   : from snx.param.type 6 characters str (old compatible syntax: A1COSX; new: A001COSX)
+        
+    Attibutes:
+        - code                   : str 4 characters (ex: P001)
+        - cs                     : str COS' or 'SIN'
+        - dim                    : str 1 character:'X', 'Y', 'Z'
+        - harmonic               : int 1 to 999
+        - ic_per                 : str 3 characters max ('RST') internal constraints
+        - mc_per                 : str 3 characters max ('RST') minimal constraints
+        - param_type             : str 6 characters, from snx.param.type : type + %03d harmonic + cs + dim
+        - param_type_old         : str 6 characters, from snx.param.type. Old version: type + %01d harmonic + COS/SIN + dim
+        - type                   : str 1 character 'A' Annual; 'D' Draconitic; 'P' other period
+        - unit                   : str value unit (day)
+        - value                  : float harmonic value,, compute from A1 and D1 for 'A' and 'P' or given by user with 'P'
+        - verbose                : str explains Period object (ex: 'X 1st annual cosine amplitude')
        
         
-    Code format : 2 characters (type + harmonic number)
+    Code format : 4 characters (type + harmonic number)
     Possible types :
-        A : annual (A1, A2, etc)
-        D : draconitic (D1, D2, etc)
+        A : annual (A001, A002, etc)
+        D : draconitic (D001, D002, etc)
         P : other period, in this case 2nd characters is not a harmonic but a simple id
             
     """
     #####----------------------------------------------------------------------------------------
     #####                               Constructors
     #####----------------------------------------------------------------------------------------
-    def __init__(self, code="P1", **kwargs):
+    def __init__(self, code="P001", **kwargs):
         """
-        Default constructor. A code with 2 characters is necessary
+        Default constructor. Code with 4 characters is necessary
         If 'code' in PERIODS (dict var), setup 'value', else 'value'=0.
         Useful to build blank file options
         
-        Other attributes can bee specify manually witn kwargs : mc_per, ic_per, etc
+        Other attributes can bee specified manually with kwargs : mc_per, ic_per, etc
+        
+        Recommended construction attributes
+            'code'(str) : ex 'P001'
+            'type'(str)+'harmonic'(int): ex 'P' + '1'
 
         Parameters
         ----------
-        code : str, 2 characters optional
-            Period code value. The default is "P1", user can setup a custom value
-
-        Returns
-        -------
-        None.
+        code : str, 4 characters optional
+            Period code value. The default is "P001", user can setup a custom value
 
         """
-        ## init Period attributes
-        self.code = code
+        ##1 ******* init Period attributes
+        self.type = code[0] #A, D, P
+        self.harmonic = int(code[1:]) # 1 > 999, permissive format :  P1=P01=P001
+        
+        # case of construction with param_type A1 (sinex.param.type > 6 caracters old vs new format)
+        self.cs = None #'C' for COS or 'S' for SIN
+        self.dim = None # X Y Z
+        self.param_type = None
+        self.param_type_old = None
         
         # necessary attributes and default values
         self.value = 0
         self.ic_per = ""
         self.mc_per = ""
-        self.unit = "day"
+        self.unit = "day"    
         
-        #if necessary, update attributes from kwargs
+        ##2 ******* if necessary, update attributes from kwargs (cs, di)
         self.__dict__.update(kwargs)
+        self.harmonic = int(self.harmonic) #be sure of int type
+        self.code = "{}{}".format(self.type, "%03d" % self.harmonic)
+         
         
-        if code in PERIODS.keys(): #if 'code' in PERIODS dict, set in any case value from this reference dictionary
-            self.value = PERIODS[code]
+        ##3 ******* from_snx_param() construction, > build param_type attributes
+        if type(self.cs)!=None and (self.dim!=None):
+            self.param_type = "{}{}{}".format(self.code, self.cs[0], self.dim) # ex: A001CX
+            self.param_type_old = "{}{}{}{}".format(self.type, self.harmonic, self.cs, self.dim) # ex: A1COSX
+        
+        #if 'type' is 'A' or 'D' > value from PERIODS dict, set in any case value from this reference dictionary
+        if self.type in [k[0] for k in PERIODS.keys()]: #1st letter: A, D
+            h1 = "{}001".format(self.type) #A001, D001
+            self.value = PERIODS[h1]/self.harmonic
+            
+        self.verbose = self.build_verbose()
+       
         
     @classmethod   
     def from_record(self, record_obj):
@@ -446,7 +481,7 @@ class Period():
         
         Check:
             * if record_obj values are consistent
-            * if record_obj.name is key in PERIODS dict, or create a default code "P1", "P2" etc values
+            * if record_obj.name is key in PERIODS dict, or create a default code "P001", "P002" etc values
             * In case where value is not consistent with code, value is setup from PERIODS[code]
         
         Parameters
@@ -455,16 +490,18 @@ class Period():
             record object, at least with "code" and "value" attribute
 
         """
+        type_p = record_obj.code[0]
         ## update with record_obj value or correct if necessary
-        if record_obj.code in PERIODS.keys():
+        if type_p in [k[0] for k in PERIODS.keys()] and (len(record_obj.code)<=4): # permissive format A1=A001
             code = record_obj.code
-            value = PERIODS[code] # anyway take PERIODS value
-        elif (record_obj.code[0] =="P") and (len(record_obj.code)==2): #P1...P9
+            value = None #will set up in any case by Period() constructor
+        elif (record_obj.code[0] =="P") and (len(record_obj.code)<=4): #P1...P999
             code = record_obj.code
+            # with P, value set up
             value = record_obj.value
         else:
             raise ValueError(""""Code must be a value in {}. If you want to specify another period value,
-                             code format must be a 2 characters string as 'Pk', where k is an int between 0 and 9.""".format(list(PERIODS.keys())))
+                             code format must be a 4 characters string as 'Pk', where k is 3 str between '001' and '999'. Your record object : {}""".format(list(PERIODS.keys()), record_obj.__dict__))
         
         ## check constraints format
         if self.check_RST(record_obj.mc_per):
@@ -479,8 +516,44 @@ class Period():
         
         return Period(code=code, value=value, mc_per=mc_per, ic_per=ic_per)
     
+    
+    @classmethod
+    def from_snx_param(self, param_type):
+        """
+        Period build from snx.param.type 6 characters str
+        Can be either new format (ex:A001CX) or old format (A1COSX)
+
+        Parameters
+        ----------
+        param_type : 6 characters string
+            old version 'A1COSX', new version 'A001CX'
+
+        Returns
+        -------
+        Period object
+
+        """
+        if not self._is_new_format(param_type): #conversion 
+            #old syntax "A1COSX"
+            param_type = self._convert_to_new_format(param_type) #convert to A001CX
+            
+        code = param_type[0:4] #A001
+        # COS or SIN
+        if param_type[4]=='C':
+            cs='COS'
+        elif param_type[4]=='S':
+            cs='SIN'
+        else:
+            raise ValueError("param_type[4] must be 'C' or 'S', here: '{}'".format(param_type[4]))
+        
+        dim = param_type[5] # X Y Z
+            
+        ## init Period attributes
+        return Period(code=code, cs=cs, dim=dim)
+        
+   
     #####----------------------------------------------------------------------------------------
-    #####                                   Help functions
+    #####                                   Check functions
     #####----------------------------------------------------------------------------------------
     def check_RST(s):
         """
@@ -502,3 +575,92 @@ class Period():
             return True
         else:
             return False
+        
+    
+    def build_verbose(per):
+        """
+        Build Period verbose explanation
+        format : "dim + hormonic + type + cs + 'amplitude'"
+        example : 'X 1st annual cosine amplitude'
+
+        Parameters
+        ----------
+        per : period obj
+        
+        Returns
+        -------
+        verbose str
+
+        """
+        dict_type = {"A": "annual ", "D": "draconitic ", "P": "other period "}
+        dict_cs = {"COS": "cosine ", "SIN": "sine "}
+        
+        def ordinal_conv(num):
+            """Convert harmonic 1, 2, 3, 4, etc to 1st, 2nd, 3rd, 4th, etc"""
+            if 10 <= num % 100 < 20:
+                return str(num) + "th"
+            else:
+                ordinals = {1: "st", 2: "nd", 3: "rd"}
+                return str(num) + ordinals.get(num % 10, "th")
+        
+        ### init default verbose value
+        dim = ""
+        type_v = ""
+        cs_v = ""
+        
+        ### try to find verbose value in previous dicts
+        if per.dim != None:
+            dim = per.dim
+        if per.type in dict_type.keys():
+            type_v = dict_type[per.type]
+     
+        if per.cs in dict_cs.keys():
+            cs_v = dict_cs[per.cs]
+             
+        verbose = "{} {} {}{}amplitude".format(dim, ordinal_conv(per.harmonic),type_v, cs_v)
+        return verbose
+    
+    #####----------------------------------------------------------------------------------------
+    #####                                   Conversion old and new format period param_type 
+    #####----------------------------------------------------------------------------------------
+
+    def _is_new_format(param_type):
+        """
+        Check if code given by user is old format A1COSX or new A001CX
+        True: new
+        False: old
+        """
+        return param_type[1:4].isdigit() #simple way to make a difference between 'A001CX' (new) and 'A1COSX' (old)
+        
+    
+    def _convert_to_new_format(param_type):
+        """
+        Provides new param_type format from old syntax : A1COSX > A001CX 
+
+        Parameters
+        ----------
+        param_type : TYPE
+            DESCRIPTION.
+
+        Returns
+        -------
+        str
+            DESCRIPTION.
+
+        """
+        # Extract the harmonic value from the old format code
+        harmonic = int(param_type[1])
+
+        # Determine the type (COS or SIN) from the old format code
+        if 'COS' in param_type:
+            type_str = 'C'
+        elif 'SIN' in param_type:
+            type_str = 'S'
+        else:
+            type_str = ''
+
+        # Determine the dim (X, Y, or Z) from the old format code
+        dim = param_type[-1]
+
+        # Construct the new format code
+        return f'{param_type[0]}{str(harmonic).zfill(3)}{type_str}{dim}'
