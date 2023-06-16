@@ -7,6 +7,7 @@
 import os
 import sys
 import re
+import logging
 #import mkl
 #mkl.set_num_threads(1)
 import copy
@@ -1001,7 +1002,8 @@ class sinex:
             p = snx.param[i]
             if (p.type[0:3] in ['STA', 'VEL']):
                 keys.append('0'+p.code+p.pt+p.soln+p.type)
-            elif snx.is_period(p): #period type
+            elif snx.is_period(p.type): #period type
+                logging.debug(">> period"+ p.type)
                 keys.append('1'+p.code+p.pt+p.soln+p.type[0:2]+p.type[5]+p.type[2:5])
             elif (p.type[0:2] == 'RS'):
                 keys.append('2'+p.code+p.pt+p.soln+p.type[::-1])
@@ -1084,14 +1086,19 @@ class sinex:
 
         """
         if len(param_type) != 6:
+            logging.debug("[ip] no len 6")
             return False
         if param_type[0] not in ['A', 'D', 'P']:
+            logging.debug("[ip] no start ADP")
             return False
-        if param_type[1].isdigit(): # work also with new format A001CX
+        if not param_type[1].isdigit(): # work also with new format A001CX
+            logging.debug("[ip] no digit1")
             return False
         if param_type[4] not in ['C', 'S', 'N']:
+            logging.debug("[ip] no CSN")
             return False
         if param_type[5] not in ['X', 'Y', 'Z']:
+            logging.debug("[ip] no XYZ")
             return False
         return True
 
@@ -3820,7 +3827,7 @@ class sinex:
     
     # Add mean or trend Internal Constraints (on R,S and/or T parameters) to normal matrix of constraints.
     #--------------------------------------------------------------------
-    def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None, debug=False):
+    def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None, periods=[], debug=False):
     
         """
         Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
@@ -3837,10 +3844,10 @@ class sinex:
             Indicates which Helmert parameters should be constrained, for a particular solution (snx.param[k].isol).
             It can include 'T' (translations), 'S' (scale), 'R' (rotations)
             and 'A' (CRF rotations).
-            Format example for combination of 3 soltutions : dict_helmert = {'sol1':'RST', 'sol2':'RS', 'sol3':''}
+            Format example for combination of 3 soltutions : dict_helmert = {0 :'RST', 2:'RS', 3:''}. Key refer to a solution.
         ic_type : str
             Indicates to which type of constraints should be applied.
-            It can be either 'MEAN' (internal constraints on MEAN) or 'TREND' (internal constraints on TREND).
+            It can be either 'MEAN' (internal constraints on MEAN)'TREND' (internal constraints on TREND) or 'PERIOD' (internal constraints on periodic signals).
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -3850,6 +3857,8 @@ class sinex:
         t0 : str
             Reference date (SINEX date format)
             Must be specified if par='TREND'
+        periods: list of objects (built with pytrf.utils.Period), optional
+            Period of periodic signals. Must be specified if ic_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         #initialize nc : number of constraints
         nc = 0
@@ -3867,16 +3876,21 @@ class sinex:
                        'SC':[]}
         
         # Initialize ic_trend
-        vect_ic_trend = None
-        mat_ic_trend = None 
-        if ic_type == 'TREND' : #initialize tk-t0 vector
-            vect_ic_trend = np.zeros((snx.Nc.shape[0],1))
-    
+        vect_ic = None
+        mat_ic = None 
+        if ic_type == 'TREND': #initialize tk-t0 vector
+            vect_ic = np.zeros((snx.Nc.shape[0],1))
+            
+        if ic_type == 'PERIOD': #initialize tk vector
+            # 2 dims array > line R...S...T, column according to periods (if contribute or not)
+            vect_ic = np.zeros((snx.Nc.shape[0],len(periods)))
+            mat_ic = np.zeros((snx.Nc.shape))
+                
         # names are in snx.param. 1 object by line. We look "type" attribute.
         # filter id according code name in dict_helmert
         for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
             
-            if par.isol in list(dict_helmert.keys()): #ic_for this sol ?
+            if par.isol in list(dict_helmert.keys()): #ic_ for this sol ? isol is int 0...k
                 if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T > which one ask by user ?
                     #Here, at least 1 Internal constraint apply on this TRANSF param
                     #we are looking for if 'R...', 'SC' or 'T...' are in par.type
@@ -3885,9 +3899,16 @@ class sinex:
                     dict_transf[par.type[0:2]].append(all_transf_id[num]) #type[0:2] because par.type like 'RX    ' -> 'RX'
                     #we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
                     
-                    if ic_type == 'TREND' :#complete vect_ic_trend
-                        vect_ic_trend[all_transf_id[num]] = date.from_tsnx(par.tref).ydec() - date.from_tsnx(t0).ydec() #decimal year conversion
-                        
+                    if ic_type == 'TREND' :#complete vect_ic
+                        vect_ic[all_transf_id[num]] = (date.from_tsnx(par.tref).mjd - date.from_tsnx(t0).mjd)/365.25 #decimal year conversion
+                    
+                    if ic_type == 'PERIOD':
+                        #time delta
+                        dt = (date.from_tsnx(par.tref).mjd - date.from_tsnx(t0).mjd)/365.25 #decimal year conversion
+                        for (num_per, per) in enumerate(periods):
+                            if par.type[0] in per.ic_per: # yes const for this period on this param
+                                vect_ic[all_transf_id[num], num_per] = dt #2 dim vect_ic : transf param sol dt according to period
+                                           
                     #we have 1 more constraint
                     nc +=1
                     
@@ -3905,14 +3926,24 @@ class sinex:
             
         elif ic_type == 'TREND' :
             #Same dim than Nc
-            mat_ic_trend = vect_ic_trend @  vect_ic_trend.T
+            mat_ic = vect_ic @  vect_ic.T
             ## complet Nc matrix with 1/sigma²
             for key in dict_transf.keys():
-                snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic_trend[np.ix_(dict_transf[key],dict_transf[key])]
-            
+                snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
+                
+        elif ic_type == 'PERIOD' :
+            ## complet Nc matrix with 1/sigma²
+            tst_sum = np.zeros((snx.Nc.shape))
+            for (num_per, per) in enumerate(periods): #sum for each period if it contributes
+                wp = 2*np.pi/per.value
+                mat_ic[np.ix_(all_transf_id)] = np.cos(wp*(vect_ic[:,num_per].reshape(vect_ic.shape[0],1)-vect_ic[:,num_per].reshape(vect_ic.shape[0],1).T))[np.ix_(all_transf_id)]
+               
+                for key in dict_transf.keys(): #select correct param according to type
+                    snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
+                    tst_sum[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
     
         if debug :
-            return nc , dict_transf,vect_ic_trend, mat_ic_trend
+            return nc , dict_transf,vect_ic, mat_ic, tst_sum
         else:
             return nc
             
@@ -5184,7 +5215,7 @@ class sinex:
                 #     t = p.type[3]+' semi-annual sine amplitude'
                 
                 ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
-                isoln = [s.soln for s in snx.sta[ista].solns].index(p.soln)
+                isoln = [s.soln for s in snx.sta[ista].soln].index(p.soln)
                 start = snx.sta[ista].solns[isoln].start
                 end = snx.sta[ista].solns[isoln].end
                 

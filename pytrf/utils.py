@@ -637,16 +637,9 @@ class Period():
         """
         Provides new param_type format from old syntax : A1COSX > A001CX 
 
-        Parameters
-        ----------
-        param_type : TYPE
-            DESCRIPTION.
-
         Returns
         -------
-        str
-            DESCRIPTION.
-
+        str param_type new format
         """
         # Extract the harmonic value from the old format code
         harmonic = int(param_type[1])
