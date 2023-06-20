@@ -167,6 +167,7 @@ class sinex:
         map_res()          : Draw station position residual map
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
+        split()            : Split sinex instance into station-specific instances
         
     """
 
@@ -2822,40 +2823,31 @@ class sinex:
             # Indices of parameters to keep
             indk = np.setdiff1d(range(snx.npar), ind)
             
-            # 1st case: solution + normal equation + constraints
-            if (snx.Q is not None) and (snx.N is not None) and (snx.Nc is not None):
-                R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
-                snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
-                snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
-                snx.Nc = snx.Nc[np.ix_(indk, indk)]
-                snx.x0 = snx.x0[indk]
-                snx.sig0 = snx.sig0[indk]
-                snx.neqinv(clear_neq=False)
-            
-            # 2nd case: normal equation + constraints
-            elif (snx.N is not None) and (snx.Nc is not None):
-                R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
-                snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
-                snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
-                snx.Nc = snx.Nc[np.ix_(indk, indk)]
-                snx.x0 = snx.x0[indk]
-                snx.sig0 = snx.sig0[indk]
-                snx.x = snx.x[indk]
-                snx.sig = snx.sig[indk]
+            # 1st case: normal equation + constraints [+solution]
+            if (snx.N is not None) and (snx.Nc is not None):
+                if (keep_const):
+                    snx.N[np.ix_(ind, ind)] += snx.Nc[np.ix_(ind, ind)]
 
-            # 3rd case: solution + constraints, including constraints on reduced parameters
+                R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
+                snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
+                snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
+                snx.Nc = snx.Nc[np.ix_(indk, indk)]
+                snx.x0 = snx.x0[indk]
+                snx.sig0 = snx.sig0[indk]
+                
+                if (snx.Q is not None):
+                    snx.neqinv(clear_neq=False)
+                else:
+                    snx.x = snx.x[indk]
+                    snx.sig = snx.sig[indk]
+            
+            # 2nd case: solution + constraints
             elif (snx.Q is not None) and (snx.Nc is not None):
                 if (np.any(snx.Nc[np.ix_(ind, ind)])) and not(keep_const):
                     snx.unconstrain(clear_const=False)
-                    R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
-                    snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
-                    snx.b = snx.b[indk] - np.dot(R, snx.b[ind])
-                    snx.Nc = snx.Nc[np.ix_(indk, indk)]
-                    snx.x0 = snx.x0[indk]
-                    snx.sig0 = snx.sig0[indk]
+                    snx.del_ind(ind, keep_const=False)
                     snx.neqinv()
 
-            # 4th case: solution + constraints, but without constraints on reduced parameters
                 else:
                     snx.Q = snx.Q[np.ix_(indk, indk)]
                     snx.x = snx.x[indk]
@@ -2864,7 +2856,7 @@ class sinex:
                     snx.x0 = snx.x0[indk]
                     snx.sig0 = snx.sig0[indk]
                     
-            # 5th case: solution + normal equation
+            # 3rd case: solution + normal equation
             elif (snx.Q is not None) and (snx.N is not None):
                 R = np.dot(snx.N[np.ix_(indk, ind)], invspd(snx.N[np.ix_(ind, ind)]))
                 snx.N = snx.N[np.ix_(indk, indk)] - np.dot(R, snx.N[np.ix_(ind, indk)])
@@ -2872,13 +2864,13 @@ class sinex:
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
                     
-            # 6th case: solution only
+            # 4th case: solution only
             elif (snx.Q is not None):
                 snx.Q = snx.Q[np.ix_(indk, indk)]
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
                 
-            # 7th case: no matrix at all
+            # 5th case: no matrix at all
             else:
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
@@ -3350,7 +3342,7 @@ class sinex:
         
         # Unconstrained normal matrix
         snx.N = snx.N - snx.Nc
-                
+        
         # Delete covariance matrix
         snx.Q = None
         
@@ -4589,7 +4581,7 @@ class sinex:
         if (len(ind) > 0):
             Q = snx.Q[np.ix_(ind,ind)]
             sx[2] = sqrt(np.dot(A, np.dot(Q, A.T)))
-
+            
         return (dx, sx)
         
     # Add or remove post-seismic deformation models to a solution
@@ -4990,3 +4982,55 @@ class sinex:
             p = snx.param[i]
             c = cov2corr(snx.Q[i:i+3,i:i+3])
             print(' {0.code} {0.pt}   {1[0]:21.14e} {1[1]:21.14e} {1[2]:21.14e}   {2[0]:11.5e} {2[1]:11.5e} {2[2]:11.5e}   {3[0][1]:12.5e} {3[0][2]:12.5e} {3[1][2]:12.5e}'.format(p, snx.x[i:i+3], snx.sig[i:i+3], c))
+    
+    # Split sinex instance into station-specific instances
+    #-----------------------------------------------------
+    def split(snx, solns, dir):
+
+        """
+        Split sinex instance into station-specific instances
+
+        Parameters
+        ----------
+        solns : list
+            Discontinuity list (from io.read_solns)
+        dir : str
+            Directory where to dump station-specific sinex instances
+        """
+        
+        # Loop over stations
+        for s in snx.sta:
+        
+            # Create station-specific sinex object
+            stasnx = sinex()
+            stasnx.file = snx.file
+            stasnx.version = '2.02'
+            stasnx.agency = 'IGN'
+            stasnx.start = snx.start
+            stasnx.end = snx.end
+            stasnx.tech = 'P'
+            stasnx.const = '2'
+            stasnx.content = 'X V'
+            stasnx.sta = [s]
+            
+            ind = np.nonzero(np.array([p.code for p in snx.param]) == s.code)[0]      
+            stasnx.npar = len(ind)
+            stasnx.param = [snx.param[i] for i in ind]
+            stasnx.x = snx.x[ind]
+            stasnx.sig = snx.sig[ind]
+            stasnx.Q = snx.Q[np.ix_(ind, ind)]
+            
+            # Add soln information
+            if (s.code in [ss.code for ss in solns]):
+                ind = [ss.code for ss in solns].index(s.code)
+                stasnx.sta[0].solns = solns[ind].P
+            else:
+                r = record()
+                r.soln = 1
+                r.start = '00:000:00000'
+                r.end = '00:000:00000'
+                stasnx.sta[0].solns = [r]
+            
+            # Dump sinex object
+            stasnx.set_par_ind()
+            stasnx.dump(dir+'/'+s.code+'.snx')

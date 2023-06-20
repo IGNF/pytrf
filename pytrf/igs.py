@@ -12,6 +12,7 @@ import numpy as np
 
 # Internal imports
 #-----------------
+from pytrf import date
 from pytrf.io import read_yaml
 
 
@@ -358,7 +359,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fsum)
     print('---------------------------------------------------------', file=fsum)
     print('', file=fsum)
-    print(' Author:  Anne Duret, Paul Rebischung', file=fsum)
+    print(' Authors: Anne Duret, Paul Rebischung', file=fsum)
     print(' Contact: igs-rf@ign.fr', file=fsum)
     print('', file=fsum)
     print(' Daily AC solutions:', file=fsum)
@@ -382,7 +383,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('# IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fyml)
     print('#----------------------------------------------------------', file=fyml)
     print('', file=fyml)
-    print('author: Anne Duret, Paul Rebischung', file=fyml)
+    print('authors: Anne Duret, Paul Rebischung', file=fyml)
     print('contact: igs-rf@ign.fr', file=fyml)
     print('', file=fyml)
     print('# Daily AC solutions:', file=fyml)
@@ -759,3 +760,193 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     fsum.close()
     fyml.close()
     
+# Write summary of IGS long-term stacking
+#----------------------------------------
+def write_stacksum(w, opt, inputs, combsnx, nobs, wrms, fsum):
+    
+    """
+    Write summary of IGS long-term stacking
+
+    Parameters
+    ----------
+    w : str
+        GPS week
+    opt : record
+        Combination options
+    inputs : list
+        List of inputs of the long-term stacking
+    combsnx : sinex instance
+        Output cumulative solution
+    nobs : int
+        Number of input station position estimates
+    wrms : list
+        Global East, North, Up WRMS of the stacking residuals
+    fsum : str
+        Output summary file
+    """
+    
+    # Open summary file
+    f = open(fsum, 'w')
+
+    # Header
+    print('------------------------------------------------', file=f)
+    print('IGS cumulative SINEX solution: week {0} release'.format(w), file=f)
+    print('------------------------------------------------', file=f)
+    print('', file=f)
+    print(' Authors: Anne Duret, Paul Rebischung', file=f)
+    print(' Contact: igs-rf@ign.fr', file=f)
+    print('', file=f)
+    print(' Inputs:', file=f)
+    print('  - daily IGS repro3 combined SINEX solutions for weeks 730 to 2237', file=f)
+    print('  - daily IGS operational combined SINEX solutions for weeks 2238 to {0}'.format(w), file=f)
+    print('', file=f)
+    print(' Output: IGS cumulative SINEX solution (week {0} release)'.format(w), file=f)
+    print('  - {0} (SINEX file w/ covariance matrix)'.format(opt.stacksnx), file=f)
+    print('  - {0} (SINEX file w/o covariance matrix)'.format(opt.stackssc), file=f)
+    print('  - {0} (this file)'.format(opt.stacksum), file=f)
+    print('  ', file=f)
+    print(' These output files are for now available at:', file=f)
+    print(' ftp://igs-rf.ign.fr/pub/{0}'.format(w), file=f)
+    print(' They will be made available later at IGS data centres.', file=f)
+    print(' ', file=f)
+    print(' The IGS cumulative SINEX solution is obtained from a long-term stacking of the', file=f)
+    print(' daily repro3/operational IGS combined SINEX solutions.', file=f)
+    print('', file=f)
+    print(' In the IGS cumulative SINEX solution, station coordinates are represented by', file=f)
+    print(' piecewise linear functions of time, i.e., several position+velocity sets valid', file=f)
+    print(' over successive time intervals. Each set is denoted by a solution number (soln)', file=f)
+    print(' whose validity period is given in:', file=f)
+    print(' ftp://igs-rf.ign.fr/pub/discontinuities/soln.snx', file=f)
+    print('', file=f)
+    print(' For stations subject to large earthquakes, post-seismic deformation models in', file=f)
+    print(' the form of exponential and/or logarithmic functions should be added to the', file=f)
+    print(' piecewise linear functions given in the IGS cumulative SINEX solution. These', file=f)
+    print(' models are given in:', file=f)
+    print(' ftp://igs-rf.ign.fr/pub/psd/psd_IGS.snx', file=f)
+    print(' Details on their application can be found at:', file=f)
+    print(' https://itrf.ign.fr/ftp/pub/itrf/itrf2020/ITRF2020-PSD-model-eqs-IGN.pdf', file=f)
+    print('', file=f)
+    print(' The IGS cumulative SINEX solution is consistent with the IGS20/igs20.atx', file=f)
+    print(' framework. It is in particular aligned in origin, scale and orientation to the', file=f)
+    print(' IGS20 reference frame.', file=f)
+    print('', file=f)
+    print(' Time series of residuals from the long-term stacking are available at:', file=f)
+    print(' ftp://igs-rf.ign.fr/pub/stacking-res', file=f)
+    print(' They can be considered as station position time series corrected for linear', file=f)
+    print(' trends, post-seismic deformation and outliers. Note however that part of the', file=f)
+    print(' non-linear (in particular seasonal) Earth deformation aliases into the', file=f)
+    print(' 7-parameter transformations estimated during the long-term stacking between', file=f)
+    print(' each input daily solution and the cumulative solution, and is hence absent from', file=f)
+    print(' the residual time series (Collilieux et al., 2012; 10.1007/s00190-011-0487-6).', file=f)
+
+    # Global statistics
+    print('', file=f)
+    print('', file=f)
+    print('', file=f)
+    print(' 1) Global statistics:', file=f)
+    print(' ---------------------', file=f)
+    print('', file=f)
+    print(' - number of stations:                             {0}'.format(len(combsnx.sta)), file=f)
+    print(' - number of input daily solutions:                {0}'.format(len(inputs)), file=f)
+    print(' - number of input daily station positions:        {0}'.format(nobs), file=f)
+    print(' - number of output "position+velocity" sets:      {0}'.format(len(combsnx.ix)), file=f)
+    print(' - average length of station position time series: {0:.3f} y'.format(np.mean([s.span for s in combsnx.sta])), file=f)
+    print(' - average interval between discontinuities:       {0:.3f} y'.format(np.sum([s.span for s in combsnx.sta])/len(combsnx.ix)), file=f)
+    print(' - sqrt(a posteriori variance factor):             {0:.3f}'.format(sqrt(combsnx.stats.vf)), file=f)
+    print(' - WRMS of daily station position residuals:', file=f)
+    print('    - East:  {0:5.3f} mm'.format(wrms[0]), file=f)
+    print('    - North: {0:5.3f} mm'.format(wrms[1]), file=f)
+    print('    - Up:    {0:5.3f} mm'.format(wrms[2]), file=f)
+
+    # Comparison with IGS20
+    print('', file=f)
+    print('', file=f)
+    print('', file=f)
+    print(' 2) Comparison with IGS20:', file=f)
+    print(' -------------------------', file=f)
+    print('', file=f)
+    print(' The IGS cumulative SINEX solution is aligned to the IGS20 reference frame via a', file=f)
+    print(' selected subset of stations. The table below provides the differences between', file=f)
+    print(' the coordinates of those stations in the IGS cumulative SINEX solution and', file=f)
+    print(' their coordinates in IGS20, as well as the RMS of these differences.', file=f)
+    print('', file=f)
+    print('              position_differences_@_2015.0 ____velocity_differences_____', file=f)
+    print(' code pt soln     E[mm]     N[mm]     H[mm]   E[mm/y]   N[mm/y]   H[mm/y]', file=f)
+    print(' ------------------------------------------------------------------------', file=f)
+    for i in combsnx.ix:
+        if np.any(combsnx.v[i:i+6]):
+            print(' {0.code} {0.pt} {0.soln} {1[0]:9.3f} {1[1]:9.3f} {1[2]:9.3f} {1[3]:9.3f} {1[4]:9.3f} {1[5]:9.3f}'.format(combsnx.param[i], combsnx.v[i:i+6]), file=f)
+    print(' ------------------------------------------------------------------------', file=f)
+    print(' RMS          {0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f} {1[0]:9.3f} {1[1]:9.3f} {1[2]:9.3f}'.format(combsnx.wrmsx, combsnx.wrmsv), file=f)
+    print(' ------------------------------------------------------------------------', file=f)
+
+    # Station-wise statistics
+    print('', file=f)
+    print('', file=f)
+    print('', file=f)
+    print(' 3) Station-wise statistics:', file=f)
+    print(' ---------------------------', file=f)
+    print(' - span  = span of station position time series', file=f)
+    print(' - #days = number of daily positions in time series (after rejection of outliers)', file=f)
+    print(' - %gaps = percentage of missing values in time series (after rejection of outliers)', file=f)
+    print(' - #P    = number of position discontinuities', file=f)
+    print(' - #V    = number of velocity discontinuities', file=f)
+    print(' - WRMS  = WRMS of station residual time series', file=f)
+    print('', file=f)
+    print(' Full station residual time series are available at:', file=f)
+    print(' ftp://igs-rf.ign.fr/pub/stacking-res', file=f)
+    print('', file=f)
+    print('                                                                 ___________WRMS___________', file=f)
+    print(' code   1st_epoch_   last_epoch  span[y]   #days  %gaps   #P  #V    E[mm]    N[mm]    H[mm]', file=f)
+    print('-------------------------------------------------------------------------------------------', file=f)
+    for s in combsnx.sta:
+        print(' {0.code}   {0.start}   {0.end}  {0.span:7.3f}   {0.days:5d}  {0.gaps:5.1f}   {0.nP:2d}  {0.nV:2d} {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f}'.format(s, s.wrms), file=f)
+    print('-------------------------------------------------------------------------------------------', file=f)
+
+    # Close summary file
+    f.close()
+    
+# Extract RF discontinuity list from full IGS discontinuity list
+#---------------------------------------------------------------
+def extract_soln(solns, datum, out):
+    
+    """
+    Extract RF discontinuity list from full IGS discontinuity list
+
+    Parameters
+    ----------
+    solns : list
+        Full IGS discontinuity list (from io.read_solns)
+    datum : sinex instance
+        IGS reference frame (e.g., IGS20.ssc)
+    out : str
+        Output discontinuity list (e.g., soln_IGS20.snx)
+    """
+    
+    # List of RF stations
+    sta = [s.code for s in datum.sta]
+
+    # Write RF discontinuity list
+    f = open(out, 'w')
+
+    print('%=SNX 2.01 IGN '+date().tsnx()+' IGN 00:000:00000 00:000:00000 P     0 1 X V', file=f)
+    print('*-------------------------------------------------------------------------------', file=f)
+    print('+FILE/COMMENT', file=f)
+    print(' Discontinuity list to be used with {0}'.format(datum.file), file=f)
+    print('-FILE/COMMENT', file=f)
+    print('*-------------------------------------------------------------------------------', file=f)
+    print('+SOLUTION/DISCONTINUITY', file=f)
+
+    for s in solns:
+        if (s.code in sta):
+            for p in s.P:
+                print(' {0.code} {0.pt} {1.soln} P {1.start} {1.end} P - {1.cause}'.format(s, p), file=f)
+            for v in s.V:
+                print(' {0.code} {0.pt} {1.soln} P {1.start} {1.end} V - {1.cause}'.format(s, v), file=f)
+            print('*', file=f)
+        
+    print('-SOLUTION/DISCONTINUITY', file=f)
+    print('*----------------------------------------------------------------', file=f)
+    print('%ENDSNX', file=f)
+
+    f.close()
