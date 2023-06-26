@@ -5238,6 +5238,10 @@ class model:
 
         """
         
+        # If log file is actually a file, not sys.stdout, set verbose=True.
+        if (out != sys.stdout):
+            verbose = True
+        
         # Raise error if model includes VW noise, but time series has no formal errors
         b = False
         for d in range(m.nd):

@@ -264,8 +264,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
         # Print message
         if not(quiet):
-            print('\x1b[2K', end='\r', file=out)
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
@@ -811,8 +810,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Print message
         if not(quiet):
-            print('\x1b[2K', end='\r', file=out)
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
             
         # Re-read input solution if needed
         if not(store_inputs):
@@ -965,8 +963,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Print message
         if not(quiet):
-            print('\x1b[2K', end='\r', file=out)
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), end='\r', file=out)
+            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Re-read input solution if needed
         if not(store_inputs):

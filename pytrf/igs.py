@@ -8,6 +8,7 @@ This subpackage contains various useful routines for the IGS SINEX combination.
 # External imports
 #-----------------
 import os
+from math import sqrt
 import numpy as np
 
 # Internal imports
