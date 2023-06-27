@@ -5048,6 +5048,8 @@ class model:
                         N[i,i] = N[i,i] + 1/sc**2
                         b[i] = b[i] + (xc-x0)/sc**2
             
+            np.save('N', N)
+            
             # Solve normal equation
             (m.Qx, m.dN) = invspd(N, return_det=True)
             dx = np.dot(m.Qx, b)
