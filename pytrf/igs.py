@@ -680,7 +680,12 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print(' 6) Station metadata inconsistencies:', file=fsum)
     print(' ------------------------------------', file=fsum)
     for source in opt.logsource:
-        print('  - {0.name:<6s} = {0.server}{0.remotedir}'.format(source), file=fsum)
+        server = source.server
+        if ('@' in server):
+            i = server.index('://')
+            j = server.rindex('@')
+            server = server[:i]+'://'+server[j+1:]
+        print('  - {0.name:<6s} = {1}{0.remotedir}'.format(source, server), file=fsum)
     print('', file=fsum)
     s = '  - No sitelog found for station(s): '
     for sta in nolog:
@@ -704,7 +709,12 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('', file=fyml)
     print('sources:', file=fyml)
     for source in opt.logsource:
-        print('  - {{name: {0.name:<6s}, address: \'{0.server}{0.remotedir}\'}}'.format(source), file=fyml)
+        server = source.server
+        if ('@' in server):
+            i = server.index('://')
+            j = server.rindex('@')
+            server = server[:i]+'://'+server[j+1:]
+        print('  - {{name: {0.name:<6s}, address: \'{1}{0.remotedir}\'}}'.format(source, server), file=fyml)
     print('', file=fyml)
     s = 'nologs: ['
     for sta in nolog:
