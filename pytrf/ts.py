@@ -1291,7 +1291,7 @@ class polynom(function):
             unit = yunit
         elif (deg == 1):
             unit = yunit + '/' + tunit
-        elif (deg == 2):
+        elif (deg >= 2):
             unit = yunit + '/' + tunit + '^' + str(deg)
         
         f.par.append(param(type='polynomial coefficient', x=x[0], fixed=fix_x[0], unit=unit))
