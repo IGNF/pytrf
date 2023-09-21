@@ -691,11 +691,20 @@ class sinex:
             f.seek(addresses[blocks.index('SOLUTION/NORMAL_EQUATION_VECTOR')])
             line = f.readline()
             i = -1
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = i+1
-                    snx.b[i] = float(line[47:68].replace('D', 'E'))
-                line = f.readline()
+            
+            try:
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = i+1
+                        snx.b[i] = float(line[47:68].replace('D', 'E'))
+                    line = f.readline()
+            except:
+                logging.warning("Error in SINEX {}, block 'NORMAL_EQUATION_VECTOR' >> in fact 'DECOMPOSED_NORMAL_VECTOR...'".format(file))
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = int(line[1:6]) - 1
+                        snx.b[i] = float(line[7:28].replace('D', 'E'))
+                    line = f.readline()
 
         # Read SOLUTION/DECOMPOSED_NORMAL_VECTOR block -> snx.b
         if ('SOLUTION/DECOMPOSED_NORMAL_VECTOR' in blocks) and not('matrices' in dont_read):
@@ -4153,6 +4162,7 @@ class sinex:
         
         # Design matrix
         A = snx.helmert_partials(helmerts, 'STA')[isnx]
+        print("A matrix : {}".format(A))
         if (len(np.intersect1d(isnx, snx.iv)) > 0):
             A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
 
