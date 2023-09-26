@@ -3841,11 +3841,12 @@ class sinex:
         """
         Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
         If you want both MEAN and TREND constraints, apply twice this method with par=MEAN and par=TREND
+        You must specify parameters in the YAML file for each solution that you want apply IC: 'ic', 'ic_trend', 'ic_per'
         
         Returns
         -------
         nc : int
-            Number of constraints added
+            Number of constraints added. Maximum 7 (RX, RY, RZ, S, TX, TY, TZ)
 
         Parameters
         ----------
@@ -3918,8 +3919,6 @@ class sinex:
                             if par.type[0] in per.ic_per: # yes const for this period on this param
                                 vect_ic[all_transf_id[num], num_per] = dt #2 dim vect_ic : transf param sol dt according to period
                                            
-                    #we have 1 more constraint
-                    nc +=1
                     
         ## convert sigma according to dim, giv by user in meter
         sigma_T = sigma * 1000 #mm conversion
@@ -3932,6 +3931,9 @@ class sinex:
             ## complet Nc matrix with 1/sigma²
             for key in dict_transf.keys():
                 snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) #key[0] : R, S or T
+                
+                if len(dict_transf[key]) != 0: #we have 1 more constraint on this param "key": RX, RY, RZ, S, TX, TY, TZ
+                    nc +=1
             
         elif ic_type == 'TREND' :
             #Same dim than Nc
@@ -3939,6 +3941,9 @@ class sinex:
             ## complet Nc matrix with 1/sigma²
             for key in dict_transf.keys():
                 snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
+                
+                if len(dict_transf[key]) != 0: #we have 1 more constraint on this param "key": RX, RY, RZ, S, TX, TY, TZ
+                    nc +=1
                 
         elif ic_type == 'PERIOD' :
             ## complet Nc matrix with 1/sigma²
@@ -3950,6 +3955,9 @@ class sinex:
                 for key in dict_transf.keys(): #select correct param according to type
                     snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
                     tst_sum[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
+                    
+                    if len(dict_transf[key]) != 0: #we have 1 more constraint on this param "key": RX, RY, RZ, S, TX, TY, TZ
+                        nc += 2 #sin and cos 
     
         if debug :
             return nc , dict_transf,vect_ic, mat_ic, tst_sum
@@ -4162,7 +4170,6 @@ class sinex:
         
         # Design matrix
         A = snx.helmert_partials(helmerts, 'STA')[isnx]
-        print("A matrix : {}".format(A))
         if (len(np.intersect1d(isnx, snx.iv)) > 0):
             A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
 

@@ -15,4 +15,5 @@ pytrf.egg-info/PKG-INFO
 pytrf.egg-info/SOURCES.txt
 pytrf.egg-info/dependency_links.txt
 pytrf.egg-info/entry_points.txt
+pytrf.egg-info/requires.txt
 pytrf.egg-info/top_level.txt
