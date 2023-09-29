@@ -263,7 +263,7 @@ class sinex:
         snx.file = os.path.basename(file)
 
         # Open input SINEX file
-        f = open(file, encoding='ISO-8859-1')
+        f = open(file)#, encoding='ISO-8859-1')
 
         # Read 1st line
         line = f.readline()
