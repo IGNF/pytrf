@@ -769,7 +769,7 @@ class sinex:
             
             # Convert radiosource coordinates into mas if needed
             if (len(snx.irs) > 0):
-                if (snx.param[snx.irs[0]].unit == 'rad '):
+                if ('rad' in snx.param[snx.irs[0]].unit):
                     irs = snx.irs + [i+1 for i in snx.irs]
                     f = np.ones(snx.npar)
                     f[irs] = 1/mas2rad
@@ -5321,7 +5321,8 @@ class sinex:
         None. Print status3 content and write table at out path (default: "status3.out")
 
         """
-        list_id = snx.get_par_ind('TRANS')
+        #transform param
+        list_id = snx.itrans
         
         #name in snx.param. 1 object by line. We look "type" attribute.
         codes = [record.code for record in np.array(snx.param)[list_id]]

@@ -367,7 +367,7 @@ class date:
         
         # Add appropriate number of days
         # = fractional year multiplier by either 365 or 366
-        if (((y % 4 == 0) and (y % 100 != 0)) or (y % 400 == 0)):
+        if (((yint % 4 == 0) and (yint % 100 != 0)) or (yint % 400 == 0)):
             t.add_d(yfra*366)
         else:
             t.add_d(yfra*365)

@@ -60,6 +60,26 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     None.
 
     """
+    
+    def name_method(method):
+        """
+        From sinex filename, provide short unique 'name'
+        This name must be short 
+
+        Parameters
+        ----------
+        method : TYPE str
+            DESCRIPTION. method selected to define sinex name
+
+        Returns
+        -------
+        None.
+
+        """
+    
+    
+    
+    
     ### Default YAML dict
     dict_yml = {}
     
@@ -110,11 +130,13 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         sol["params"] = "RST" # wich Transormation Parameters will be estimated?
         sol["sf"] = 1.0 # scale factor
         sol["ic"] = "" #no internal constraints on mean
-                
-        if set_vel: #VELOCITY will be estimate, add constraints
-            sol["velocity"] = {}
-            #add constraints on VEL
-            sol["velocity"]["ic_trend"] = ""
+         
+        ##### no more params for velocity estimation
+        # if set_vel: #VELOCITY will be estimate, add constraints
+        #     sol["velocity"] = {}
+        #     #add constraints on VEL
+        #     sol["velocity"]["ic_trend"] = ""
+        ########################################################
         
         #default values provides ?
         for key in default.keys():
