@@ -754,7 +754,7 @@ class sinex:
             
             # Convert radiosource coordinates into mas if needed
             if (len(snx.irs) > 0):
-                if (snx.param[snx.irs[0]].unit == 'rad '):
+                if ('rad' in snx.param[snx.irs[0]].unit):
                     irs = snx.irs + [i+1 for i in snx.irs]
                     f = np.ones(snx.npar)
                     f[irs] = 1/mas2rad
@@ -2816,7 +2816,7 @@ class sinex:
             Default is False.
 
         """
-        
+
         # If any parameter to delete,
         if (len(ind) > 0):
         
@@ -2847,6 +2847,7 @@ class sinex:
                     snx.unconstrain(clear_const=False)
                     snx.del_ind(ind, keep_const=False)
                     snx.neqinv()
+                    return
 
                 else:
                     snx.Q = snx.Q[np.ix_(indk, indk)]
