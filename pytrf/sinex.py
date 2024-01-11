@@ -220,7 +220,8 @@ class sinex:
         snx.ix = []
         snx.iv = []
         snx.ipsd = []
-        snx.iper = []
+        snx.iper = [] 
+        snx.iper_dict = {} #dict of list for each Period
         snx.irs = []
         snx.ixpo = []
         snx.ixpor = []
@@ -1013,7 +1014,9 @@ class sinex:
                 keys.append('0'+p.code+p.pt+p.soln+p.type)
             elif snx.is_period(p.type): #period type
                 logging.debug(">> period"+ p.type)
-                keys.append('1'+p.code+p.pt+p.soln+p.type[0:2]+p.type[5]+p.type[2:5])
+                # build Period  object
+                per = Period.from_snx_param(p.type)
+                keys.append('0'+p.code+p.pt+p.soln+"zperiod"+per.code+per.dim+per.cs)# ex: A001CX -> per.code: A001, per.dim: 'X', per.cs: 'COS', 
             elif (p.type[0:2] == 'RS'):
                 keys.append('2'+p.code+p.pt+p.soln+p.type[::-1])
             elif (p.type[0:4] == 'SATA'):
@@ -1137,13 +1140,16 @@ class sinex:
             snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
             
             # Periodic terms
+            snx.iper = []
+            snx.iper_dict = {} #reinit to empty
             for num, p in enumerate(snx.param) :
                 if snx.is_period(p.type): 
                     # belongs to 'period type' according to snx.is_period() method, built Period object
                     per = Period.from_snx_param(p.type)
                     if per.cs == 'COS' and per.dim == 'X': #bloc of 6 params, order : COSX, SINX, COSY, SINY, COSZ, SINZ
-                        snx.iper.append(num) #append 1st param only 'COSX'
-                    
+                        snx.iper.append(num)    
+                        snx.iper_dict.setdefault(per.code, []).append(num) # 1 list by per.code: {"A001":[...], "A002":[...]}
+                        
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
 
@@ -1203,6 +1209,7 @@ class sinex:
             snx.iv = []
             snx.ipsd = []
             snx.iper = []
+            snx.iper_dict = {}
             snx.irs = []
             snx.ixpo = []
             snx.ixpor = []
@@ -1490,6 +1497,7 @@ class sinex:
         pkl.iv = snx.iv
         pkl.ipsd = snx.ipsd
         pkl.iper = snx.iper
+        pkl.iper_dict = snx.iper_dict
         pkl.irs = snx.irs
         pkl.ixpo = snx.ixpo
         pkl.ixpor = snx.ixpor
@@ -1593,6 +1601,7 @@ class sinex:
         snx2.iv = snx.iv.copy()
         snx2.ipsd = snx.ipsd.copy()
         snx2.iper= snx.iper.copy()
+        snx2.iper_dict = snx.iper_dict.copy()
         snx2.irs = snx.irs.copy()
         snx2.ixpo = snx.ixpo.copy()
         snx2.ixpor = snx.ixpor.copy()
@@ -3916,7 +3925,7 @@ class sinex:
                         #time delta
                         dt = (date.from_tsnx(par.tref).mjd - date.from_tsnx(t0).mjd)/365.25 #decimal year conversion
                         for (num_per, per) in enumerate(periods):
-                            if par.type[0] in per.ic_per: # yes const for this period on this param
+                            if par.type[0] in per.ic_per: # yes const for this period on this para
                                 vect_ic[all_transf_id[num], num_per] = dt #2 dim vect_ic : transf param sol dt according to period
                                            
                     
@@ -3949,7 +3958,7 @@ class sinex:
             ## complet Nc matrix with 1/sigma²
             tst_sum = np.zeros((snx.Nc.shape))
             for (num_per, per) in enumerate(periods): #sum for each period if it contributes
-                wp = 2*np.pi/per.value
+                wp = 2*np.pi/(per.value/365.25) #year conversion
                 mat_ic[np.ix_(all_transf_id)] = np.cos(wp*(vect_ic[:,num_per].reshape(vect_ic.shape[0],1)-vect_ic[:,num_per].reshape(vect_ic.shape[0],1).T))[np.ix_(all_transf_id)]
                
                 for key in dict_transf.keys(): #select correct param according to type
@@ -3957,7 +3966,7 @@ class sinex:
                     tst_sum[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic[np.ix_(dict_transf[key],dict_transf[key])]
                     
                     if len(dict_transf[key]) != 0: #we have 1 more constraint on this param "key": RX, RY, RZ, S, TX, TY, TZ
-                        nc += 2 #sin and cos 
+                        nc += 2 #sin and cos                
     
         if debug :
             return nc , dict_transf,vect_ic, mat_ic, tst_sum
@@ -4046,7 +4055,7 @@ class sinex:
         # Initializations
         nc = 0
         keys = [s.code+s.pt for s in solns]
-        keys_per = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper]]
+        keys_per = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
        
         # Loop over stations
         for sta in snx.sta:
@@ -4066,19 +4075,21 @@ class sinex:
                     
                     # If current soln should be constrained with the next one,
                     if not(end in [a.end for a in solns[isoln].A]): #based on code 'A' in soln
-                        
+                                            
                         # Get indices of both amplitude
                         i1 = keys_per.index(sta.code+sta.pt+sta.soln[i].soln)
                         i2 = keys_per.index(sta.code+sta.pt+sta.soln[i+1].soln)
-                        print("const amplitude", i1,i2)
+                        print("A const amplitude", i1,i2)
                         
-                        # Add constraints between them
-                        for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
-                            snx.Nc[snx.iper[i1]+k,snx.iper[i1]+k] += 1 / sigma**2
-                            snx.Nc[snx.iper[i1]+k,snx.iper[i2]+k] -= 1 / sigma**2
-                            snx.Nc[snx.iper[i2]+k,snx.iper[i1]+k] -= 1 / sigma**2
-                            snx.Nc[snx.iper[i2]+k,snx.iper[i2]+k] += 1 / sigma**2
-                        nc += 6
+                        for percode in snx.iper_dict.keys(): #for each period, according to key of iper_dict (ex:"A001", "A002", etc)
+                            print("  --", percode,i1,i2,'--', snx.iper_dict[percode][i1], snx.iper_dict[percode][i2] )
+                            # Add constraints between them
+                            for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
+                                snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
+                                snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i2]+k] -= 1 / sigma**2
+                                snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i1]+k] -= 1 / sigma**2
+                                snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i2]+k] += 1 / sigma**2
+                            nc += 6
                         
         return nc
         

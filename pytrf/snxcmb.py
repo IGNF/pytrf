@@ -61,25 +61,6 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
 
     """
     
-    def name_method(method):
-        """
-        From sinex filename, provide short unique 'name'
-        This name must be short 
-
-        Parameters
-        ----------
-        method : TYPE str
-            DESCRIPTION. method selected to define sinex name
-
-        Returns
-        -------
-        None.
-
-        """
-    
-    
-    
-    
     ### Default YAML dict
     dict_yml = {}
     
@@ -243,8 +224,9 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 #-------------------------------
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
-            ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=False, ic_period_sig=1e-5, #Internal constraints
+            ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
+            break_combine=""
             ):
 
     """
@@ -312,26 +294,26 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         detailed explanations.
     
     ---------- INTERNAL constraints parameters ----------
-    ic_mean : bool, optional. Default: False
-        Boolean indicating if you allow internal constraints to be applied to mean(s) of parameter(s).
-        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
+    ic_mean : str, optional. Default: None
+        string indicating which internal constraints should be applied to mean(s) of parameter(s).
+        If not None, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
         If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
     ic_mean_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     ic_trend : bool, optional. Default: False
         Boolean indicating if you allow internal constraints to be applied to trend(s) of parameter(s).
-        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
+        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC. (same that 'mean')
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
         If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
     ic_trend_sig : float, optional
         Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
-    ic_period: bool, optional. Default: False
-        Boolean indicating if you allow internal constraints to be applied on periodic signal(s).
-        If True: * you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
-                 * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
+    ic_period: str, optional. Default: None
+        string indicating which internal constraints should be applied on periodic signal(s).
+        If not None: * you must specify the "ic_per" parameter in the YAML file for each solution that you want apply IC.
+                     * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
-        If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+        If no "ic_per" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
         
@@ -361,7 +343,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Whether to reduce transformation parameters. Default is False.
         Note that if transformation parameters are reduced, the options norm_res='correct'
         and vce='correct' become unavailable.
-        ! WARNING !: in case of internal constraints (i.e. ic_trend or ic_mean == True), 'reduce_trans' must be 'False'.
+        ! WARNING !: in case of internal constraints (i.e. ic_trend or ic_mean not None or empty), 'reduce_trans' must be 'False'.
         In any case it is automatically reset to 'False' with internal constraints.
     clear_neq : bool, optional
         Whether normal equation should be kept in combined sinex object. Default is True.
@@ -372,9 +354,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     """
     #look at reduce_trans exception, if internal constraints > reduce_trans=False 
-    if (ic_mean or ic_trend) and (reduce_trans) : #internal constraints, at least on mean or trend.
+    if (bool(ic_mean) or bool(ic_trend)) and (reduce_trans) : #internal constraints, at least on mean or trend.
         print("WARNING : case of internal constraints, 'reduce_trans' param set to False.", file=out)
         reduce_trans=False
+        
+    #if ic_period set (R, S or T) -> at leat 1 period must be provide as Period object to "periods" attribute.
+    if (bool(ic_period) and len(periods)==0) :
+        raise ValueError(f"Internal constraints applied on periods ('ic_period={ic_period}'), but no periods provides. Set attribute 'periods' as a list of pytrf.utils.Period objects.")
     
     # Print header in log file
     if not(quiet):
@@ -432,6 +418,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
     # initialize internal constraints dict
     ic_helmert = {}
+    ic_helmert_periods = {}
 
     # Loop over input solutions
     #--------------------------
@@ -450,13 +437,22 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
         
         ## Build internal constraints dict (which constraints for which solutions ?)
-        # ic_helmert_mean
-        if (ic_mean or ic_trend or ic_period) : #allow IC on mean
+        # ic_helmert_mean & trend
+        if (bool(ic_mean)) : #allow IC on mean & trend, same dict
             if hasattr(sol, 'ic'):
-                ic_helmert[isol] = sol.ic
+                common_ic = ''.join(set(ic_mean) & set(sol.ic)) #common parameters 'R','S' & 'T' between each solution contribution and general computation 'ic_mean' constraints
+                ic_helmert[isol] = common_ic
             else: #this sol has not ic constrains
                 ic_helmert[isol] = ''
-                
+         
+        # ic helmert periods        
+        if (bool(ic_period)) :
+            if hasattr(sol, 'ic_per'):
+                common_ic = ''.join(set(ic_period) & set(sol.ic_per)) #common parameters 'R','S' & 'T' between each solution contribution and general computation 'ic_mean' constraints
+                ic_helmert_periods[isol] = common_ic
+            else: #this sol has not ic constrains
+                ic_helmert_periods[isol] = ''
+            
         # Shortcut for sol.snx
         snx = sol.snx
         
@@ -614,8 +610,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                         #num correspond to Period order inside list
                         combsnx.param[-6+2*nu].type = '{}C{}'.format(per.code, dim)
                         combsnx.param[-5+2*nu].type = '{}S{}'.format(per.code, dim)
-                        combsnx.param[-6+2*nu].unit = 'm '
-                        combsnx.param[-5+2*nu].unit = 'm '
+                        combsnx.param[-6+2*nu].unit = 'm   '
+                        combsnx.param[-5+2*nu].unit = 'm   '
                     
                     # Update combsnx.iper and combsnx.x0
                     # 1 id by amplitude >> 6 element
@@ -922,6 +918,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Set combsnx.start and combsnx.end
     mjd = []
     for sta in combsnx.sta:
+        print([s.datastart for s in sta.soln], sta.code, sta.domes)
         mjd.extend([date.from_tsnx(s.datastart).mjd for s in sta.soln])
     combsnx.start = date.from_mjd(np.min(mjd)).tsnx()
 
@@ -989,7 +986,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     # Reset parameter indices
     combsnx.set_par_ind()
-
+   
     # Get indices of transformation parameters of each input solution
     keys = np.array([p.isol for p in [combsnx.param[i] for i in combsnx.itrans]])
     for isol in range(len(inputs)):
@@ -1057,19 +1054,20 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 
         # Add periodic signals partial derivatives and update right-hand side if needed
         if (len(periods)!=0):# at leat 1 period in list
-            keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iper]]
+            keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iper_dict[next(iter(combsnx.iper_dict))]] ] #Only on 1 period key (same station codes) for A001, A002, etc.
             #add periodic eq value for each station in each solution
             for i in snx.ix:
+                #print(f"param {i}, len dy: {len(dy)}, len(dy[-1]):{len(dy[-1])}, len(snx.ix):{len(snx.ix)}")
                 p = snx.param[i]
-                dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25 #ratio
-                j = combsnx.iper[keys.index(p.code+p.pt+p.soln)] 
+                dt = (date.from_tsnx(p.tref).mjd - mjd0) #ratio
                 
                 for per in periods: #Period object unit : day.
                     # Add new periodic parameters into combined solution
                     # Add 6 params by Period (3 cos+ 3 sin)
+                    j = combsnx.iper_dict[per.code][keys.index(p.code+p.pt+p.soln)] #index of current period 'per'
           
                     #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ
-                    A_rows.extend([i, i+1, i+2, i+3, i+4, i+5])
+                    A_rows.extend([i, i, i+1, i+1, i+2, i+2])
                     A_cols.extend([j, j+1, j+2, j+3, j+4, j+5])
                     
                     # Add seasonal term value
@@ -1078,7 +1076,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                     
                     #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ
                     A_vals.extend(3*[v_cos, v_sin])
-                    dy[-1][i:i+6] -= dt * combsnx.x0[j:j+6]
+                    #print(f"TEST SHAPE {i}: {dy[-1][i:i+6]}, {combsnx.x0[j:j+6]}")
+                    dy[-1][i] -= combsnx.x0[j]*v_cos  + combsnx.x0[j+1]*v_sin #X
+                    dy[-1][i+1] -= combsnx.x0[j+2]*v_cos +  combsnx.x0[j+3]*v_sin #Y
+                    dy[-1][i+2] -= combsnx.x0[j+4]*v_cos +  combsnx.x0[j+5]*v_sin #Z
+                    #print(f"x0 per combsnx: {combsnx.x0[j:j+6]}")
+                    
 
         # Add partial derivatives of transformation parameters
         H = snx.helmert_partials(sol.params, 'STA')
@@ -1089,6 +1092,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             A_vals.extend(H[ind].tolist())
 
         # Build sparse design matrix of current solution
+        #print(f"\nSHAPE A: A_vals:{len(A_vals)}, A_rows:{len(A_rows)}, A_cols:{len(A_cols)}")
+        #print(f"nb sta: {len(combsnx.sta)}, snx.npar:{snx.npar}, combsnx.npar: {combsnx.npar}")
+        #print(f"max Arow: {max(A_rows)}")
         A.append(sparse.csr_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
         # Get weight matrix of solution isol
@@ -1118,6 +1124,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(store_inputs):
             del sol.snx
             
+            
+    if break_combine=="2":
+        #combsnx.dump("combine_end2_NE.pkl")
+        return combsnx
 
     # 3 - ADD CONSTRAINTS
     #--------------------
@@ -1155,25 +1165,22 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     #------------------------
              
     # Add internal constraints to MEAN
-    if (ic_mean):
+    if (bool(ic_mean)):
         if not(quiet):
             print('        Add mean internal constraints', file=out)
-            print('ic_healmert_mean dict : {}'.format(ic_helmert), file=out)
         nc += combsnx.add_ic(ic_helmert, 'MEAN', sigma=ic_mean_sig)
 
     # Add internal constraints to TREND
-    if (ic_trend):
+    if (bool(ic_trend)):
         if not(quiet):
             print('        Add trend internal constraints', file=out)
-            print('ic_healmert_trend dict : {}'.format(ic_helmert), file=out)
         nc += combsnx.add_ic(ic_helmert, 'TREND', sigma=ic_trend_sig, t0=tref)
         
     # Add internal constraints to PERIOD
-    if (ic_period):
+    if (bool(ic_period)):
         if not(quiet):
-            print('        Add trend internal constraints', file=out)
-            print('ic_healmert_period dict : {}'.format(ic_helmert), file=out)
-        nc += combsnx.add_ic(ic_helmert, 'PERIOD', sigma=ic_period_sig, t0=tref)
+            print('        Add period internal constraints', file=out)
+        nc += combsnx.add_ic(ic_helmert_periods, 'PERIOD', sigma=ic_period_sig, t0=tref, periods=periods)
 
 
     # Add constraints between successive station velocities
@@ -1191,7 +1198,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             print('        Add constraints between successive station amplitudes', file=out)
         nc += combsnx.add_dac(solns, dv_sig)
         
-        
+    if break_combine=="3":
+        #combsnx.dump("combine_end3_addConst.pkl")
+        return combsnx
 
     # 4 - SOLVE NORMAL EQUATION
     #--------------------------
@@ -1420,7 +1429,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 #-----------------------------------------
 def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
                  mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
-                 ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=False, ic_period_sig=1e-5, #Internal constraints
+                 ic_mean=None, ic_mean_sig=1e-5, ic_trend=None, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
                  thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, flag_once=False, quiet=False, out=sys.stdout):
 
@@ -1489,26 +1498,26 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         detailed explanations.
     
     ---------- INTERNAL constraints parameters ----------
-    ic_mean : bool, optional. Default: False
-        Boolean indicating if you allow internal constraints to be applied to mean(s) of parameter(s).
-        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
+    ic_mean : str, optional. Default: None
+        string indicating which internal constraints should be applied to mean(s) of parameter(s).
+        If not None, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
         If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
     ic_mean_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     ic_trend : bool, optional. Default: False
         Boolean indicating if you allow internal constraints to be applied to trend(s) of parameter(s).
-        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
+        If True, you must specify the "ic" parameter in the YAML file for each solution that you want apply IC. (same that 'mean')
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
         If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
     ic_trend_sig : float, optional
         Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
-    ic_period: bool, optional. Default: False
-        Boolean indicating if you allow internal constraints to be applied on periodic signal(s).
-        If True: * you must specify the "ic" parameter in the YAML file for each solution that you want apply IC.
-                 * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
+    ic_period: str, optional. Default: None
+        string indicating which internal constraints should be applied on periodic signal(s).
+        If not None: * you must specify the "ic_per" parameter in the YAML file for each solution that you want apply IC.
+                     * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
-        If no "ic" attribute or equal to empty str ("") in YAML file, IC are not apply for this solution.
+        If no "ic_per" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
