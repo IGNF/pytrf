@@ -351,10 +351,16 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Whether not to print output messages. Default is False.
     out : file-like, optional
         Log file. Default is sys.stdout.
+        
+    break_combine: str, optional (Default: "", i.e. no break)
+        if we need to break combine process. Possible break points: 
+            "1": end of set up parameter list; 
+            "2": end of set up normale equation;
+            "3": end of add constraints;
     
     """
     #look at reduce_trans exception, if internal constraints > reduce_trans=False 
-    if (bool(ic_mean) or bool(ic_trend)) and (reduce_trans) : #internal constraints, at least on mean or trend.
+    if (bool(ic_mean) or bool(ic_trend)) or bool(ic_period) and (reduce_trans) : #internal constraints, at least on mean or trend.
         print("WARNING : case of internal constraints, 'reduce_trans' param set to False.", file=out)
         reduce_trans=False
         
@@ -993,7 +999,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         ind = np.nonzero(keys == isol)[0]
         inputs[isol].itrans = [combsnx.itrans[i] for i in ind]
 
-
+    #if we want to break here, after set up parameters
+    if break_combine=="1":
+        print('-- Break end Step 1 -- Set up list parameter', file=out)
+        return combsnx
+    
     # 2 - SET UP NORMAL EQUATION
     #---------------------------
     
@@ -1124,9 +1134,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(store_inputs):
             del sol.snx
             
-            
+    #if we want to break process here, after set up normal equation       
     if break_combine=="2":
-        #combsnx.dump("combine_end2_NE.pkl")
+        print('-- Break end Step 2 -- Set up normal equation', file=out)
         return combsnx
 
     # 3 - ADD CONSTRAINTS
@@ -1197,9 +1207,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(quiet):
             print('        Add constraints between successive station amplitudes', file=out)
         nc += combsnx.add_dac(solns, dv_sig)
-        
+    
+    #if we want to break here, after add constraints
     if break_combine=="3":
-        #combsnx.dump("combine_end3_addConst.pkl")
+        print('-- Break end Step 3 -- Add constraints', file=out)
         return combsnx
 
     # 4 - SOLVE NORMAL EQUATION

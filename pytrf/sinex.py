@@ -11,6 +11,7 @@ import logging
 #import mkl
 #mkl.set_num_threads(1)
 import copy
+import yaml
 import pickle
 import pandas as pd
 from math import pi, sqrt, cos, sin, acos, exp, log
@@ -159,6 +160,7 @@ class sinex:
         add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
         add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
         add_dac()          : Add equality constraints between successive amplitudes (periodic signals) to normal matrix of constraints
+        vfcontr()          : Generate vcontr.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site.
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -174,7 +176,6 @@ class sinex:
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
         status3()          : Print and write status3.out table (catref equivalent), with a summary of transformation parameters
-        
     """
 
     # Initialize a sinex instance
@@ -4092,6 +4093,48 @@ class sinex:
                             nc += 6
                         
         return nc
+    
+    # Generate vcontr.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site
+    #-----------------------
+    def vfcontr(snx, sigma_v = 1e-9):
+        """
+        Generate vcontr.yml (velocities constraints) & fcontr.yml (frequencies constraints) files for stations located on the same site
+
+        Parameters
+        ----------
+        sigma_v: float, optional
+            Velocity constraint (m/y)
+        
+        Returns
+        -------
+        None.
+
+        """
+        #Init empty site dict. key:site id (i.e. first 5 characters of domes)
+        dict_sites = {}
+        dict_sites_soln = {}
+        dict_const = {}
+        # sort stations by site
+        for sta in snx.sta:
+            dict_sites.setdefault(sta.domes[:5], []).append(sta) # 1 list site: {"11000":[...], "12000":[...]}
+            
+            for soln in sta.soln:
+                #dict_sites_soln.setdefault("site"+sta.domes[:5], []).append({"code":sta.code,"pt":sta.pt, "soln":soln.soln})
+                dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + soln.soln) #concat str
+                
+        # build constraints dict    
+        for key, values in dict_sites_soln.items():
+            if len(values) > 1: #at least 2 sta on the same site
+                s1 = values[0]
+                dict_const[key] = [{"s1":s1, "s2":s2, "sigma_v":sigma_v} for s2 in values[1:]] # we make a combination between 1st station in the site and all the other
+                
+        #yaml format
+        file_yml = yaml.dump(dict_const)
+        with open('vcontr.yml', 'w') as file:
+            file.write("# Site velocity constraints. s1 & s2: code + pt + soln, sigma_v [m/y]\n")
+            file.write(file_yml)
+            
+        return dict_sites, dict_sites_soln, dict_const
         
     # Invert normal equation
     #-----------------------
