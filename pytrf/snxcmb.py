@@ -225,6 +225,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
             ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
+            file_vfcontr="vfcontr.yml", #Constraints on velocity & amplitude for stations located on the same site
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
             break_combine=""
             ):
@@ -316,6 +317,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         If no "ic_per" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
+    
+    file_vfcontr: str, optional
+        YAML file path. Contains constraints on velocity & amplitude for stations located on the same site (cf. DOMES first 5 characters)
+        If file 'file_vfcontr' not found, automatically generated with sinex.vfcontr_file() -> vfcontr.yml written.
         
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
@@ -1207,7 +1212,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(quiet):
             print('        Add constraints between successive station amplitudes', file=out)
         nc += combsnx.add_dac(solns, dv_sig)
-    
+        
+    if (set_vel or len(periods)!=0):
+        if not(quiet):
+            print('        Add constraints between stations velocities & amplitudes located on the same site', file=out)
+        nc += combsnx.add_vfcontr(file=file_vfcontr, periods=periods)
+        
     #if we want to break here, after add constraints
     if break_combine=="3":
         print('-- Break end Step 3 -- Add constraints', file=out)
@@ -1441,6 +1451,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
                  mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
                  ic_mean=None, ic_mean_sig=1e-5, ic_trend=None, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
+                 file_vfcontr="vfcontr.yml", #Constraints on velocity & amplitude for stations located on the same site
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
                  thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, flag_once=False, quiet=False, out=sys.stdout):
 
@@ -1532,6 +1543,10 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
+    file_vfcontr: str, optional
+        YAML file path. Contains constraints on velocity & amplitude for stations located on the same site (cf. DOMES first 5 characters)
+        If file 'file_vfcontr' not found, automatically generated with sinex.vfcontr_file() -> vfcontr.yml written.
+    
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
         Default is False.
@@ -1591,7 +1606,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         # Combine input solutions
         combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
                           mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr,
-                          ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig,
+                          ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig, file_vfcontr=file_vfcontr,
                           update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)
         
         # First loop over input solutions to flag outliers

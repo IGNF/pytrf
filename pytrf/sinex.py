@@ -12,6 +12,7 @@ import logging
 #mkl.set_num_threads(1)
 import copy
 import yaml
+import json
 import pickle
 import pandas as pd
 from math import pi, sqrt, cos, sin, acos, exp, log
@@ -25,7 +26,7 @@ import cartopy.feature as cfeature
 #-----------------
 from pytrf import date
 from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
-from pytrf.io import get_sitelog, read_sitelog
+from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map, Period
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
 
@@ -160,7 +161,8 @@ class sinex:
         add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
         add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
         add_dac()          : Add equality constraints between successive amplitudes (periodic signals) to normal matrix of constraints
-        vfcontr()          : Generate vcontr.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site.
+        vfcontr_file()     : Generate vfcontr.yml file (velocities constraints + frequencies constraints) for stations located on the same site.
+        add_vfcontr()      : Add constraints between stations
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -4064,7 +4066,6 @@ class sinex:
             # Index of current station in discontinuity list
             if (sta.code+sta.pt in keys):
                 isoln = keys.index(sta.code+sta.pt)
-                print("key is inside", sta.code+sta.pt, len(sta.soln))
                 # Loop over solns
                 for i in range(len(sta.soln)-1):
                     
@@ -4072,18 +4073,15 @@ class sinex:
                     ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
                     end = solns[isoln].P[ip].end
                     
-                    print("A in soln", [a.end for a in solns[isoln].A])
-                    
                     # If current soln should be constrained with the next one,
                     if not(end in [a.end for a in solns[isoln].A]): #based on code 'A' in soln
                                             
                         # Get indices of both amplitude
                         i1 = keys_per.index(sta.code+sta.pt+sta.soln[i].soln)
                         i2 = keys_per.index(sta.code+sta.pt+sta.soln[i+1].soln)
-                        print("A const amplitude", i1,i2)
                         
                         for percode in snx.iper_dict.keys(): #for each period, according to key of iper_dict (ex:"A001", "A002", etc)
-                            print("  --", percode,i1,i2,'--', snx.iper_dict[percode][i1], snx.iper_dict[percode][i2] )
+                            print("  -- Add const amplitude", percode,i1,i2,'--', snx.iper_dict[percode][i1], snx.iper_dict[percode][i2] )
                             # Add constraints between them
                             for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
                                 snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
@@ -4094,17 +4092,19 @@ class sinex:
                         
         return nc
     
-    # Generate vcontr.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site
+    # Generate vfcontr.yml file (velocities constraints + frequencies constraints) file for stations located on the same site
     #-----------------------
-    def vfcontr(snx, sigma_v = 1e-9):
+    def vfcontr_file(snx, sigma = 1e-9, periods=[]):
         """
-        Generate vcontr.yml (velocities constraints) & fcontr.yml (frequencies constraints) files for stations located on the same site
+        Generate vfcontr.yml file : velocities constraints + frequencies constraints
+        Constraints for stations located on the same site (relative const) or for 1 single station (absolute const).
 
         Parameters
         ----------
-        sigma_v: float, optional
-            Velocity constraint (m/y)
-        
+        sigma: float, optional
+            sigma constraint [m/y] or [m]
+        periods: list of objects (built with pytrf.utils.Period), optional
+            Period of periodic signals
         Returns
         -------
         None.
@@ -4117,24 +4117,129 @@ class sinex:
         # sort stations by site
         for sta in snx.sta:
             dict_sites.setdefault(sta.domes[:5], []).append(sta) # 1 list site: {"11000":[...], "12000":[...]}
+            dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + sta.soln[0].soln) #concat str, only on 1st soln (cf add_dvc apply on successive soln id)
             
-            for soln in sta.soln:
-                #dict_sites_soln.setdefault("site"+sta.domes[:5], []).append({"code":sta.code,"pt":sta.pt, "soln":soln.soln})
-                dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + soln.soln) #concat str
-                
-        # build constraints dict    
+        # build constraint file  
         for key, values in dict_sites_soln.items():
             if len(values) > 1: #at least 2 sta on the same site
-                s1 = values[0]
-                dict_const[key] = [{"s1":s1, "s2":s2, "sigma_v":sigma_v} for s2 in values[1:]] # we make a combination between 1st station in the site and all the other
-                
-        #yaml format
-        file_yml = yaml.dump(dict_const)
-        with open('vcontr.yml', 'w') as file:
-            file.write("# Site velocity constraints. s1 & s2: code + pt + soln, sigma_v [m/y]\n")
-            file.write(file_yml)
+                sta1 = values[0] #1st station is the reference
+                dict_const[key] = [] #init list
+                for sta2 in values[1:]:
+                    dict_const[key].append({"type": "VEL", "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
+                    for per in periods: #periods
+                        dict_const[key].append({"type": per.code, "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
+        
+            elif len(values)==1: #just 1 station on this site. absolute constraint
+                sta1 = values[0]
+                dict_const[key] = [] #init list
+                dict_const[key].append({"type": "VEL", "sta1":sta1, "sigma":1e-4}) # we make a combination between 1st station in the site and all the other. sigma value from CATREF
+                for per in periods: #periods
+                    dict_const[key].append({"type": per.code, "sta1":sta1, "sigma":sigma}) 
+        #yaml write           
+        with open("vfcontr.yml", 'w') as file: #this file can be open by pytrf.io.read_yaml()
+            file.write("#'type': velocity 'VEL' or period code 'Axxx' (annual), 'Dxxx' (draconitic), 'Pxxx' (other)\n")
+            for site in sorted(dict_const.keys()):
+                file.write(f"#{site}\n")#comment site name
+                #1 line by site
+                for const in dict_const[site]:
+                    file_yml = yaml.dump(const, sort_keys=False, default_flow_style=True)
+                    file.write("- " + file_yml) #format list in YAML format
             
         return dict_sites, dict_sites_soln, dict_const
+    
+    # Generate vcontr.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site
+    #-----------------------
+    def add_vfcontr(snx, file="vfcontr.yml", sigma = 1e-9, periods=[]):
+        """
+        Add constraints between stations located on the same site (velocity + period).
+        Informations in 'file' (yaml file format), template generated by vfcontr_file()
+        If 'file' not found in repository, vfcontr_file() is applied (vfcontr.yml file is written)
+        
+        Returns
+        -------
+        nc : int
+            Number of constraints added
+        
+        Parameters
+        ----------
+        file: str, optional (Default: "vfcontr.yml")
+            File name (yaml) containing site constraints. Generated by sinex.vfcontr_file()
+            If no 'file' found in repository, sinex.vfcontr_file() applied (vfcontr.yml written)
+        sigma: float, optional
+            sigma constraint [m/y] or [m]
+        periods: list of objects (built with pytrf.utils.Period), optional
+            Period of periodic signals
+        """
+        if not os.path.exists(file):#e no file provides by user, vfcontr_file applied
+            print("No file for constrains on site (velocity+periods) provides by user, generate 'vfcontr.yml' automatically")
+            snx.vfcontr_file(sigma=sigma, periods=periods)
+            file= "vfcontr.yml"
+        
+        #open yaml site constraints
+        cf = read_yaml(file) # list of "record" (from pytrf.utils)
+        #record parameters: "sta1"; "type"; "sigma" (absolute const) + "s2" (relative cons
+    
+        # Initializations
+        nc = 0
+        keys_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iv]] #key without space " ", more flexible for vfcontr.yml
+        keys_per = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
+        
+        # Loop over constrains
+        for const in cf:
+            # convert record to dict
+            const = const.__dict__
+            sigma = const["sigma"]
+            
+            ### velocity case
+            if const["type"] == "VEL":
+                
+                try: #find param index in sinex
+                    i1 = keys_v.index(const["sta1"].replace(" ", "")) #sta1
+                    if "sta2" in const.keys():
+                        i2 = keys_v.index(const["sta2"].replace(" ", "")) #sta2
+                except Exception as e: #station not find in sinex...
+                    raise ValueError(f"Unknown station: {e}. Check line '{const}' in {file} file.")
+                    
+                # Add constraints between them on 3 dims
+                for k in range(3):
+                    snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
+                    
+                    if "sta2" in const.keys(): #relative to another station "sta2" on the site
+                        snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
+                        snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
+                        snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
+                nc += 3
+            
+            ### period case
+            elif const["type"] in snx.iper_dict.keys():
+        
+                percode =  const["type"] #period code: must be key of iper_dict (ex:"A001", "A002", etc)
+                   
+                try: #find param index in sinex
+                    i1 = keys_per.index(const["sta1"].replace(" ", "")) #sta1
+                    if "sta2" in const.keys():
+                        i2 = keys_per.index(const["sta2"].replace(" ", "")) #sta1
+                except Exception as e: #station not find in sinex...
+                    raise ValueError(f"Unknown station: {e}. Check line '{const}' in {file} file.")
+                    
+                # Add constraints between them on 3 dims COS + 3 dims SIN
+                for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
+                    snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
+                    
+                    if "sta2" in const.keys(): #relative to another station "sta2" on the site
+                        snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i2]+k] -= 1 / sigma**2
+                        snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i1]+k] -= 1 / sigma**2
+                        snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i2]+k] += 1 / sigma**2
+                nc += 6
+                
+            ## unknown type    
+            else: 
+                raise ValueError(f"Unknown type '{const['type']}' in YAML file, at line: '{const}'.\nIn this sinex, initialized periods are {list(snx.iper_dict.keys())} or set 'type':'VEL'.")
+            
+        
+        return nc
+        
+             
         
     # Invert normal equation
     #-----------------------
