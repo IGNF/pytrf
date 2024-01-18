@@ -14,6 +14,8 @@ import yaml
 import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
+import cProfile
+import pstats
 
 # Internal imports
 #-----------------
@@ -136,6 +138,25 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     with open('options.yml', 'w') as file:
         file.write(file_yml)
         
+def save_profiler(profiler, filename='profiling_combine.txt'):
+    """
+    Profiler save file...
+
+    Parameters
+    ----------
+    profiler : cProfiler object
+        DESCRIPTION.
+    filename : TYPE, optional
+        DESCRIPTION. The default is 'profiling_combine.txt'.
+
+    """
+    
+    # Save profiling results to a file, ordered by tottime
+    with open(filename, 'w') as f:
+        stats = pstats.Stats(profiler, stream=f)
+        stats.sort_stats('tottime')
+        stats.print_stats()
+    
 
 # Read and pre-process input solution
 #------------------------------------
@@ -225,7 +246,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
             ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
-            file_vfcontr="vfcontr.yml", #Constraints on velocity & amplitude for stations located on the same site
+            file_vfconst="vfconst.yml", #Constraints on velocity & amplitude for stations located on the same site
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
             break_combine=""
             ):
@@ -318,9 +339,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
-    file_vfcontr: str, optional
+    file_vfconst: str, optional
         YAML file path. Contains constraints on velocity & amplitude for stations located on the same site (cf. DOMES first 5 characters)
-        If file 'file_vfcontr' not found, automatically generated with sinex.vfcontr_file() -> vfcontr.yml written.
+        If file 'file_vfconst' not found, automatically generated with sinex.vfconst_file() -> vfconst.yml written.
         
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
@@ -417,7 +438,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     mjd0 = date.from_tsnx(tref).mjd
     nobs = 0
 
-
+    ##### Start profiler
+    # Create a profiler object
+    profiler = cProfile.Profile()
+    
+    # Start profiling
+    profiler.enable()
 
     # 1 - SET UP PARAMETER LIST
     #--------------------------
@@ -1007,6 +1033,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     #if we want to break here, after set up parameters
     if break_combine=="1":
         print('-- Break end Step 1 -- Set up list parameter', file=out)
+        # Stop profiling
+        profiler.disable()
+        
+        # save profiling results
+        save_profiler(profiler)
         return combsnx
     
     # 2 - SET UP NORMAL EQUATION
@@ -1110,6 +1141,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         #print(f"\nSHAPE A: A_vals:{len(A_vals)}, A_rows:{len(A_rows)}, A_cols:{len(A_cols)}")
         #print(f"nb sta: {len(combsnx.sta)}, snx.npar:{snx.npar}, combsnx.npar: {combsnx.npar}")
         #print(f"max Arow: {max(A_rows)}")
+        
         A.append(sparse.csr_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
         # Get weight matrix of solution isol
@@ -1142,6 +1174,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     #if we want to break process here, after set up normal equation       
     if break_combine=="2":
         print('-- Break end Step 2 -- Set up normal equation', file=out)
+        # Stop profiling
+        profiler.disable()
+        
+        # save profiling results
+        save_profiler(profiler)
         return combsnx
 
     # 3 - ADD CONSTRAINTS
@@ -1216,11 +1253,16 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if (set_vel or len(periods)!=0):
         if not(quiet):
             print('        Add constraints between stations velocities & amplitudes located on the same site', file=out)
-        nc += combsnx.add_vfcontr(file=file_vfcontr, periods=periods)
+        nc += combsnx.add_vfconst(file=file_vfconst, periods=periods)
         
     #if we want to break here, after add constraints
     if break_combine=="3":
         print('-- Break end Step 3 -- Add constraints', file=out)
+        # Stop profiling
+        profiler.disable()
+        
+        # save profiling results
+        save_profiler(profiler)
         return combsnx
 
     # 4 - SOLVE NORMAL EQUATION
@@ -1393,6 +1435,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.stats.nunk = combsnx.npar + ntrans
     combsnx.stats.vf = vf
     
+    
+    # Stop profiling
+    profiler.disable()
+    
+    # Print profiling results
+    profiler.print_stats(sort='cumulative')
 
 
     # Print statistics
@@ -1442,7 +1490,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('    '+str(date())+' : Finished!', file=out)
         print('', file=out)
     
-    return combsnx
+    return combsnx, profiler
 
 
 
@@ -1451,7 +1499,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
                  mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
                  ic_mean=None, ic_mean_sig=1e-5, ic_trend=None, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
-                 file_vfcontr="vfcontr.yml", #Constraints on velocity & amplitude for stations located on the same site
+                 file_vfconst="vfconst.yml", #Constraints on velocity & amplitude for stations located on the same site
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
                  thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, flag_once=False, quiet=False, out=sys.stdout):
 
@@ -1543,9 +1591,9 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
-    file_vfcontr: str, optional
+    file_vfconst: str, optional
         YAML file path. Contains constraints on velocity & amplitude for stations located on the same site (cf. DOMES first 5 characters)
-        If file 'file_vfcontr' not found, automatically generated with sinex.vfcontr_file() -> vfcontr.yml written.
+        If file 'file_vfconst' not found, automatically generated with sinex.vfconst_file() -> vfconst.yml written.
     
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
@@ -1606,7 +1654,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         # Combine input solutions
         combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
                           mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr,
-                          ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig, file_vfcontr=file_vfcontr,
+                          ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig, file_vfconst=file_vfconst,
                           update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)
         
         # First loop over input solutions to flag outliers
