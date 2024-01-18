@@ -536,6 +536,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             # Get indices of current soln
             isoln = [s.soln for s in snx.sta[ista].soln].index(p.soln)
             icmbsoln = [s.soln for s in combsnx.sta[icmbsta].soln].index(p.soln)
+            combsnx.sta[icmbsta].soln[icmbsoln].nobs += 1
 
             # Update first observation epoch if necessary
             if (earlier(snx.sta[ista].soln[isoln].datastart, combsnx.sta[icmbsta].soln[icmbsoln].datastart)):
@@ -561,6 +562,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 
                 # Add new soln into combined solution
                 combsnx.sta[icmbsta].soln.append(copy.deepcopy(snx.sta[ista].soln[isoln]))
+                combsnx.sta[icmbsta].soln[-1].nobs = 1
                 
             # Else, current station in not in combsnx.sta yet
             else:
@@ -575,6 +577,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 combsnx.sta.append(copy.deepcopy(snx.sta[ista]))
                 combsnx.sta[-1].soln = [snx.sta[ista].soln[isoln]]
                 combsnx.codept.append(p.code+p.pt)
+                
+                combsnx.sta[-1].soln[0].nobs = 1
 
 
 
