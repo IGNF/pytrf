@@ -114,6 +114,7 @@ class sinex:
         clean_prior()      : Make a priori information consistent with set of estimated parameters
         clean_sta()        : Clean station list (remove stations and solns that do not correspond to parameters)
         clean_rs()         : Clean radiosource list (remove radiosources that do not correspond to parameters)
+        dist_stations()    : Provides approximative distance [meter] between two stations
         sort_params()      : Sort parameters
         is_period()        : Check if a snx parameter type belongs to "periodic type"
         set_par_ind()      : Set indices of parameter categories
@@ -994,6 +995,44 @@ class sinex:
                 iers = snx.rs[keys.index(snx.param[i].code)].iers
                 snx.param[i].iers = iers
                 snx.param[i+1].iers = iers
+                
+                
+    def dist_stations(snx, station1, station2):
+        """
+        Provides approximative distance [meter] between two stations.
+        Computation on IAG-GRS80 SPHERE (pytrf.const.ae)
+        
+        Returns
+        -------
+        distance: [m], float
+
+        Parameters
+        ----------
+        station1 : sinex.sta object (pytrf.utils.record)
+            1st station, with 'lon' & 'lat' attributes (string: 'dd mm ss')
+        station2 : sinex.sta object
+            2nd station, with 'lon' & 'lat' attributes (string: 'dd mm ss')
+        """
+        #convert latitude and longitude (DMS) > decimal degree
+        def dms2decimal(list_dms):
+            """ Convert Degree Minute Second > Decimal degree . list_dms: [dd,mm,ss]"""
+            [degree, minute, second] = list_dms
+            return float(degree) + float(minute)/60 + float(second)/ 3600
+        
+        # lon: '  dd mm sss' > split()> ['dd','mm','ssss'], idem lat
+        # decimal degree conversion
+        lon1 = dms2decimal(station1.lon.split()) 
+        lat1 = dms2decimal(station1.lat.split())
+        lon2 = dms2decimal(station2.lon.split()) 
+        lat2 = dms2decimal(station2.lat.split())
+        
+        d2r = np.pi/180 #decimal degree to radian conversion
+        #angular distance [rad]
+        s12 = np.arccos(np.sin(lat1*d2r)*np.sin(lat2*d2r) + np.cos(lat1*d2r)*np.cos(lat2*d2r)*np.cos((lon2-lon1)*d2r)) 
+        #distance based in IAG-GRS80 SPHERE [m]
+        distance = s12 * ae
+        return distance
+  
 
     # Sort parameters
     #----------------
@@ -4116,34 +4155,147 @@ class sinex:
         dict_const = {}
         # sort stations by site
         for sta in snx.sta:
-            dict_sites.setdefault(sta.domes[:5], []).append(sta) # 1 list site: {"11000":[...], "12000":[...]}
+            dict_sites.setdefault("site"+sta.domes[:5], []).append(sta) # 1 list site: {"11000":[...], "12000":[...]}
             dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + sta.soln[0].soln) #concat str, only on 1st soln (cf add_dvc apply on successive soln id)
+        
             
+        def site_const(sta1, sta2=None, const_time=2, const_dist=10000, const_nobs_factor=1):
+            """
+            Provides if a constraint must be set btw 2 stations on a site (5 domes first characters), regarding time measurement, distance and number of observations (nobs).
+            If 1 station, distance not considered.
+
+            Parameters
+            ----------
+            sta1 : pytrf.utils.record
+                DESCRIPTION.
+            sta2 : pytrf.utils.record
+                DESCRIPTION. The default is None.
+            const_time : float, optional
+                Minimal time observation [unit: year]. If under, set constraint.
+            const_dist : float, optional
+                Maximal distance btw 2 stations to be considered on the same site [unit: meter]. If under, set constraint.
+            const_nobs_factor : float, optional
+                Factor multiplied to minimal nobs number to determine a new minimal nobs value. If under minimal nobs, set constraint.
+                    Default minimal nobs:
+                        *VEL: 3 obs
+                        *PERIOD: 6 obs/ period (ex: 2 periods: 12 obs, 3 periods 18 obs)
+                 However to have a margin (questioning the quality of observations), we can set const_nobs_factor. 
+                 For examples: 
+                     *const_nobs_factor = 2 -> min VEL: 6 obs, PERIODS: 12 obs /period
+                     *const_nobs_factor = 0 ->  no minimal obs number, set const vfconst anyway.
+
+            Returns
+            -------
+            const_vel: bool
+                Add const on velocity
+                If True, a constraint will be applied (add to vfconst.yaml). If False, no constraint added to vfconst.yaml
+                
+            const_period: bool
+                Add const on periods
+                If True, a constraint will be applied (add to vfconst.yaml). If False, no constraint added to vfconst.yaml
+
+            """
+            #init constraints bool: default: no constraint
+            const_vel = False
+            const_period = False
+            
+            list_stations = [sta1]
+            
+            ## 1.distance
+            if sta2 != None:
+                dist = snx.dist_stations(sta1, sta2)
+                list_stations.append(sta2) # add sta2 in existing station
+                if dist > const_dist: # to far away
+                    logging.warning(f"{sta1.domes} {sta1.code+sta1.pt} and {sta2.domes} {sta2.code+sta2.pt} too far away ({dist*1000} km)")
+                    return False, False
+            
+            
+            for sta in list_stations: #nobs and time range const on sta1 or sta1 & sta2
+                # add constraints at least if 1 station has not enough observation or small time range
+                # loop over soln
+                nobs_tot = 0
+                start = date.from_tsnx(sta.soln[0].datastart).ydec()
+                end = date.from_tsnx(sta.soln[-1].dataend).ydec()
+                
+                for soln in sta.soln:
+                    nobs_tot += soln.nobs
+                    #update start date and end date
+                    start = min(date.from_tsnx(soln.datastart).ydec(), start)
+                    end = max(date.from_tsnx(soln.dataend).ydec(), end)
+                
+                ## 2.nobs
+                #nobs on velocity
+                if nobs_tot < 3 * const_nobs_factor: 
+                    const_vel = True
+                
+                #nobs on periods
+                if nobs_tot < 6 * const_nobs_factor: 
+                    const_period = True
+                
+                ## 3.time
+                deltat = end - start #[year]
+                # velocity
+                if deltat < const_time: # no const yet and time no long
+                    const_vel = True
+                
+                # periods
+                if deltat < const_time:
+                    const_period = True
+                    
+            return const_vel, const_period
+                    
+                
+         
         # build constraint file  
         for key, values in dict_sites_soln.items():
             if len(values) > 1: #at least 2 sta on the same site
                 sta1 = values[0] #1st station is the reference
                 dict_const[key] = [] #init list
-                for sta2 in values[1:]:
-                    dict_const[key].append({"type": "VEL", "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
-                    for per in periods: #periods
-                        dict_const[key].append({"type": per.code, "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
-        
+                for numsta2, sta2 in enumerate(values[1:]):
+                    # check if we add const, regarding time range, nobs and distance
+                    const_vel, const_period = site_const(dict_sites[key][0], dict_sites[key][numsta2+1])
+                    if const_vel:
+                        dict_const[key].append({"type": "VEL", "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
+                    else:
+                        #print("NO VEL vfconst",key, " sta1:", dict_sites[key][0].domes, " sta2:", dict_sites[key][numsta2+1].domes )
+                        pass
+                    
+                    if const_period:
+                        for per in periods: #periods
+                            dict_const[key].append({"type": per.code, "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
+                    else:
+                        #print("NO PERIOD vfconst",key, " sta1:", dict_sites[key][0].domes, " sta2:", dict_sites[key][numsta2+1].domes )
+                        pass
+                        
             elif len(values)==1: #just 1 station on this site. absolute constraint
                 sta1 = values[0]
                 dict_const[key] = [] #init list
-                dict_const[key].append({"type": "VEL", "sta1":sta1, "sigma":1e-1}) # we make a combination between 1st station in the site and all the other. sigma value from CATREF
-                for per in periods: #periods
-                    dict_const[key].append({"type": per.code, "sta1":sta1, "sigma":sigma}) 
+                
+                # check if we add const, regarding time range, nobs and distance
+                const_vel, const_period = site_const(dict_sites[key][0])
+                
+                if const_vel:
+                    dict_const[key].append({"type": "VEL", "sta1":sta1, "sigma":1e-1}) # we make a combination between 1st station in the site and all the other. sigma value from CATREF
+                else:
+                    #print("NO VEL vfconst",key, " sta1:", dict_sites[key][0].domes)
+                    pass
+                
+                if const_period:
+                    for per in periods: #periods
+                        dict_const[key].append({"type": per.code, "sta1":sta1, "sigma":sigma}) 
+                else:
+                    #print("NO PERIOD vfconst",key, " sta1:", dict_sites[key][0].domes)
+                    pass
         #yaml write           
         with open("vfconst.yml", 'w') as file: #this file can be open by pytrf.io.read_yaml()
             file.write("#'type': velocity 'VEL' or period code 'Axxx' (annual), 'Dxxx' (draconitic), 'Pxxx' (other)\n")
             for site in sorted(dict_const.keys()):
-                file.write(f"#{site}\n")#comment site name
-                #1 line by site
-                for const in dict_const[site]:
-                    file_yml = yaml.dump(const, sort_keys=False, default_flow_style=True)
-                    file.write("- " + file_yml) #format list in YAML format
+                if len(dict_const[site]) != 0:
+                    file.write(f"#{site}\n")#comment site name
+                    #1 line by site
+                    for const in dict_const[site]:
+                        file_yml = yaml.dump(const, sort_keys=False, default_flow_style=True)
+                        file.write("- " + file_yml) #format list in YAML format
             
         return dict_sites, dict_sites_soln, dict_const
     
