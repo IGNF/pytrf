@@ -4338,7 +4338,7 @@ class sinex:
         for const in cf:
             # convert record to dict
             const = const.__dict__
-            sigma = const["sigma"]
+            sigma = float(const["sigma"])
             
             ### velocity case
             if const["type"] == "VEL":
