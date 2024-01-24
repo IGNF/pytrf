@@ -243,6 +243,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
+@profile
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
             ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
@@ -1443,8 +1444,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Stop profiling
     profiler.disable()
     
-    # Print profiling results
-    profiler.print_stats(sort='cumulative')
+    # save profiling results
+    save_profiler(profiler)
 
 
     # Print statistics
@@ -1494,7 +1495,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('    '+str(date())+' : Finished!', file=out)
         print('', file=out)
     
-    return combsnx, profiler
+    return combsnx
 
 
 
