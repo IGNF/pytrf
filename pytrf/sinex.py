@@ -25,7 +25,7 @@ import cartopy.feature as cfeature
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
+from pytrf.math import cart2geo, geo2cart, xyz2enh, invspd, cholesky, cholsolve, cov2corr
 from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map, Period
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
@@ -997,10 +997,14 @@ class sinex:
                 snx.param[i+1].iers = iers
                 
                 
-    def dist_stations(snx, station1, station2):
+    def dist_stations(snx, station1, station2, type_dist="sphere"):
         """
-        Provides approximative distance [meter] between two stations.
-        Computation on IAG-GRS80 SPHERE (pytrf.const.ae)
+        Provides APPROXIMATIVE distance [unit: meter] between two stations.
+        Based on sinex 'SITE/ID' block
+         
+        2 types of computation are possible:
+            * on IAG-GRS80 SPHERE (pytrf.const.ae) -> type_dist="sphere"
+            * cartesian distance -> type_dist="cartesian" 
         
         Returns
         -------
@@ -1012,12 +1016,20 @@ class sinex:
             1st station, with 'lon' & 'lat' attributes (string: 'dd mm ss')
         station2 : sinex.sta object
             2nd station, with 'lon' & 'lat' attributes (string: 'dd mm ss')
+        type_dist: str, optional
+            type of distance "sphere" or "cartesian"
         """
-        #convert latitude and longitude (DMS) > decimal degree
+        #decimal degree to radian conversion
+        d2r = np.pi/180
+        
+        #convert sinex SITE/ID latitude and longitude (DMS) > decimal degree
         def dms2decimal(list_dms):
             """ Convert Degree Minute Second > Decimal degree . list_dms: [dd,mm,ss]"""
             [degree, minute, second] = list_dms
             return float(degree) + float(minute)/60 + float(second)/ 3600
+        
+        if type_dist not in ["sphere", "cartesian"]: #value error
+            raise ValueError(f"sinex.dist_stations: invalid distance type: '{type_dist}'.'type_dist' param must be 'sphere' (distance on IAG_GRS80 sphere) or 'cartesian'.")
         
         # lon: '  dd mm sss' > split()> ['dd','mm','ssss'], idem lat
         # decimal degree conversion
@@ -1026,11 +1038,22 @@ class sinex:
         lon2 = dms2decimal(station2.lon.split()) 
         lat2 = dms2decimal(station2.lat.split())
         
-        d2r = np.pi/180 #decimal degree to radian conversion
-        #angular distance [rad]
-        s12 = np.arccos(np.sin(lat1*d2r)*np.sin(lat2*d2r) + np.cos(lat1*d2r)*np.cos(lat2*d2r)*np.cos((lon2-lon1)*d2r)) 
-        #distance based in IAG-GRS80 SPHERE [m]
-        distance = s12 * ae
+        if type_dist == "sphere" : #sphere distance
+            if (lon1 == lon2) and (lat1==lat2): #particular case on same lat & lon
+                distance = 0
+            else:
+                #angular distance [rad]
+                s12 = np.arccos(np.sin(lat1*d2r)*np.sin(lat2*d2r) + np.cos(lat1*d2r)*np.cos(lat2*d2r)*np.cos((lon2-lon1)*d2r))
+                #distance based in IAG-GRS80 SPHERE [m]
+                distance = s12 * ae
+        
+        elif type_dist == "cartesian":
+            x1 = geo2cart(lat1*d2r, lon1*d2r, float(station1.h.split()[0])) #numpy array X, Y, Z --> h='  44.8 '.split() --> ['44.8']
+            x2 = geo2cart(lat2*d2r, lon2*d2r, float(station2.h.split()[0]))
+            
+            distance = np.sqrt(np.sum((x2-x1)**2))
+            
+        
         return distance
   
 
@@ -4159,9 +4182,9 @@ class sinex:
             dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + sta.soln[0].soln) #concat str, only on 1st soln (cf add_dvc apply on successive soln id)
         
             
-        def site_const(sta1, sta2=None, const_time=2, const_dist=10000, const_nobs_factor=1):
+        def site_const(sta1, sta2=None, const_time=1, const_dist=10000, const_nobs_factor=1):
             """
-            Provides if a constraint must be set btw 2 stations on a site (5 domes first characters), regarding time measurement, distance and number of observations (nobs).
+            Determine if a constraint must be set btw 2 stations on a site (5 domes first characters), regarding time measurement, distance and number of observations (nobs).
             If 1 station, distance not considered.
 
             Parameters
@@ -4199,47 +4222,45 @@ class sinex:
             const_vel = False
             const_period = False
             
-            list_stations = [sta1]
-            
-            ## 1.distance
+            ## 1.distance if sta1 & sta2
             if sta2 != None:
-                dist = snx.dist_stations(sta1, sta2)
-                list_stations.append(sta2) # add sta2 in existing station
+                dist = snx.dist_stations(sta1, sta2, type_dist="cartesian")
                 if dist > const_dist: # to far away
-                    logging.warning(f"{sta1.domes} {sta1.code+sta1.pt} and {sta2.domes} {sta2.code+sta2.pt} too far away ({dist*1000} km)")
+                    logging.warning(f"No const btw '{sta1.domes} {sta1.code+sta1.pt}' & '{sta2.domes} {sta2.code+sta2.pt}': too far away ({round(dist/1000,4)} km)")
                     return False, False
+                else:
+                    return True, True
             
             
-            for sta in list_stations: #nobs and time range const on sta1 or sta1 & sta2
+            else: #if 1 sta, nobs and time range constraints? 
                 # add constraints at least if 1 station has not enough observation or small time range
                 # loop over soln
                 nobs_tot = 0
-                start = date.from_tsnx(sta.soln[0].datastart).ydec()
-                end = date.from_tsnx(sta.soln[-1].dataend).ydec()
+                start = date.from_tsnx(sta1.soln[0].datastart).ydec()
+                end = date.from_tsnx(sta1.soln[-1].dataend).ydec()
                 
-                for soln in sta.soln:
+                for soln in sta1.soln:
                     nobs_tot += soln.nobs
                     #update start date and end date
                     start = min(date.from_tsnx(soln.datastart).ydec(), start)
                     end = max(date.from_tsnx(soln.dataend).ydec(), end)
                 
-                ## 2.nobs
-                #nobs on velocity
-                if nobs_tot < 3 * const_nobs_factor: 
+                ## 2.nobs & delat t
+                deltat = end - start #[year]
+                #velocity
+                if (nobs_tot < 20 * const_nobs_factor) and (deltat < const_time): # at least 20 obs velocity (catref)
+                    logging.warning(f"Add const on VEL '{sta1.domes} {sta1.code+sta1.pt}': nobs={nobs_tot} & dtime={round(deltat,3)} y")
                     const_vel = True
                 
                 #nobs on periods
-                if nobs_tot < 6 * const_nobs_factor: 
+                if (len(periods)>0) and (nobs_tot < 6 * const_nobs_factor): #at least 1 period
+                    logging.warning(f"Add const on PERIOD '{sta1.domes} {sta1.code+sta1.pt}': nobs={nobs_tot}")
                     const_period = True
                 
                 ## 3.time
-                deltat = end - start #[year]
-                # velocity
-                if deltat < const_time: # no const yet and time no long
-                    const_vel = True
-                
                 # periods
-                if deltat < const_time:
+                if (len(periods)>0) and (deltat < const_time): #at least 1 period
+                    logging.warning(f"Add const on PERIOD '{sta1.domes} {sta1.code+sta1.pt}': delta_time={round(deltat,3)} y")
                     const_period = True
                     
             return const_vel, const_period
@@ -4256,16 +4277,11 @@ class sinex:
                     const_vel, const_period = site_const(dict_sites[key][0], dict_sites[key][numsta2+1])
                     if const_vel:
                         dict_const[key].append({"type": "VEL", "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
-                    else:
-                        #print("NO VEL vfconst",key, " sta1:", dict_sites[key][0].domes, " sta2:", dict_sites[key][numsta2+1].domes )
-                        pass
-                    
+                   
                     if const_period:
                         for per in periods: #periods
                             dict_const[key].append({"type": per.code, "sta1":sta1, "sta2":sta2, "sigma":sigma}) # we make a combination between 1st station in the site and all the other
-                    else:
-                        #print("NO PERIOD vfconst",key, " sta1:", dict_sites[key][0].domes, " sta2:", dict_sites[key][numsta2+1].domes )
-                        pass
+                 
                         
             elif len(values)==1: #just 1 station on this site. absolute constraint
                 sta1 = values[0]
@@ -5618,7 +5634,7 @@ class sinex:
         Parameters
         ----------
         snx : sinex object
-            sinex built as a result of the combination process, from several analyses center
+            sinex built as a result of the combination process, from other sinex files.
         inputs : list of record() objects
             Provides list of sinex solution object, particularly with ".snx" attribute of each elements.
             Solutions read and build with read_yaml() function.
