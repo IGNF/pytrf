@@ -1147,6 +1147,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         #print(f"nb sta: {len(combsnx.sta)}, snx.npar:{snx.npar}, combsnx.npar: {combsnx.npar}")
         #print(f"max Arow: {max(A_rows)}")
         
+        """
         A.append(sparse.csr_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
         # Get weight matrix of solution isol
@@ -1171,6 +1172,35 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         AtP = A[isol].T.dot(P)
         combsnx.N += A[isol].T.dot(AtP.T)
         combsnx.b += np.dot(AtP, dy[isol])
+        """
+        # Build sparse design matrix of current solution
+        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
+        ind = np.nonzero(A[isol].indptr[:-1] != A[isol].indptr[1:])[0]
+        
+        # Get weight matrix of solution isol
+        if (snx.N is not None) and (snx.Nc is not None):
+            P = snx.N + snx.Nc
+        elif (snx.N is not None):
+            P = snx.N
+        else:
+            P = invspd(snx.Q)
+            
+        # Project weight matrix if transformation parameters are reduced
+        if (reduce_trans):
+            HtP = np.dot(H.T, P)
+            HtPHi = invspd(np.dot(HtP, H))
+            P = P - np.dot(HtP.T, np.dot(HtPHi, HtP))
+        
+        # Divide weight matrix by a priori variance factor
+        if (sol.sf != 1):
+            P = P / sol.sf**2
+        
+        # Update normal equation
+        AtP = A[isol][:,ind].T.dot(P)
+        combsnx.N[np.ix_(ind,ind)] += A[isol][:,ind].T.dot(AtP.T)
+        combsnx.b[ind] += np.dot(AtP, dy[isol])
+        
+        
         
         # Make room if needed
         if not(store_inputs):
