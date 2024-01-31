@@ -8,6 +8,7 @@ import os
 import sys
 import re
 import logging
+import networkx as nx
 #import mkl
 #mkl.set_num_threads(1)
 import copy
@@ -1000,7 +1001,7 @@ class sinex:
     def dist_stations(snx, station1, station2, type_dist="sphere"):
         """
         Provides APPROXIMATIVE distance [unit: meter] between two stations.
-        Based on sinex 'SITE/ID' block
+        Based on sinex 'SOLUTION/ESTIMATE' block (or apriori coordinates)
          
         2 types of computation are possible:
             * on IAG-GRS80 SPHERE (pytrf.const.ae) -> type_dist="sphere"
@@ -1019,37 +1020,22 @@ class sinex:
         type_dist: str, optional
             type of distance "sphere" or "cartesian"
         """
-        #decimal degree to radian conversion
-        d2r = np.pi/180
-        
-        #convert sinex SITE/ID latitude and longitude (DMS) > decimal degree
-        def dms2decimal(list_dms):
-            """ Convert Degree Minute Second > Decimal degree . list_dms: [dd,mm,ss]"""
-            [degree, minute, second] = list_dms
-            return float(degree) + float(minute)/60 + float(second)/ 3600
-        
-        if type_dist not in ["sphere", "cartesian"]: #value error
-            raise ValueError(f"sinex.dist_stations: invalid distance type: '{type_dist}'.'type_dist' param must be 'sphere' (distance on IAG_GRS80 sphere) or 'cartesian'.")
-        
-        # lon: '  dd mm sss' > split()> ['dd','mm','ssss'], idem lat
-        # decimal degree conversion
-        lon1 = dms2decimal(station1.lon.split()) 
-        lat1 = dms2decimal(station1.lat.split())
-        lon2 = dms2decimal(station2.lon.split()) 
-        lat2 = dms2decimal(station2.lat.split())
+        #get stations coordinates (rad)
+        lat1, lon1, h1 = snx.get_plh([station1.code], pt=[station1.pt])
+        lat2, lon2, h2 = snx.get_plh([station2.code], pt=[station2.pt])
         
         if type_dist == "sphere" : #sphere distance
             if (lon1 == lon2) and (lat1==lat2): #particular case on same lat & lon
                 distance = 0
             else:
                 #angular distance [rad]
-                s12 = np.arccos(np.sin(lat1*d2r)*np.sin(lat2*d2r) + np.cos(lat1*d2r)*np.cos(lat2*d2r)*np.cos((lon2-lon1)*d2r))
+                s12 = np.arccos(np.sin(lat1)*np.sin(lat2) + np.cos(lat1)*np.cos(lat2)*np.cos((lon2-lon1)))
                 #distance based in IAG-GRS80 SPHERE [m]
                 distance = s12 * ae
         
         elif type_dist == "cartesian":
-            x1 = geo2cart(lat1*d2r, lon1*d2r, float(station1.h.split()[0])) #numpy array X, Y, Z --> h='  44.8 '.split() --> ['44.8']
-            x2 = geo2cart(lat2*d2r, lon2*d2r, float(station2.h.split()[0]))
+            x1 = geo2cart(lat1, lon1, h1) #numpy array X, Y, Z --> h='  44.8 '.split() --> ['44.8']
+            x2 = geo2cart(lat2, lon2, h2)
             
             distance = np.sqrt(np.sum((x2-x1)**2))
             
@@ -2216,13 +2202,13 @@ class sinex:
         """
         
         # Keys and holes
-        if (pt) and (soln):
+        if bool(pt) and bool(soln):
             keys = [code[i]+pt[i]+soln[i] for i in range(len(code))]
             holes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
-        elif (pt):
+        elif bool(pt):
             keys = [code[i]+pt[i] for i in range(len(code))]
             holes = [p.code+p.pt for p in [snx.param[i] for i in snx.ix]]
-        elif (soln):
+        elif bool(soln):
             keys = [code[i]+soln[i] for i in range(len(code))]
             holes = [p.code+p.soln for p in [snx.param[i] for i in snx.ix]]
         else:
@@ -2628,7 +2614,11 @@ class sinex:
         
         # And their coordinates
         X = np.zeros((len(code), 3))
-        X[ind != -1] = snx.x[ind[ind != -1]]
+        if type(snx.x)==type(None): #particular case where snx.x = None (during combination)
+            X[ind != -1] = snx.x0[ind[ind != -1]] #use APRIORI coordinates
+            #logging.warning("[sinex]get_xyz(): snx.x=None, use apriori value snx.x0")
+        else:
+            X[ind != -1] = snx.x[ind[ind != -1]]
         
         return X
   
@@ -4172,6 +4162,7 @@ class sinex:
         None.
 
         """
+        # >>>>>>>>>>>>>>>>>>>>>>>>>>>>><>>>>>>>> move to graph class                 
         #Init empty site dict. key:site id (i.e. first 5 characters of domes)
         dict_sites = {}
         dict_sites_soln = {}
@@ -4180,7 +4171,7 @@ class sinex:
         for sta in snx.sta:
             dict_sites.setdefault("site"+sta.domes[:5], []).append(sta) # 1 list site: {"11000":[...], "12000":[...]}
             dict_sites_soln.setdefault("site"+sta.domes[:5], []).append(sta.code + sta.pt + sta.soln[0].soln) #concat str, only on 1st soln (cf add_dvc apply on successive soln id)
-        
+        # <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
             
         def site_const(sta1, sta2=None, const_time=1, const_dist=10000, const_nobs_factor=1):
             """
@@ -4240,7 +4231,10 @@ class sinex:
                 end = date.from_tsnx(sta1.soln[-1].dataend).ydec()
                 
                 for soln in sta1.soln:
-                    nobs_tot += soln.nobs
+                    if hasattr(soln, 'nobs'): #'nobs' added only in combsnx case
+                        nobs_tot += soln.nobs
+                    else: #simple sinex
+                        nobs_tot += 1
                     #update start date and end date
                     start = min(date.from_tsnx(soln.datastart).ydec(), start)
                     end = max(date.from_tsnx(soln.dataend).ydec(), end)
@@ -4315,7 +4309,43 @@ class sinex:
             
         return dict_sites, dict_sites_soln, dict_const
     
-    # Generate vfconst.dat (velocities constraints) & fcontr.dat (frequencies constraints) files for stations located on the same site
+    
+    # get linked stations according vfconst.yml file
+    def get_sites_from_vfconst(snx, file):
+        #open yaml site constraints
+        cf = read_yaml(file)
+        
+        # Create a undirected graph
+        graph = nx.Graph()
+        
+        # Loop over constrains
+        for const in cf:
+            # convert record to dict
+            const = const.__dict__
+            if "sta2" in const.keys(): #at least 2 stations on this site
+                #no soln consideration
+                graph.add_edge(const['sta1'], const['sta2'])
+                
+        #snx.graph = snx.graph.to_undirected()
+        # Find connected components
+        connected_components = list(nx.connected_components(graph))
+        #print(graph.number_of_nodes(), graph.number_of_edges(), graph.nodes,connected_components)
+        
+        # Filter out single nodes (isolated vertices)
+        connected_components = [component for component in connected_components if len(component) > 1]
+        
+        print(connected_components)
+        
+        # Convert connected components to lists for better representation
+        linked_sta_lists = [list(component) for component in connected_components]
+        
+        return linked_sta_lists
+                        
+        
+        
+    
+    
+    # Apply vfconst.yml constraints for stations located on the same site
     #-----------------------
     def add_vfconst(snx, file="vfconst.yml", sigma = 1e-6, periods=[]):
         """
@@ -4349,6 +4379,10 @@ class sinex:
     
         # Initializations
         nc = 0
+        
+        #index
+        keys_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iv]] #key without space " ", more flexible for vfconst.yml
+        keys_per = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
        
         # Loop over constrains
         for const in cf:
@@ -4358,9 +4392,7 @@ class sinex:
             
             ### velocity case
             if const["type"] == "VEL":
-                #index
-                keys_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iv]] #key without space " ", more flexible for vfconst.yml
-        
+                
                 try: #find param index in sinex
                     i1 = keys_v.index(const["sta1"].replace(" ", "")) #sta1
                     if "sta2" in const.keys():
@@ -4380,7 +4412,7 @@ class sinex:
             
             ### period case
             elif const["type"] in snx.iper_dict.keys():
-                keys_per = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
+                
                 percode =  const["type"] #period code: must be key of iper_dict (ex:"A001", "A002", etc)
                    
                 try: #find param index in sinex
@@ -4407,8 +4439,7 @@ class sinex:
         
         return nc
         
-             
-        
+
     # Invert normal equation
     #-----------------------
     def neqinv(snx, clear_neq=True):

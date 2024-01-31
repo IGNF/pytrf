@@ -12,6 +12,7 @@ import copy
 import pickle
 import yaml
 import numpy as np
+import pandas as pd
 from scipy import sparse, linalg
 from math import sqrt
 import cProfile
@@ -1001,11 +1002,51 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # If velocities are going to be estimated, change a priori velocities of solns of RF stations
     # that are not part of the datum
     if (datum) and (set_vel):
-        keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
+        keys = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
+        keys_soln = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
+        if len(keys) != len(keys_soln):
+            df_keys = pd.DataFrame({"keys":keys})
+            print(ValueError(f'Datum error: multiple soln for the same station: {df_keys[df_keys["keys"].duplicated()].values.tolist()}'))
+        #---- soln const    
         for i in combsnx.iv:
             if (combsnx.param[i].code+combsnx.param[i].pt in keys) and not(np.any(combsnx.x0[i:i+3])):
                 j = keys.index(combsnx.param[i].code+combsnx.param[i].pt)
                 combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
+                
+        #---- same inital const for station in vfconst file
+        if bool(file_vfconst): #we wamt to apply const on same site
+        
+            if not os.path.exists(file_vfconst):#e no file provides by user, vfconst_file applied
+                print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
+                combsnx.vfconst_file(periods=periods)
+                file_vfconst= "vfconst.yml"
+            
+             
+            #index
+            keys_comb_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [combsnx.param[i] for i in combsnx.iv]] #key without space " ", more flexible for vfconst.yml
+            keys_datum = [ke.replace(" ", "") for ke in keys]
+            
+            #open yaml site constraints
+            cf = read_yaml(file_vfconst)
+            # Loop over constrains
+            for const in cf:
+                # convert record to dict
+                const = const.__dict__
+                ### velocity case & relative const if sta1 & sta2, else absolute const
+                if (const["type"] == "VEL") and ("sta2" in const.keys()):
+                    try: #find param index in combsnx
+                        i1 = keys_comb_v.index(const["sta1"].replace(" ", "")) #sta1
+                        i2 = keys_comb_v.index(const["sta2"].replace(" ", "")) #sta2
+                        
+                        #station in datum, whatever soln?
+                        #sta1_in_datum = const["sta1"].replace(" ", "")[:5] in keys_datum
+                    except Exception as e: #station not find in sinex...
+                        raise ValueError(f"Unknown station i: {e}. Check line '{const}' in {file_vfconst} file.")
+                        
+                    # station 1 & station in datum ?                      
+                
+                
+                
     
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])

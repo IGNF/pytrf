@@ -13,15 +13,18 @@ import os
 import re
 import uuid
 import numpy as np
+import pandas as pd
 import matplotlib.pyplot as pp
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import platform
+import networkx as nx
 
 # Internal imports
 #-----------------
 from pytrf import date
 from pytrf.const import mjd_leap, gps_utc, PERIODS
+
 
 
 
@@ -657,3 +660,128 @@ class Period():
 
         # Construct the new format code
         return f'{param_type[0]}{str(harmonic).zfill(3)}{type_str}{dim}'
+    
+    
+
+
+class Graph_vfconst():
+    
+    
+    
+    def __init__(self, snx, vfconst=None, type_graph="VEL"):
+        """
+        Constructor, from pytrf.sinex and vfconst.yml file
+
+        Parameters
+        ----------
+        snx : pytrf.sinex object
+            sinex with stations of interest, for example generated for combination
+        file_vfconst : list of pytrf.record() objects
+            vfconst YAML file, containing stations links. Generated with pytrf.io.read_yaml('vfconst.yml')
+        type_graph : str, optional
+            Graph type (default "VEL"): 
+                >"VEL", load only VELOCITIES type from vfconst file
+                >"PER", load only PERIODS type from vfconst YAML file
+        Returns
+        -------
+        None.
+
+        """
+        self.snx = snx
+        #build id dataframes : station & sites (only base on DOMES 5 first chr)
+        self.df_staId, self.df_sites = self.generate_staId()
+        self.vfconst = vfconst
+        self.type_graph = type_graph #vel on periods
+        
+        #init undirect graph for velocities
+        self.graph = nx.Graph()
+       
+        
+        
+    def generate_staId(self):
+        """ DataFrame summarizing stations in self.snx file
+            Columns : [domes, code, pt, soln, staId]
+        """
+        df_domes_snx = pd.DataFrame([(sta.domes, sta.code, sta.pt, soln.soln, soln.datastart, soln.dataend) for sta in self.snx.sta for soln in sta.soln], columns=["domes", "code", "pt", "soln", "datastart", "dataend"])
+        df_domes_snx["_staId_pytrf"] = df_domes_snx["code"]+ df_domes_snx["pt"]+ df_domes_snx["soln"]
+        df_domes_snx["staId"] = df_domes_snx.apply(lambda row: (row["code"]+ row["pt"]+ row["soln"]).replace(" ",""), axis=1) #no space
+        df_domes_snx = df_domes_snx.set_index("staId")
+        
+        #coordinates
+        coords = self.snx.get_xyz(df_domes_snx["code"].values.tolist(), pt=df_domes_snx["pt"].values.tolist(),  soln=df_domes_snx["soln"].values.tolist())
+        df_domes_snx["X"], df_domes_snx["Y"], df_domes_snx["Z"] = coords[:,0], coords[:,1], coords[:,2]
+        
+        ### Sites according 5 domes character
+        # Select the first 5 characters of the "domes" column
+        df_domes_snx['group_key'] = df_domes_snx['domes'].str[:5]
+        
+        # Group by the first 5 characters and aggregate into a list with respective index values
+        df_sites = df_domes_snx.groupby('group_key').agg(staId=('domes', lambda x: x.index.tolist())).reset_index()
+        
+        # drop intermediar "group_key" column
+        df_domes_snx = df_domes_snx.drop(columns='group_key')
+        
+        return df_domes_snx, df_sites
+      
+
+        
+    #####----------------------------------------------------------------------------------------
+    #####                 Graph formalization
+    #####----------------------------------------------------------------------------------------  
+    
+    # get linked stations according vfconst.yml file
+    def build_graph(self):
+        """ Add stations (node) and edges in self.graph attribute. Only station in vfconst file"""
+        # Loop over constrains
+        for const in self.vfconst:
+            # convert record to dict
+            const = const.__dict__
+            #VELOCITIES
+            if (self.type_graph=="VEL") and ("sta2" in const.keys()) and (const["type"]=="VEL"): #at least 2 stations on this site
+                #no soln consideration
+                self.graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ","")) #delete possible space " " -> be more flexible
+            #PERIODS
+            if (self.type_graph=="PER") and ("sta2" in const.keys()) and (const["type"] in self.snx.iper_dict.keys()):
+                self.graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ","")) #delete possible space " " -> be more flexible
+    
+    def build_snx_graph(self, limit_dist=10000):
+        # Create a graph using networkx
+        G = nx.Graph()
+        
+        # Add edges to the graph based on the distance and threshold
+        for site in self.df_sites['staId']:
+            #site: a list of all stations on the site. Multiple SOLN & no dist limit yet
+            complete_graph = nx.complete_graph(site) #get all pairs on site
+            for staId1, staId2 in complete_graph.edges():
+                #compute euclidian distance
+                distance = np.sqrt(np.sum((self.df_staId.loc[staId1, ['X', 'Y', 'Z']] - self.df_staId.loc[staId2, ['X', 'Y', 'Z']])**2))
+                if distance <= limit_dist:
+                    G.add_edge(staId1, staId2, length=distance)
+                    
+        return G
+    
+    def plot_graph(self,G):
+        pp.figure()
+        nx.draw(G, with_labels=True)
+        
+        #edge label
+        edge_labels = dict([((n1, n2), f'{round(1000 * d["length"],3)} km' )
+                    for n1, n2, d in G.edges(data=True)])
+        nx.draw_networkx_edge_labels(G, pos=nx.spring_layout(G), edge_labels=edge_labels)
+        #nx.draw_networkx_labels(G, pos=nx.spring_layout(G))
+
+            
+    def get_sites(self):
+        """
+        
+        """
+        #use networkX method to find linked point
+        connected_components = list(nx.connected_components(self.graph))
+        
+        #list of list
+        connected_components = [list(component) for component in connected_components]
+        return connected_components
+        
+       
+    
+    
