@@ -4071,7 +4071,8 @@ class sinex:
                     
                     # If current soln should be constrained with the next one,
                     if not(end in [v.end for v in solns[isoln].V]):
-                        
+                        if sta.code =="REYB":
+                            print(f'Apply successive VEL const: {sta.code+sta.pt+sta.soln[i].soln}, list:{[v.end for v in solns[isoln].V]}')
                         # Get indices of both velocities
                         i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
                         i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
@@ -4382,8 +4383,11 @@ class sinex:
         
         #index
         keys_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iv]] #key without space " ", more flexible for vfconst.yml
-        keys_per = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
-       
+        
+        if len(periods)!=0:
+            keys_per = [(p.code+p.pt+p.soln).replace(" ", "") for p in [snx.param[i] for i in snx.iper_dict[next(iter(snx.iper_dict))]] ]
+        else: #no periods
+            keys_per=[]
         # Loop over constrains
         for const in cf:
             # convert record to dict

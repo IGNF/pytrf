@@ -24,7 +24,7 @@ from pytrf import date, sinex
 from pytrf.const import agency, mas2rad, dera_dt
 from pytrf.io import read_yaml, read_solns, write_yaml
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
-from pytrf.utils import record, earlier, Period
+from pytrf.utils import record, earlier, Period, Graph_vfconst
 
 # Generate YAML configuration file
 #------------------------------------
@@ -1002,9 +1002,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # If velocities are going to be estimated, change a priori velocities of solns of RF stations
     # that are not part of the datum
     if (datum) and (set_vel):
-        keys = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
-        keys_soln = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
-        if len(keys) != len(keys_soln):
+        keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
+        keys_datum_soln = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
+        if len(keys) != len(keys_datum_soln):
             df_keys = pd.DataFrame({"keys":keys})
             print(ValueError(f'Datum error: multiple soln for the same station: {df_keys[df_keys["keys"].duplicated()].values.tolist()}'))
         #---- soln const    
@@ -1014,39 +1014,41 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
                 
         #---- same inital const for station in vfconst file
-        if bool(file_vfconst): #we wamt to apply const on same site
+        if bool(file_vfconst): #we want to apply const on same site
         
             if not os.path.exists(file_vfconst):#e no file provides by user, vfconst_file applied
                 print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
                 combsnx.vfconst_file(periods=periods)
                 file_vfconst= "vfconst.yml"
-            
-             
-            #index
-            keys_comb_v = [(p.code+p.pt+p.soln).replace(" ", "") for p in [combsnx.param[i] for i in combsnx.iv]] #key without space " ", more flexible for vfconst.yml
-            keys_datum = [ke.replace(" ", "") for ke in keys]
-            
+                
+                                  
             #open yaml site constraints
-            cf = read_yaml(file_vfconst)
-            # Loop over constrains
-            for const in cf:
-                # convert record to dict
-                const = const.__dict__
-                ### velocity case & relative const if sta1 & sta2, else absolute const
-                if (const["type"] == "VEL") and ("sta2" in const.keys()):
-                    try: #find param index in combsnx
-                        i1 = keys_comb_v.index(const["sta1"].replace(" ", "")) #sta1
-                        i2 = keys_comb_v.index(const["sta2"].replace(" ", "")) #sta2
-                        
-                        #station in datum, whatever soln?
-                        #sta1_in_datum = const["sta1"].replace(" ", "")[:5] in keys_datum
-                    except Exception as e: #station not find in sinex...
-                        raise ValueError(f"Unknown station i: {e}. Check line '{const}' in {file_vfconst} file.")
-                        
-                    # station 1 & station in datum ?                      
+            vfconst = read_yaml(file_vfconst)
+            #init graph object
+            graph = Graph_vfconst(combsnx)
+            #check if vfconst & datum are coherent: no linked station (on same site) in datum
+            valid_vfcd, list_pbm = graph.valid_vfconst_datum(vfconst, datum)
+            
+            if not valid_vfcd:
+                raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
                 
+            #init graph: stations with common init VEL (connections btw combsnx+vfconst)
+            g_sites_soln = graph.build_graph_same_init_vel(vfconst)
+            
+            #loop according station in datum
+            for num, sta_datum in enumerate(keys_datum_soln): #sta_datum with space:"cccc p   s"
+                # get all connected stations to this sta_datum in combsnx
+                c, pt, sl = graph.get_connected_stations(sta_datum.replace(" ",""), g_sites_soln) #code, pt, soln list in combsnx
                 
-                
+                if len(c)!=0: #at least 1 common station in datum <> combsnx
+                    print(f"Datum station '{sta_datum}': linked stations in combsnx:{list(map(''.join, zip(c,pt,sl)))}")
+                    #get datum value for this vel
+                    vel_datum = datum.x[datum.get_vel_ind(code=[sta_datum[:4]], pt=[sta_datum[4:6]], soln =[sta_datum[6:]])] #numpy shape: 3
+                    #reshape: duplicate row of vel_datum -> assign for each station concerned in combsnx
+                    vel_datum = np.tile(vel_datum, (len(c), 1))
+                    # get combsnx station VEL indices and assign a new vel_datum value
+                    combsnx.x0[combsnx.get_vel_ind(code=c, pt=pt, soln=sl)] = vel_datum #array, 1 line by station [velx, vely, velz], shape (len(c),3)
+            
     
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])

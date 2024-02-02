@@ -5,8 +5,6 @@ This subpackage contains miscalleanous low-level routines.
 
 """
 
-
-
 # External imports
 #-----------------
 import os
@@ -19,6 +17,7 @@ import cartopy.crs as ccrs
 import cartopy.feature as cfeature
 import platform
 import networkx as nx
+import logging
 
 # Internal imports
 #-----------------
@@ -668,7 +667,7 @@ class Graph_vfconst():
     
     
     
-    def __init__(self, snx, vfconst=None, type_graph="VEL"):
+    def __init__(self, snx, type_graph="VEL"):
         """
         Constructor, from pytrf.sinex and vfconst.yml file
 
@@ -690,12 +689,8 @@ class Graph_vfconst():
         self.snx = snx
         #build id dataframes : station & sites (only base on DOMES 5 first chr)
         self.df_staId, self.df_sites = self.generate_staId()
-        self.vfconst = vfconst
         self.type_graph = type_graph #vel on periods
         
-        #init undirect graph for velocities
-        self.graph = nx.Graph()
-       
         
         
     def generate_staId(self):
@@ -726,25 +721,29 @@ class Graph_vfconst():
 
         
     #####----------------------------------------------------------------------------------------
-    #####                 Graph formalization
+    #####                 Build Graphes
     #####----------------------------------------------------------------------------------------  
     
     # get linked stations according vfconst.yml file
-    def build_graph(self):
-        """ Add stations (node) and edges in self.graph attribute. Only station in vfconst file"""
+    def build_vfgraph_from_vfconst(self, vfconst):
+        """ Build constraints graph from vfconst: stations (node) and edges (constraints)"""
+        graph = nx.Graph()
         # Loop over constrains
-        for const in self.vfconst:
+        for const in vfconst:
             # convert record to dict
             const = const.__dict__
             #VELOCITIES
             if (self.type_graph=="VEL") and ("sta2" in const.keys()) and (const["type"]=="VEL"): #at least 2 stations on this site
                 #no soln consideration
-                self.graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ","")) #delete possible space " " -> be more flexible
+                graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
             #PERIODS
             if (self.type_graph=="PER") and ("sta2" in const.keys()) and (const["type"] in self.snx.iper_dict.keys()):
-                self.graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ","")) #delete possible space " " -> be more flexible
+                graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
+                
+        return graph
     
-    def build_snx_graph(self, limit_dist=10000):
+    
+    def build_snx_graph(self, limit_dist=10000, link_only_soln=False):
         # Create a graph using networkx
         G = nx.Graph()
         
@@ -755,33 +754,132 @@ class Graph_vfconst():
             for staId1, staId2 in complete_graph.edges():
                 #compute euclidian distance
                 distance = np.sqrt(np.sum((self.df_staId.loc[staId1, ['X', 'Y', 'Z']] - self.df_staId.loc[staId2, ['X', 'Y', 'Z']])**2))
-                if distance <= limit_dist:
+                if link_only_soln and (staId1[:5]==staId2[:5]): #add edge only for same station, between SOLN
                     G.add_edge(staId1, staId2, length=distance)
-                    
+                
+                elif not link_only_soln and distance <= limit_dist: #check distance only if not "link_only_soln" 
+                    G.add_edge(staId1, staId2, length=distance)        
         return G
+    
+    
+    def build_graph_same_init_vel(self, vfconst):
+        """Build graph snx SOLN + vfconst"""
+        
+        #whatever soln discontinuities, we will init same VEL for all SOLN
+        # sinex SOLN graph:
+        gr_snx_soln = self.build_snx_graph(link_only_soln=True)
+        #graĥ vfconst:
+        #be sure init vel
+        self.type_graph = "VEL"
+        gr_vfconst = self.build_vfgraph_from_vfconst(vfconst)
+        
+        #add edges from vfconst
+        gr_snx_soln.add_edges_from(gr_vfconst.edges)
+                
+        return gr_snx_soln
     
     def plot_graph(self,G):
         pp.figure()
         nx.draw(G, with_labels=True)
         
         #edge label
-        edge_labels = dict([((n1, n2), f'{round(1000 * d["length"],3)} km' )
-                    for n1, n2, d in G.edges(data=True)])
-        nx.draw_networkx_edge_labels(G, pos=nx.spring_layout(G), edge_labels=edge_labels)
+        # edge_labels = dict([((n1, n2), f'{round(1000 * d["length"],3)} km' ) for n1, n2, d in G.edges(data=True)])
+        nx.draw_networkx_edge_labels(G, pos=nx.spring_layout(G),)
+                                     #edge_labels=edge_labels)
         #nx.draw_networkx_labels(G, pos=nx.spring_layout(G))
 
-            
-    def get_sites(self):
+
+    #####----------------------------------------------------------------------------------------
+    #####                 Get nodes & edges informations
+    #####----------------------------------------------------------------------------------------  
+    def get_sites(self, G):
         """
-        
+        A site is defined if at least 2 stations (node) are linked by constraints (edge)
         """
         #use networkX method to find linked point
-        connected_components = list(nx.connected_components(self.graph))
+        connected_components = list(nx.connected_components(G))
         
         #list of list
         connected_components = [list(component) for component in connected_components]
         return connected_components
+    
         
        
+    def get_connected_stations(self,  staId, G):
+        staId = staId.replace(" ","")
+        
+        if staId in G.nodes: #this station exist
+            staId_connected = list(nx.node_connected_component(G, staId))
+            return list(self.df_staId.loc[staId_connected,"code"]), list(self.df_staId.loc[staId_connected,"pt"]), list(self.df_staId.loc[staId_connected,"soln"])
+        
+        else:
+            logging.warning(f"Station Id '{staId}' not in sinex.")
+            return [],[],[]
+        
+        
     
     
+    def get_connection_datum(self, staId, G, datum):
+        """For staId, provide the name of the linked station referred in datum. Relations & links described by graph G."""
+        
+        staId = staId.replace(" ","")
+        
+        # connected stations to staId
+        if staId in G.nodes:
+            staId_connected = list(nx.node_connected_component(G, staId))
+        else:
+            logging.warning(f"Station Id '{staId}' not in sinex.")
+            return None
+        
+        #station in datum
+        sta_datum = [(sta.code + sta.pt + soln.soln).replace(" ","") for sta in datum.sta for soln in sta.soln]
+             
+        # find ref sta
+        ref_sta = [sta for sta in staId_connected if sta in sta_datum]
+        
+        if len(ref_sta)>=1:
+            ref_sta = ref_sta[0]
+        else: # no ref sta find in connected stations
+            ref_sta=None
+            
+        return ref_sta
+        
+    
+    def map_sites_indatum(self, G, datum):
+        """Sites of G link in datum"""
+        sta_datum = [(sta.code + sta.pt + soln.soln).replace(" ","") for sta in datum.sta for soln in sta.soln] #staId no space " "
+        list_sites = self.get_sites(G) #list sites provides by vfconst file, #staId no space " "
+        
+        in_datum = [] #list of True and False for each site
+        for site in list_sites:
+            in_datum.append([station in sta_datum for station in site])
+            
+        return list_sites, in_datum
+            
+    
+                
+    def valid_vfconst_datum(self, vfconst, datum):
+        """ Check if vfconst file is compatible with datum: maximum 1 station by site (i.e. linked station) in datum"""
+        vfgraph = self.build_vfgraph_from_vfconst(vfconst) #build vfcont graphe
+        
+        list_sites, in_datum = self.map_sites_indatum(vfgraph, datum)
+            
+        # 2 stations of a same site in datum ??
+        sites_2sta_datum = [sum(site)>=2 for site in in_datum] #True if "2 True" in a site, else False
+        
+        valid_vf_datum = not any(sites_2sta_datum) #at least a True = at least 2 stations --> no valid
+        
+        list_pbm = [] #station pbm: del in datum or in vfconst
+        if not valid_vf_datum: #no valid, wich site/ station ???
+            for num, site in list_sites:
+                #list of stations on this site
+                list_sta = np.array(site) #site= [sta1, sta2...]
+                #for this site, stations concerned
+                select = np.array(in_datum[num]) #list of bool for "index" site: [True, False,..], same lenght that list_sta
+                list_pbm += list_sta[select]
+                logging.warning(f'Datum vs vfconst, error for vfconst site "{num}": multiple stations in datum: {list_sta[select]}')
+                
+        return valid_vf_datum, list_pbm
+    
+
+        
