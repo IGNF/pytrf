@@ -1197,6 +1197,8 @@ class sinex:
                 if snx.is_period(p.type): 
                     # belongs to 'period type' according to snx.is_period() method, built Period object
                     per = Period.from_snx_param(p.type)
+                    #old vs new syntax: set period type with new 'param_type' syntax (instead of 'param_type_old'). ex 'A1COSX'<>'A001CX'
+                    p.type = per.param_type
                     if per.cs == 'COS' and per.dim == 'X': #bloc of 6 params, order : COSX, SINX, COSY, SINY, COSZ, SINZ
                         snx.iper.append(num)    
                         snx.iper_dict.setdefault(per.code, []).append(num) # 1 list by per.code: {"A001":[...], "A002":[...]}
@@ -2834,8 +2836,9 @@ class sinex:
             and 'A' (CRF rotations).
         par : str
             Indicates which type of parameters should be considered.
-            It can be either 'STA' (station and radiosource positions) or 'VEL'
-            (station velocities - radiosource velocities not supported yet).
+            It can be either 'STA' (station and radiosource positions)
+            'VEL' (station velocities - radiosource velocities not supported yet).
+            'PER' (station seasonal signals)
         units : str, optional
             Specifies units of Helmert parameters. It can be either None (mm, ppb, mas)
             or 'm' (m).
@@ -2916,6 +2919,28 @@ class sinex:
             A[iv[:,2], 5] = -x[ix[:,0]]
             A[iv[:,0], 6] = -x[ix[:,1]]
             A[iv[:,1], 6] =  x[ix[:,0]]
+            
+            
+        # 3rd case : Helmert parameter rates, seasonal signals
+        elif (par == 'PER'):
+            ix = np.array([[i, i+1, i+2] for i in snx.ix])
+            # Station periodic partial derivatives
+            for per in nx.iper_dict.keys(): #loop over each period
+                ip_cos = np.array([[i, i+2, i+4] for i in snx.iper_dict[per]])
+                ip_sin = np.array([[i+1, i+3, i+5] for i in snx.iper_dict[per]])
+    
+                A[ip_cos[:,0], 0] =  A[ip_sin[:,0], 0] = ae
+                A[ip_cos[:,1], 1] =  A[ip_sin[:,1], 1] = ae
+                A[ip_cos[:,2], 2] =  A[ip_sin[:,2], 2] = ae
+                A[ip_cos[:,0], 3] =  A[ip_sin[:,0], 3] = x[ix[:,0]]
+                A[ip_cos[:,1], 3] =  A[ip_sin[:,1], 3] = x[ix[:,1]]
+                A[ip_cos[:,2], 3] =  A[ip_sin[:,2], 3] = x[ix[:,2]]
+                A[ip_cos[:,1], 4] =  A[ip_sin[:,1], 4] = -x[ix[:,2]]
+                A[ip_cos[:,2], 4] =  A[ip_sin[:,2], 4] = x[ix[:,1]]
+                A[ip_cos[:,0], 5] =  A[ip_sin[:,0], 5] = x[ix[:,2]]
+                A[ip_cos[:,2], 5] =  A[ip_sin[:,2], 5] = -x[ix[:,0]]
+                A[ip_cos[:,0], 6] =  A[ip_sin[:,0], 6] = -x[ix[:,1]]
+                A[ip_cos[:,1], 6] =  A[ip_sin[:,1], 6] = x[ix[:,0]]
 
         # Express Helmert parameters in adequate units
         if (units is None):
@@ -4069,13 +4094,24 @@ class sinex:
                     ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
                     end = solns[isoln].P[ip].end
                     
+                    #start next station:
+                    ips = [p.soln for p in solns[isoln].P].index(sta.soln[i+1].soln)
+                    start_next = solns[isoln].P[ips].start
+                    
+                    #vel discontinuities (decimal year)
+                    list_v_dicontinuities = [date.from_tsnx(v.end).ydec() for v in solns[isoln].V if v.end !='00:000:00000']
+                                    
+                    if not(not(end in [v.end for v in solns[isoln].V]) and not any(date.from_tsnx(end).ydec() <= disc <= date.from_tsnx(start_next).ydec() for disc in list_v_dicontinuities)):
+                        print(f"[add_dvc] DIFFERENCES SOLN VEL disc potential bug: {sta.code} --> {not(end in [v.end for v in solns[isoln].V])} {not any(date.from_tsnx(end).ydec() <= disc <= date.from_tsnx(start_next).ydec() for disc in list_v_dicontinuities)} ")
+                           
                     # If current soln should be constrained with the next one,
-                    if not(end in [v.end for v in solns[isoln].V]):
-                        if sta.code =="REYB":
-                            print(f'Apply successive VEL const: {sta.code+sta.pt+sta.soln[i].soln}, list:{[v.end for v in solns[isoln].V]}')
+                    #if not(end in [v.end for v in solns[isoln].V]): #si end="00:000:00000", considéré comme une disc ??
+                    if not any(date.from_tsnx(end).ydec() <= disc <= date.from_tsnx(start_next).ydec() for disc in list_v_dicontinuities):
+                        #if sta.code =="REZB":
+                        #print(f'Apply successive VEL const: {sta.code+sta.pt+sta.soln[i].soln}, list:{[v.end for v in solns[isoln].V]}')
                         # Get indices of both velocities
                         i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
-                        i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
+                        i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln) ######## --><<>>>>< pbm ou il y a 1 trou ds le prochain SOLN on a que 1 & 3, or discontinuite entre 2 et 3 ....
                         
                         # Add constraints between them
                         for k in range(3):
@@ -4534,6 +4570,9 @@ class sinex:
         A = snx.helmert_partials(helmerts, 'STA')[isnx]
         if (len(np.intersect1d(isnx, snx.iv)) > 0):
             A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+            
+        if (len(np.intersect1d(isnx, snx.iper)) > 0):
+            A = np.hstack((A, snx.helmert_partials(helmerts, 'PER')[isnx]))
 
         # Right-hand side
         y = snx.x[isnx] - ref.x[iref]
@@ -4636,6 +4675,25 @@ class sinex:
         
         # Compute WRMS of ENH station velocity residuals
         if (len(iv) > 0):
+            snx.wrmsv = np.zeros(3)
+            for i in range(3):
+                snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
+                
+        # Rotate station PER residuals to ENH frames and convert them into mm
+        indp = np.nonzero(snx.v[snx.iper])[0]
+        iper = np.array([snx.iper[i] for i in indp])
+        for i in iper: # or iper_dict ??????
+            R = xyz2enh(snx.x[i-3:i]) #get according STA position
+            snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
+            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+            if (norm_res == 'correct'):
+                snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+            else:
+                snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
+            snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
+                        
+        # Compute WRMS of ENH station periodic terms residuals
+        if (len(iper) > 0):
             snx.wrmsv = np.zeros(3)
             for i in range(3):
                 snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
