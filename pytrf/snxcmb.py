@@ -6,6 +6,7 @@
 #-----------------
 import os
 import sys
+import logging
 #import mkl
 #mkl.set_num_threads(1)
 import copy
@@ -17,6 +18,7 @@ from scipy import sparse, linalg
 from math import sqrt
 import cProfile
 import pstats
+import tqdm
 
 # Internal imports
 #-----------------
@@ -39,7 +41,7 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         - "ic":"RST" (for 'MEAN', 'TREND' or 'PERIOD')
         
         set for each frequency (if set_per != []):
-        - "mc_per":"RST", "ic_per":"RST"
+        - "mc_period":"RST", "ic_period":"RST"
 
     Parameters
     ----------
@@ -71,22 +73,22 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
     if len(per)!=0: #at leat 1 period
         list_per= []
         for pe in per :
-            # mc_per: minimal constraints on periodic amplitude
-            # ic_per: internal constraints on periodic amplitude
+            # mc_period: minimal constraints on periodic amplitude
+            # ic_period: internal constraints on periodic amplitude
             
             ### period dict build from Period class
             per_obj = Period(pe)
             #del useless attributes, only from 'code'
             dict_per = {"code": per_obj.code,
-                        "ic_per": per_obj.ic_per,
-                        "mc_per": per_obj.mc_per,
+                        "ic_period": per_obj.ic_period,
+                        "mc_period": per_obj.mc_period,
                         "unit": per_obj.unit,
                         "value": per_obj.value
                         }
             
             #default value ?
             for key in default.keys():
-                if key in ["mc_per","ic_per"]: #key use for dict_freq
+                if key in ["mc_period","ic_period"]: #key use for dict_freq
                     dict_per[key] = default[key]
                     
             #sort key:
@@ -124,7 +126,7 @@ def mkopt_file(folder="inputs", set_vel=False, per=[], default={}):
         
         #default values provides ?
         for key in default.keys():
-            if key in ["mc_per","ic_per"]: #key use for dict_freq
+            if key in ["mc_period","ic_period"]: #key use for dict_freq
                 pass
             else:
                 sol[key] = default[key]
@@ -157,6 +159,45 @@ def save_profiler(profiler, filename='profiling_combine.txt'):
         stats = pstats.Stats(profiler, stream=f)
         stats.sort_stats('tottime')
         stats.print_stats()
+        
+        
+
+def write_res_inputs(inputs, output_folder):
+    """
+    Write residues files '.res' after combination. file by input file.
+    Must be apply AFTER combine; snx.v update
+
+    Parameters
+    ----------
+    inputs : list of records
+        DESCRIPTION.
+    output_folder : str
+        Folder path to write res file
+
+    Returns
+    -------
+    None.
+
+    """
+    if not os.path.exists(output_folder):
+        # Create the folder if it doesn't exist
+        os.makedirs(output_folder)
+        
+    for num, sol in enumerate(tqdm.tqdm(inputs)):
+        
+        df_domes_sol = pd.DataFrame([(sta.domes, sta.code+sta.pt) for sta in sol.snx.sta], columns=["domes", "sta"])
+        df_sta = pd.DataFrame({"sta":[p.code+p.pt  for p in sol.snx.param]})
+        
+        df_sta_domes = pd.merge(df_sta, df_domes_sol, on='sta', how='inner')
+        
+        df = pd.DataFrame()
+        df["domes"] = df_sta_domes["domes"]
+        df["sta"] = [p.code+p.pt+p.soln for p in sol.snx.param]
+        df["type"] = [p.type for p in sol.snx.param]
+        df["v"] = sol.v
+        df["vn"] = sol.vn
+        df["sv"] = sol.sv
+        df.to_csv("{}".format(os.path.join(output_folder, sol.file.split('/')[1]+".res")), sep="\t", index=False)
     
 
 # Read and pre-process input solution
@@ -246,7 +287,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 #-------------------------------
 #@profile
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
-            mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, #Minimal constraints
+            mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, mc_period=None, mc_period_sig=1e-5, mc_period_thr=None,#Minimal constraints
             ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
             file_vfconst="vfconst.yml", #Constraints on velocity & amplitude for stations located on the same site
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
@@ -316,6 +357,18 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    mc_period : str, optional
+        String indicating which minimal constraints should be applied to station seasonal periods.
+        It can be composed of any combination of letters 'T' (translations),
+        'S' (scale) and 'R' (rotations). Default is None.
+    mc_period_sig : float or str, optional
+        Sigma of minimal constraints to be applied to station seasonal periods in m. Default is 1e-5.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc().
+    mc_period_thr : float, optional
+        If set, then station seasonal periods with large uncertainties will be rejected from the set
+        of station positions to which minimal constraints are applied. See sinex.add_mc() for
+        detailed explanations.
     
     ---------- INTERNAL constraints parameters ----------
     ic_mean : str, optional. Default: None
@@ -334,10 +387,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
     ic_period: str, optional. Default: None
         string indicating which internal constraints should be applied on periodic signal(s).
-        If not None: * you must specify the "ic_per" parameter in the YAML file for each solution that you want apply IC.
-                     * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
+        If not None: * you must specify the "ic_period" parameter in the YAML file for each solution that you want apply IC.
+                     * you also must specify the "ic_period" parameter in the YAML file for each periods that you want apply IC for specific period.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
-        If no "ic_per" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
+        If no "ic_period" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
@@ -486,8 +539,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
          
         # ic helmert periods        
         if (bool(ic_period)) :
-            if hasattr(sol, 'ic_per'):
-                common_ic = ''.join(set(ic_period) & set(sol.ic_per)) #common parameters 'R','S' & 'T' between each solution contribution and general computation 'ic_mean' constraints
+            if hasattr(sol, 'ic_period'):
+                common_ic = ''.join(set(ic_period) & set(sol.ic_period)) #common parameters 'R','S' & 'T' between each solution contribution and general computation 'ic_mean' constraints
                 ic_helmert_periods[isol] = common_ic
             else: #this sol has not ic constrains
                 ic_helmert_periods[isol] = ''
@@ -961,7 +1014,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Set combsnx.start and combsnx.end
     mjd = []
     for sta in combsnx.sta:
-        print([s.datastart for s in sta.soln], sta.code, sta.domes)
         mjd.extend([date.from_tsnx(s.datastart).mjd for s in sta.soln])
     combsnx.start = date.from_mjd(np.min(mjd)).tsnx()
 
@@ -1002,16 +1054,17 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # If velocities are going to be estimated, change a priori velocities of solns of RF stations
     # that are not part of the datum
     if (datum) and (set_vel):
-        keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
+        # keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
         keys_datum_soln = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
-        if len(keys) != len(keys_datum_soln):
-            df_keys = pd.DataFrame({"keys":keys})
-            print(ValueError(f'Datum error: multiple soln for the same station: {df_keys[df_keys["keys"].duplicated()].values.tolist()}'))
-        #---- soln const    
-        for i in combsnx.iv:
-            if (combsnx.param[i].code+combsnx.param[i].pt in keys) and not(np.any(combsnx.x0[i:i+3])):
-                j = keys.index(combsnx.param[i].code+combsnx.param[i].pt)
-                combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
+        # if len(keys) != len(keys_datum_soln):
+        #     df_keys = pd.DataFrame({"keys":keys})
+        #     print(ValueError(f'Datum error: multiple soln for the same station: {df_keys[df_keys["keys"].duplicated()].values.tolist()}'))
+        
+        #---- successive soln const    
+        # for i in combsnx.iv:
+        #     if (combsnx.param[i].code+combsnx.param[i].pt in keys) and not(np.any(combsnx.x0[i:i+3])):
+        #         j = keys.index(combsnx.param[i].code+combsnx.param[i].pt)
+        #         combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
                 
         #---- same inital const for station in vfconst file
         if bool(file_vfconst): #we want to apply const on same site
@@ -1020,21 +1073,99 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
                 combsnx.vfconst_file(periods=periods)
                 file_vfconst= "vfconst.yml"
+                                        
+            #open yaml site constraints
+            vfconst = read_yaml(file_vfconst)
+        else: #only successive soln 
+            vfconst = None
+        
+        #init graph object
+        graph = Graph_vfconst(combsnx)
+        #check if vfconst & datum are coherent: no linked station (on same site) in datum
+        valid_vfcd, list_pbm = graph.valid_datum(datum, vfconst=vfconst, type_graph='VEL')
+        
+        if not valid_vfcd:
+            raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
+            
+        #init graph: stations with common init VEL (connections btw combsnx+vfconst)
+        g_sites_soln = graph.build_graph_same_init_x0(vfconst=vfconst, type_graph='VEL') #if vfconst=None, based only on soln links
+        
+        #loop according station in datum
+        for num, sta_datum in enumerate(keys_datum_soln): #sta_datum with space:"cccc p   s"
+            # get all connected stations to this sta_datum in combsnx
+            c, pt, sl = graph.get_connected_stations(sta_datum.replace(" ",""), g_sites_soln) #code, pt, soln list in combsnx
+            
+            if len(c)!=0: #at least 1 common station in datum <> combsnx
+                print(f"Datum station '{sta_datum}': linked stations in combsnx:{list(map(''.join, zip(c,pt,sl)))}")
+                #get datum value for this vel
+                vel_datum = datum.x[datum.get_vel_ind(code=[sta_datum[:4]], pt=[sta_datum[4:6]], soln =[sta_datum[6:]])] #numpy shape: 3
+                #reshape: duplicate row of vel_datum -> assign for each station concerned in combsnx
+                vel_datum = np.tile(vel_datum, (len(c), 1))
+                # get combsnx station VEL indices and assign a new vel_datum value
+                combsnx.x0[combsnx.get_vel_ind(code=c, pt=pt, soln=sl)] = vel_datum #array, 1 line by station [velx, vely, velz], shape (len(c),3)
+        
+    
+    # If seasonal signals are going to be estimated, change a priori Amplitudes of solns of RF stations
+    # that are not part of the datum
+    if (datum) and bool(mc_period) and len(periods)>0:
+        
+        # # Get indices of common station positions
+        # keys_per = {} #datum period keys
+        # for per in datum.iper_dict.keys():
+        #     keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iper_dict[per]]]
+        #     keys_datum_soln = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iper_dict[per]]]
+        #     if len(keys) != len(keys_datum_soln):
+        #         df_keys = pd.DataFrame({"keys":keys})
+        #         print(ValueError(f'Datum error: multiple soln for the same station: {df_keys[df_keys["keys"].duplicated()].values.tolist()}'))
+        #     else:
+        #         keys_per[per] = [p.code+p.pt for p in [datum.param[i] for i in datum.iper_dict[per]]]
+        
+        # #---- successive soln const 
+        # for per in combsnx.iper_dict.keys():
+        #     if per not in keys_per.keys(): #per not in datum
+        #         print(f" WARNING: init period MC: '{per}' not in datum", file=out)
+        #         pass
+        #     else: #this period in snx & in ref
+        #         for i in combsnx.iper_dict[per]:
+        #             p = snx.param[i]
+        #             if (p.code+p.pt in keys_per[per]):
+        #                 j = datum.iper_dict[per][keys_per[per].index(p.code+p.pt)]
+        #                 combsnx.x0[i:i+6] = datum.x[j:j+6] #cosX, sinX, cosY, sinY, cosZ, sinZ
                 
-                                  
+        #---- same inital const for station in vfconst file
+        if bool(file_vfconst): #we want to apply const on same site
+        
+            if not os.path.exists(file_vfconst):#e no file provides by user, vfconst_file applied
+                print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
+                combsnx.vfconst_file(periods=periods)
+                file_vfconst= "vfconst.yml"
+                    
             #open yaml site constraints
             vfconst = read_yaml(file_vfconst)
             #init graph object
             graph = Graph_vfconst(combsnx)
-            #check if vfconst & datum are coherent: no linked station (on same site) in datum
-            valid_vfcd, list_pbm = graph.valid_vfconst_datum(vfconst, datum)
+        else: #only successive soln
+            vfconst = None
             
-            if not valid_vfcd:
-                raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
-                
-            #init graph: stations with common init VEL (connections btw combsnx+vfconst)
-            g_sites_soln = graph.build_graph_same_init_vel(vfconst)
+        ## check & warnings
+        #check if vfconst & datum are coherent: no linked station (on same site) in datum
+        valid_vfcd, list_pbm = graph.valid_vfconst_datum(datum, vfconst=vfconst, type_graph='VEL') #simple check based on VEL...
+        
+        if not valid_vfcd:
+            raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
+        
+        common_per = [] #init common periods btw combsnx & datum
+        for per in combsnx.iper_dict.keys():
+            if per not in datum.iper_dict.keys(): #per not in datum
+                print(f" WARNING: init period MC: '{per}' not in datum", file=out)
+            else:
+                common_per.append(per)
             
+        for percode in common_per: #both in datum & combsnx
+            
+            #init graph: stations with common init Amplitude (connections btw combsnx+vfconst)
+            g_sites_soln = graph.build_graph_same_init_x0(vfconst=vfconst, type_graph=percode) #if vfconst=None, based only on soln links
+        
             #loop according station in datum
             for num, sta_datum in enumerate(keys_datum_soln): #sta_datum with space:"cccc p   s"
                 # get all connected stations to this sta_datum in combsnx
@@ -1042,14 +1173,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 
                 if len(c)!=0: #at least 1 common station in datum <> combsnx
                     print(f"Datum station '{sta_datum}': linked stations in combsnx:{list(map(''.join, zip(c,pt,sl)))}")
-                    #get datum value for this vel
-                    vel_datum = datum.x[datum.get_vel_ind(code=[sta_datum[:4]], pt=[sta_datum[4:6]], soln =[sta_datum[6:]])] #numpy shape: 3
-                    #reshape: duplicate row of vel_datum -> assign for each station concerned in combsnx
-                    vel_datum = np.tile(vel_datum, (len(c), 1))
-                    # get combsnx station VEL indices and assign a new vel_datum value
-                    combsnx.x0[combsnx.get_vel_ind(code=c, pt=pt, soln=sl)] = vel_datum #array, 1 line by station [velx, vely, velz], shape (len(c),3)
-            
-    
+                    #get datum value for this period
+                    per_datum = datum.x[datum.get_per_ind(percode=[percode], code=[sta_datum[:4]], pt=[sta_datum[4:6]], soln =[sta_datum[6:]])] #numpy shape: 6
+                    #reshape: duplicate row of per_datum -> assign for each station concerned in combsnx
+                    per_datum = np.tile(per_datum, (len(c), 1))
+                    # get combsnx station PERIOD indices and assign a new period_datum value
+                    combsnx.x0[combsnx.get_per_ind(percode=[percode], code=c, pt=pt, soln=sl)] = per_datum #array, 1 line by station [cosx, sinx, cosy, siny, cosz, sinz], shape (len(c),6)
+        
+
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])
     combsnx.sta = [combsnx.sta[i] for i in ind]
@@ -1289,6 +1420,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             if not(quiet):
                 print('        Add minimal constraints to station velocities', file=out)
             nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
+            
+        # Add minimal constraints to station seasonal periods
+        if (mc_period):
+            if not(quiet):
+                print('        Add minimal constraints to station seasonal periods', file=out)
+                print('          {}'.format([(per.code, per.mc_period) for per in periods]), file=out)
+            nc += combsnx.add_mc(mc_period, 'PERIOD', sigma=mc_period_sig, datum=datum, thr=mc_period_thr, periods=periods)
             
         
     # Add internal constraints
@@ -1575,7 +1713,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 # Iterative combination of SINEX solutions
 #-----------------------------------------
 def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
-                 mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
+                 mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, mc_period=None, mc_period_sig=1e-5, mc_period_thr=None, #Minimal constraints
                  ic_mean=None, ic_mean_sig=1e-5, ic_trend=None, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
                  file_vfconst="vfconst.yml", #Constraints on velocity & amplitude for stations located on the same site
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
@@ -1644,6 +1782,18 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    mc_period : str, optional
+        String indicating which minimal constraints should be applied to station seasonal periods.
+        It can be composed of any combination of letters 'T' (translations),
+        'S' (scale) and 'R' (rotations). Default is None.
+    mc_period_sig : float or str, optional
+        Sigma of minimal constraints to be applied to station seasonal periods in m. Default is 1e-5.
+        It can also be set to 'auto' in which case an adequate sigma will be automatically set
+        by sinex.add_mc().
+    mc_period_thr : float, optional
+        If set, then station seasonal periods with large uncertainties will be rejected from the set
+        of station positions to which minimal constraints are applied. See sinex.add_mc() for
+        detailed explanations.
     
     ---------- INTERNAL constraints parameters ----------
     ic_mean : str, optional. Default: None
@@ -1662,10 +1812,10 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         Sigma of internal constraints to be applied to trend(s) of parameter(s), in m/y. Default is 1e-6.
     ic_period: str, optional. Default: None
         string indicating which internal constraints should be applied on periodic signal(s).
-        If not None: * you must specify the "ic_per" parameter in the YAML file for each solution that you want apply IC.
-                     * you also must specify the "ic_per" parameter in the YAML file for each periods that you want apply IC for specific period.
+        If not None: * you must specify the "ic_period" parameter in the YAML file for each solution that you want apply IC.
+                     * you also must specify the "ic_period" parameter in the YAML file for each periods that you want apply IC for specific period.
         This param can be composed of any combination of letters 'T' (translations), 'S' (scale) and 'R' (rotations).
-        If no "ic_per" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
+        If no "ic_period" attribute or equal to empty str ("") in YAML file, IC on periods are not apply for this solution.
     ic_period_sig : float or str, optional
         Sigma of internal constraints to be applied to mean(s) of parameter(s), in m. Default is 1e-5.
     
@@ -1727,11 +1877,16 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
 
     # While there remains outliers,
     end = False
+    num_iteration = 0
+    dict_stats_iterationOutliers = {}
+    start_time = date()
     while not(end):
-        
+        #stats, count iteration number and reject
+        num_iteration += 1 
+        start_time_iter = date()
         # Combine input solutions
         combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
-                          mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr,
+                          mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr, mc_period=mc_period, mc_period_sig=mc_period_sig, mc_period_thr=mc_period_thr,
                           ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig, file_vfconst=file_vfconst,
                           update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)
         
@@ -1833,12 +1988,13 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
 
         # Second loop over input solutions to reject outliers
         end = True
+        total_outliers = 0
         for sol in inputs:
             
             # If any outliers were flagged in current input solution
             if (len(sol.codeout) > 0):
                 end = False
-                
+                total_outliers += len(sol.codeout)
                 # Print outliers
                 if not(quiet):
                     name = '{0:4}'.format(sol.name)[:4]
@@ -1864,14 +2020,31 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
                 if not(store_inputs):
                     sol.snx.dump(sol.file)
                     del sol.snx
-                    
+        
+        #Add count of iterartion & outliers in dict stats
+        loop_time = date().tsys - start_time_iter.tsys
+        dict_stats_iterationOutliers[num_iteration] = [total_outliers  , loop_time]   
         # Print blank line in log file
         if not(quiet):
+            print('', file=out)
+            print('    >> Total iteration n.{}: {} outlier(s) (time: {:.3f} s)'.format(num_iteration, total_outliers, loop_time), file=out)
             print('', file=out)
         
         # Continue to iterate if VCE has not converged yet
         if (end) and (update_sf) and (np.max(np.abs(np.log([sol.vf for sol in inputs]))) > 1e-3):
             end = False
 
+
+    #print global iteration stats (number of outliers)
+    if not(quiet):
+        print('    Iterations summary:', file=out)
+        print('    -------------------', file=out)
+        for num in dict_stats_iterationOutliers.keys():
+            print('    > iteration n.{}: {} outlier(s) (duration: {:.3f} s)'.format(num, dict_stats_iterationOutliers[num][0], dict_stats_iterationOutliers[num][1]), file=out)
+            
+            
+        print(' ', file=out)
+        print('-- END combination -- total time: {:.3f} s'.format(date().tsys - start_time.tsys), file=out)
+        
     return combsnx
     

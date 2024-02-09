@@ -402,8 +402,8 @@ class Period():
         - cs                     : str COS' or 'SIN'
         - dim                    : str 1 character:'X', 'Y', 'Z'
         - harmonic               : int 1 to 999
-        - ic_per                 : str 3 characters max ('RST') internal constraints
-        - mc_per                 : str 3 characters max ('RST') minimal constraints
+        - ic_period              : str 3 characters max ('RST') internal constraints
+        - mc_period              : str 3 characters max ('RST') minimal constraints
         - param_type             : str 6 characters, from snx.param.type : type + %03d harmonic + cs + dim
         - param_type_old         : str 6 characters, from snx.param.type. Old version: type + %01d harmonic + COS/SIN + dim
         - type                   : str 1 character 'A' Annual; 'D' Draconitic; 'P' other period
@@ -428,7 +428,7 @@ class Period():
         If 'code' in PERIODS (dict var), setup 'value', else 'value'=0.
         Useful to build blank file options
         
-        Other attributes can bee specified manually with kwargs : mc_per, ic_per, etc
+        Other attributes can bee specified manually with kwargs : mc_period, ic_period, etc
         
         Recommended construction attributes
             'code'(str) : ex 'P001'
@@ -452,32 +452,41 @@ class Period():
         
         # necessary attributes and default values
         self.value = 0
-        self.ic_per = ""
-        self.mc_per = ""
+        self.ic_period = ""
+        self.mc_period = ""
         self.unit = "day"    
         
         ##2 ******* if necessary, update attributes from kwargs (cs, di)
         self.__dict__.update(kwargs)
         self.harmonic = int(self.harmonic) #be sure of int type
         self.code = "{}{}".format(self.type, "%03d" % self.harmonic)
-         
         
+        ## check constraints format
+        if not self.check_RST(self.mc_period):
+            raise ValueError(""""{}: mc_period = '{}'. Must be a combination of 'R', 'S', 'T' or ''. """.format(self.code, self.mc_period))
+            
+        if not self.check_RST(self.ic_period):
+            raise ValueError(""""{}: ic_period = '{}'. Must be a combination of  'R', 'S', 'T' or ''. """.format(self.code, self.ic_period))
+         
         ##3 ******* from_snx_param() construction, > build param_type attributes
         if type(self.cs)!=None and (self.dim!=None):
             self.param_type = "{}{}{}".format(self.code, self.cs[0], self.dim) # ex: A001CX
             self.param_type_old = "{}{}{}{}".format(self.type, self.harmonic, self.cs, self.dim) # ex: A1COSX
+            
+        self.verbose = self.build_verbose()
         
         #if 'type' is 'A' or 'D' > value from PERIODS dict, set in any case value from this reference dictionary
         if self.type in [k[0] for k in PERIODS.keys()]: #1st letter: A, D
             h1 = "{}001".format(self.type) #A001, D001
+            
+            if self.value != 0 :#another value provides by user with code 'A' annual or 'D'... warning
+                logging.warning(f"With code '{self.code}':{self.verbose}. You cannot set 'value' attribute. Use code 'P' in this case.")
+            
             self.value = PERIODS[h1]/self.harmonic
             
-        self.verbose = self.build_verbose()
-       
         
     @classmethod   
     def from_record(self, record_obj):
-        
         """
         Period builds from record() object
         
@@ -506,17 +515,17 @@ class Period():
                              code format must be a 4 characters string as 'Pk', where k is 3 str between '001' and '999'. Your record object : {}""".format(list(PERIODS.keys()), record_obj.__dict__))
         
         ## check constraints format
-        if self.check_RST(record_obj.mc_per):
-            mc_per = record_obj.mc_per
+        if hasattr(record_obj, 'mc_period'):
+            mc_period = record_obj.mc_period
         else:
-            raise ValueError(""""{}: mc_per = '{}'. Must be a combination of 'R', 'S', 'T' or ''. """.format(record_obj.code, record_obj.mc_per))
+            mc_period = ''
             
-        if self.check_RST(record_obj.ic_per):
-            ic_per = record_obj.ic_per
+        if hasattr(record_obj, 'ic_period'):
+            ic_period = record_obj.ic_period
         else:
-            raise ValueError(""""{}: ic_per = '{}'. Must be a combination of  'R', 'S', 'T' or ''. """.format(record_obj.code, record_obj.ic_per))
-        
-        return Period(code=code, value=value, mc_per=mc_per, ic_per=ic_per)
+            ic_period = ''
+       
+        return Period(code=code, value=value, mc_period=mc_period, ic_period=ic_period)
     
     
     @classmethod
@@ -557,7 +566,7 @@ class Period():
     #####----------------------------------------------------------------------------------------
     #####                                   Check functions
     #####----------------------------------------------------------------------------------------
-    def check_RST(s):
+    def check_RST(per, s):
         """
         Verify constraints format "RST"
 
@@ -660,14 +669,16 @@ class Period():
         # Construct the new format code
         return f'{param_type[0]}{str(harmonic).zfill(3)}{type_str}{dim}'
     
-    
 
 
 class Graph_vfconst():
-    
-    
-    
-    def __init__(self, snx, type_graph="VEL"):
+    """
+    This class allows to build a graph from a sinex object (pytrf.sinex) and to resonate in terms of "nodes" (stations) and "edges" (constraints).
+    Useful to understand links between stations and apply/build vfconst file.
+    Based on python networkx library.
+    """
+        
+    def __init__(self, snx):
         """
         Constructor, from pytrf.sinex and vfconst.yml file
 
@@ -680,7 +691,7 @@ class Graph_vfconst():
         type_graph : str, optional
             Graph type (default "VEL"): 
                 >"VEL", load only VELOCITIES type from vfconst file
-                >"PER", load only PERIODS type from vfconst YAML file
+                >"PERIOD", load only PERIODS type from vfconst YAML file
         Returns
         -------
         None.
@@ -689,10 +700,8 @@ class Graph_vfconst():
         self.snx = snx
         #build id dataframes : station & sites (only base on DOMES 5 first chr)
         self.df_staId, self.df_sites = self.generate_staId()
-        self.type_graph = type_graph #vel on periods
         
-        
-        
+              
     def generate_staId(self):
         """ DataFrame summarizing stations in self.snx file
             Columns : [domes, code, pt, soln, staId]
@@ -718,28 +727,45 @@ class Graph_vfconst():
         
         return df_domes_snx, df_sites
       
-
         
     #####----------------------------------------------------------------------------------------
     #####                 Build Graphes
     #####----------------------------------------------------------------------------------------  
     
     # get linked stations according vfconst.yml file
-    def build_vfgraph_from_vfconst(self, vfconst):
+    def build_vfgraph_from_vfconst(self, vfconst, type_graph, del_sta_not_in_snx=False):
         """ Build constraints graph from vfconst: stations (node) and edges (constraints)"""
+        if type_graph!='VEL' and (type_graph not in self.snx.iper_dict.keys()):
+            raise ValueError(f"Unknown type graph for current sinex. Possible type_graph: 'VEL' or periods '{list(self.snx.iper_dict.keys())}'")
+        
         graph = nx.Graph()
         # Loop over constrains
         for const in vfconst:
             # convert record to dict
             const = const.__dict__
-            #VELOCITIES
-            if (self.type_graph=="VEL") and ("sta2" in const.keys()) and (const["type"]=="VEL"): #at least 2 stations on this site
-                #no soln consideration
-                graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
-            #PERIODS
-            if (self.type_graph=="PER") and ("sta2" in const.keys()) and (const["type"] in self.snx.iper_dict.keys()):
-                graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
-                
+            
+            #VELOCITIES & PERIODS
+            if (const["type"]== type_graph) and ("sta2" in const.keys()): #at least 2 stations on this site
+                if (const["type"] == 'VEL') or (const["type"] in self.snx.iper_dict.keys()): #velocity or period code: "A001", etc.
+                    #station of vfconst in self.snx ?
+                    add_to_graph=True
+                    if (const['sta1'].replace(" ","") not in self.df_staId.index) :
+                        #logging.warning(f'vfconst {const["sta1"]}: station not in sinex')
+                        add_to_graph=False
+                    if (const['sta2'].replace(" ","") not in self.df_staId.index):
+                        #logging.warning(f'vfconst {const["sta2"]}: station not in sinex')
+                        add_to_graph=False
+                    #del station if not in self.snx?
+                    if del_sta_not_in_snx:
+                        if add_to_graph:
+                            #logging.warning(f'--> add vfconst: {const}')
+                            graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
+                        else:
+                            logging.warning(f'vfconst {const}: not added to vfconst graph (no station in sinex)')
+                            pass
+                    else: #add anyway
+                        graph.add_edge(const['sta1'].replace(" ",""), const['sta2'].replace(" ",""), weight=const["sigma"]) #delete possible space " " -> be more flexible
+            
         return graph
     
     
@@ -762,23 +788,24 @@ class Graph_vfconst():
         return G
     
     
-    def build_graph_same_init_vel(self, vfconst):
-        """Build graph snx SOLN + vfconst"""
-        
+    def build_graph_same_init_x0(self, vfconst=None, type_graph='VEL'):
+        """
+            Build graph snx SOLN + vfconst
+            Thanks to 
+        """
         #whatever soln discontinuities, we will init same VEL for all SOLN
         # sinex SOLN graph:
         gr_snx_soln = self.build_snx_graph(link_only_soln=True)
-        #graĥ vfconst:
-        #be sure init vel
-        self.type_graph = "VEL"
-        gr_vfconst = self.build_vfgraph_from_vfconst(vfconst)
         
-        #add edges from vfconst
-        gr_snx_soln.add_edges_from(gr_vfconst.edges)
+        if type(vfconst) != type(None):
+            #graĥ vfconst:
+            gr_vfconst = self.build_vfgraph_from_vfconst(vfconst, type_graph)
+            #add edges from vfconst
+            gr_snx_soln.add_edges_from(gr_vfconst.edges)
                 
         return gr_snx_soln
     
-    def plot_graph(self,G):
+    def plot_graph(self, G):
         pp.figure()
         nx.draw(G, with_labels=True)
         
@@ -787,7 +814,6 @@ class Graph_vfconst():
         nx.draw_networkx_edge_labels(G, pos=nx.spring_layout(G),)
                                      #edge_labels=edge_labels)
         #nx.draw_networkx_labels(G, pos=nx.spring_layout(G))
-
 
     #####----------------------------------------------------------------------------------------
     #####                 Get nodes & edges informations
@@ -803,21 +829,27 @@ class Graph_vfconst():
         connected_components = [list(component) for component in connected_components]
         return connected_components
     
-        
        
     def get_connected_stations(self,  staId, G):
         staId = staId.replace(" ","")
         
         if staId in G.nodes: #this station exist
             staId_connected = list(nx.node_connected_component(G, staId))
-            return list(self.df_staId.loc[staId_connected,"code"]), list(self.df_staId.loc[staId_connected,"pt"]), list(self.df_staId.loc[staId_connected,"soln"])
+            #filter stations if not in original self.snx but in graph G
+            staId_connected_insnx = []
+            for sta in staId_connected:
+                if sta in self.df_staId.index:
+                    staId_connected_insnx.append(sta)
+                else:
+                    logging.warning(f"'{sta}' in Graph but not in self.snx")
+                
+            return list(self.df_staId.loc[staId_connected_insnx,"code"]), list(self.df_staId.loc[staId_connected_insnx,"pt"]), list(self.df_staId.loc[staId_connected_insnx,"soln"])
         
         else:
             logging.warning(f"Station Id '{staId}' not in sinex.")
             return [],[],[]
         
         
-    
     
     def get_connection_datum(self, staId, G, datum):
         """For staId, provide the name of the linked station referred in datum. Relations & links described by graph G."""
@@ -843,8 +875,8 @@ class Graph_vfconst():
             ref_sta=None
             
         return ref_sta
-        
     
+        
     def map_sites_indatum(self, G, datum):
         """Sites of G link in datum"""
         sta_datum = [(sta.code + sta.pt + soln.soln).replace(" ","") for sta in datum.sta for soln in sta.soln] #staId no space " "
@@ -857,10 +889,16 @@ class Graph_vfconst():
         return list_sites, in_datum
             
     
-                
-    def valid_vfconst_datum(self, vfconst, datum):
-        """ Check if vfconst file is compatible with datum: maximum 1 station by site (i.e. linked station) in datum"""
-        vfgraph = self.build_vfgraph_from_vfconst(vfconst) #build vfcont graphe
+    def valid_datum(self, datum,  vfconst=None, type_graph='VEL'):
+        """ 
+        Check if datum is valid:
+        vfconst file (read_yaml: list of records) is compatible with datum (pytrf.sinex obj) if maximum 1 station by site (i.e. linked station) in datum
+        If vfconst=None, build snx graph only with soln
+        """
+        if type(vfconst) != type(None):
+            vfgraph = self.build_vfgraph_from_vfconst(vfconst, type_graph) #build vfcont graphe
+        else: #no vfconst, graph edges only with soln
+            vfgraph = self.build_snx_graph(link_only_soln=True)
         
         list_sites, in_datum = self.map_sites_indatum(vfgraph, datum)
             
@@ -879,7 +917,4 @@ class Graph_vfconst():
                 list_pbm += list_sta[select]
                 logging.warning(f'Datum vs vfconst, error for vfconst site "{num}": multiple stations in datum: {list_sta[select]}')
                 
-        return valid_vf_datum, list_pbm
-    
-
-        
+        return valid_vf_datum, list_pbm      

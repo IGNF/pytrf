@@ -129,6 +129,7 @@ class sinex:
         get_par_ind()      : Get indices of parameters of specified types
         get_sta_ind()      : Get indices of coordinates of specified station
         get_vel_ind()      : Get indices of velocities of specified station
+        get_per_ind()      : Get indices of periods  of specified station
         get_rs_ind()       : Get indices of coordinates of specified radiosources
         get_common_par()   : Get indices of common parameters between two solutions
         get_common_sta()   : Get indices of common station positions between two solutions
@@ -1129,7 +1130,7 @@ class sinex:
         """
         Checks if a snx.param.type belongs to "periodic type"
         Compatible with previous IRF2020 format: ['A1COSX', 'A1SINX', 'A1COSY', 'A1SINY', 'A1COSZ', 'A1SINZ']
-        New format:                              ['A001CX', 'A001SX', 'A001CY', 'A001SY', 'A100CZ', 'A001SZ']
+        New format:                              ['A001CX', 'A001SX', 'A001CY', 'A001SY', 'A001CZ', 'A001SZ']
         
         Criteria of "periodic type":
             *The string must be exactly 6 characters long.
@@ -2284,6 +2285,63 @@ class sinex:
                 ind[i] = range(snx.iv[j], snx.iv[j]+3)
                 
         return ind
+    
+    # Get indices of periods of specified stations
+    #------------------------------------------------
+    def get_per_ind(snx, percode, code, pt=None, soln=None):
+
+        """
+        Get indices of periods of specified stations
+
+        Returns
+        -------
+        ind : (...,3) array_like
+            Indices of station periods in snx.param
+
+        Parameters
+        ----------
+        percode : list
+            List of 4-char period codes
+        code : list
+            List of 4-char station codes
+        pt : list, optional
+            List of PT codes. Default is None.
+        soln : list, optional
+            List of solns. Default is None.
+        
+        """
+        # Keys and holes : init on 1st period (normally all stations have same periods / same order...)
+        per = percode[0]
+        if (pt) and (soln):
+            keys = [code[i]+pt[i]+soln[i] for i in range(len(code))]
+            holes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper_dict[per]]]
+            
+        elif (pt):
+            keys = [code[i]+pt[i] for i in range(len(code))]
+            holes = [p.code+p.pt for p in [snx.param[i] for i in snx.iper_dict[per]]]
+           
+        elif (soln):
+            keys = [code[i]+soln[i] for i in range(len(code))]
+            holes = [p.code+p.soln for p in [snx.param[i] for i in snx.iper_dict[per]]]
+            
+        else:
+            keys = [code[i] for i in range(len(code))]
+            holes = [p.code for p in [snx.param[i] for i in snx.iper_dict[per]]]
+        
+        # Initialization
+        ind = -np.ones((len(code), 6), dtype='i')
+
+        # Loop over requested stations
+        for i, per in enumerate(percode):
+
+            # If a velocity is available for current station
+            if (keys[i] in holes):
+                
+                # Get indices of its velocity
+                j = holes.index(keys[i])
+                ind[i] = range(snx.iper_dict[per][j], snx.iper_dict[per][j]+6)
+                
+        return ind
 
     # Get indices of coordinates of specified radiosources
     #-----------------------------------------------------
@@ -2564,7 +2622,7 @@ class sinex:
     def get_common_per(snx, ref):
         
         """
-        Get indices of common station periods between two solutions
+        Get indices of common station seasonal periods between two solutions
             
         Returns
         -------
@@ -2589,7 +2647,6 @@ class sinex:
         for per in ref.iper_dict.keys():
             keys_per[per] = [p.code+p.pt+p.soln for p in [ref.param[i] for i in ref.iper_dict[per]]]
         
-        print("REF per key")
         for per in snx.iper_dict.keys():
             if per not in keys_per.keys(): #per not in common 
                 pass
@@ -2889,13 +2946,14 @@ class sinex:
             Indicates which type of parameters should be considered.
             It can be either 'STA' (station and radiosource positions)
             'VEL' (station velocities - radiosource velocities not supported yet).
-            'PER' (station seasonal signals 'period')
+            'PERIOD' (station seasonal signals 'period')
         units : str, optional
             Specifies units of Helmert parameters. It can be either None (mm, ppb, mas)
             or 'm' (m).
         select_periods: str, optional
-            In case of par="PER" (period), specifies on which period provid helmert partial derivative matrix.
+            In case of par='PERIOD' (period), specifies on which period provid helmert partial derivative matrix.
             Default: 'all'. Else list of period code (4 chr). Ex: ['A001', 'D001']
+            This list of period defined also A order construction: 20 columns by period (10 cos (TTTSRRRAAA) + 10 sin select_periods (TTTSRRRAAA))
             
         """
       
@@ -2976,7 +3034,7 @@ class sinex:
             
             
         # 3rd case : Helmert parameter rates, seasonal signals
-        elif (par == 'PER'):
+        elif (par == 'PERIOD'):
             # Re-Initializations: shape according to period number
             if select_periods=="all":
                 select_periods = list(snx.iper_dict.keys())
@@ -3012,7 +3070,7 @@ class sinex:
         # Express Helmert parameters in adequate units
         if (units is None):
             unit_array = np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad])
-            if par!='PER':
+            if par!='PERIOD':
                 A = A * unit_array
             else : #PER case, duplicate dim
                 A = A * np.tile(unit_array, 2*nper) #2: cos & sin parameters
@@ -3021,7 +3079,7 @@ class sinex:
         
         # Indices of relevant columns of A
         ind = []
-        if par == 'PER': #special dim of A
+        if par == 'PERIOD': #special dim of A
             for num, per in enumerate(select_periods): #loop over each period
                 for cs in range(2):
                     if ('T' in helmerts):
@@ -3859,7 +3917,7 @@ class sinex:
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True):
+    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True, periods=[]):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -3877,8 +3935,9 @@ class sinex:
             and 'A' (CRF rotations).
         par : str
             Indicates to which type of parameters constraints should be applied.
-            It can be either 'STA' (station and radiosource positions) or 'VEL'
-            (station velocities - radiosource velocities not supported yet).
+            It can be either 'STA' (station and radiosource positions),
+            'VEL' (station velocities - radiosource velocities not supported yet).
+            'PERIOD' (station seasonal signals 'period')
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -3897,7 +3956,8 @@ class sinex:
             traces of the 3x3 diagonal blocks of the normal matrix that correspond to
             positions/velocities of the candidate stations. Stations with traces
             lower than the median of traces divided by thr**2 are iteratively rejected.
-            
+        periods: list of objects (built with pytrf.utils.Period), optional
+            Period of periodic signals. Must be specified if mc_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         
         # If a datum is specified,
@@ -3908,6 +3968,9 @@ class sinex:
                 (isnx, iref) = snx.get_common_sta(datum)
             elif (par == 'VEL'):
                 (isnx, iref) = snx.get_common_vel(datum)
+            elif (par == 'PERIOD'):
+                (isnx, iref) = snx.get_common_per(datum)
+                
             isnx = np.array(isnx)
             iref = np.array(iref)
             ix = isnx.flatten()
@@ -3928,6 +3991,8 @@ class sinex:
                 isnx = [[i, i+1, i+2] for i in snx.ix]
             elif (par == 'VEL'):
                 isnx = [[i, i+1, i+2] for i in snx.iv]
+            elif (par == 'PERIOD'):
+                isnx = [[i, i+1, i+2, i+3, i+4, i+5] for i in snx.iper]
             isnx = np.array(isnx)
             ix = isnx.flatten()
         
@@ -3952,8 +4017,9 @@ class sinex:
             irs = np.array(irs, dtype='int').flatten()
             
         # Else, 
-        elif (par == 'VEL'):
+        elif (par == 'VEL') or (par=='PERIOD'):
             irs = np.array([], dtype='int')
+            
         
         # If a threshold is specified, reject candidate stations with large uncertainties
         if (thr):
@@ -3973,19 +4039,37 @@ class sinex:
         
         # Design matrix of minimal constraints
         ix = np.hstack((ix, irs))
-        A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
         
-        # Indices of relevant columns of A
-        ind = []
-        if ('T' in helmerts):
-            ind.extend(range(0, 3))
-        if ('S' in helmerts):
-            ind.append(3)
-        if ('R' in helmerts):
-            ind.extend(range(4, 7))
-        if ('A' in helmerts):
-            ind.extend(range(7, 10))
-        
+        if (par == 'STA') or (par == 'VEL'):
+            A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
+            
+            # Indices of relevant columns of A
+            ind = []
+            if ('T' in helmerts):
+                ind.extend(range(0, 3))
+            if ('S' in helmerts):
+                ind.append(3)
+            if ('R' in helmerts):
+                ind.extend(range(4, 7))
+            if ('A' in helmerts):
+                ind.extend(range(7, 10))
+                
+        elif (par == 'PERIOD'):
+            #get helmerts partial deriv. for all periods and param anyway: RSTA
+            A = snx.helmert_partials('RSTA', par, units='m', select_periods=[per.code for per in periods])[ix] #'select_periods' param: be sure of A columns order 
+            #shape A: (k,20*nper) 20: 10 cos (TTTSRRRAAA) + 10 sin (TTTSRRRAAA)
+            
+            # Indices of relevant columns of A
+            ind = []                
+            for num, per in enumerate(periods): #loop over each period
+                for cs in range(2): #cos & sin 
+                    if ('T' in helmerts) and ('T' in per.mc_per): #ask by helmerts + depends on each period attribute: 'mc_per'
+                        ind.extend(7*(2*num+cs) + np.arange(0, 3))
+                    if ('S' in helmerts) and ('S' in per.mc_per):
+                        ind.append(7*(2*num+cs) + 3)
+                    if ('R' in helmerts) and ('R' in per.mc_per):
+                        ind.extend(7*(2*num+cs) + np.arange(4, 7))
+            
         # Either reduce columns of A and compute B
         if not(proj):
             A = A[:,ind]
@@ -4014,7 +4098,7 @@ class sinex:
         """
         Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
         If you want both MEAN and TREND constraints, apply twice this method with par=MEAN and par=TREND
-        You must specify parameters in the YAML file for each solution that you want apply IC: 'ic', 'ic_trend', 'ic_per'
+        You must specify parameters in the YAML file for each solution that you want apply IC: 'ic', 'ic_trend', 'ic_period'
         
         Returns
         -------
@@ -4030,7 +4114,7 @@ class sinex:
             Format example for combination of 3 soltutions : dict_helmert = {0 :'RST', 2:'RS', 3:''}. Key refer to a solution.
         ic_type : str
             Indicates to which type of constraints should be applied.
-            It can be either 'MEAN' (internal constraints on MEAN)'TREND' (internal constraints on TREND) or 'PERIOD' (internal constraints on periodic signals).
+            It can be either 'MEAN' (internal constraints on MEAN) 'TREND' (internal constraints on TREND) or 'PERIOD' (internal constraints on periodic signals).
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -4089,7 +4173,7 @@ class sinex:
                         #time delta
                         dt = (date.from_tsnx(par.tref).mjd - date.from_tsnx(t0).mjd)/365.25 #decimal year conversion
                         for (num_per, per) in enumerate(periods):
-                            if par.type[0] in per.ic_per: # yes const for this period on this para
+                            if par.type[0] in per.ic_period: # yes const for this period on this para
                                 vect_ic[all_transf_id[num], num_per] = dt #2 dim vect_ic : transf param sol dt according to period
                                            
                     
@@ -4254,7 +4338,6 @@ class sinex:
                         i2 = keys_per.index(sta.code+sta.pt+sta.soln[i+1].soln)
                         
                         for percode in snx.iper_dict.keys(): #for each period, according to key of iper_dict (ex:"A001", "A002", etc)
-                            print("  -- Add const amplitude", percode,i1,i2,'--', snx.iper_dict[percode][i1], snx.iper_dict[percode][i2] )
                             # Add constraints between them
                             for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
                                 snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
@@ -4521,18 +4604,21 @@ class sinex:
                     i1 = keys_v.index(const["sta1"].replace(" ", "")) #sta1
                     if "sta2" in const.keys():
                         i2 = keys_v.index(const["sta2"].replace(" ", "")) #sta2
+                        
+                    # Add constraints between them on 3 dims
+                    for k in range(3):
+                        snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
+                        
+                        if "sta2" in const.keys(): #relative to another station "sta2" on the site
+                            snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
+                    nc += 3
+                    
                 except Exception as e: #station not find in sinex...
-                    raise ValueError(f"Unknown station: {e}. Check line '{const}' in {file} file.")
+                    logging.warning(f"[sinex add_vfconst] Unknown station: {e}. Check line '{const}' in {file} file.")
                     
-                # Add constraints between them on 3 dims
-                for k in range(3):
-                    snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
-                    
-                    if "sta2" in const.keys(): #relative to another station "sta2" on the site
-                        snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
-                        snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
-                        snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
-                nc += 3
+                
             
             ### period case
             elif const["type"] in snx.iper_dict.keys():
@@ -4543,18 +4629,19 @@ class sinex:
                     i1 = keys_per.index(const["sta1"].replace(" ", "")) #sta1
                     if "sta2" in const.keys():
                         i2 = keys_per.index(const["sta2"].replace(" ", "")) #sta1
+                        
+                    # Add constraints between them on 3 dims COS + 3 dims SIN
+                    for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
+                        snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
+                        
+                        if "sta2" in const.keys(): #relative to another station "sta2" on the site
+                            snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i2]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i1]+k] -= 1 / sigma**2
+                            snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i2]+k] += 1 / sigma**2
+                    nc += 6
+                    
                 except Exception as e: #station not find in sinex...
-                    raise ValueError(f"Unknown station: {e}. Check line '{const}' in {file} file.")
-                    
-                # Add constraints between them on 3 dims COS + 3 dims SIN
-                for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
-                    snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i1]+k] += 1 / sigma**2
-                    
-                    if "sta2" in const.keys(): #relative to another station "sta2" on the site
-                        snx.Nc[snx.iper_dict[percode][i1]+k,snx.iper_dict[percode][i2]+k] -= 1 / sigma**2
-                        snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i1]+k] -= 1 / sigma**2
-                        snx.Nc[snx.iper_dict[percode][i2]+k,snx.iper_dict[percode][i2]+k] += 1 / sigma**2
-                nc += 6
+                    logging.warning(f"[sinex add_vfconst] Unknown station: {e}. Check line '{const}' in {file} file.")
                 
             ## unknown type    
             else: 
@@ -4650,10 +4737,6 @@ class sinex:
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
         
-        #---test debug
-        ip, rp = snx.get_common_per(ref)
-        print("tts common",[snx.param[ii].type for ii in ip[0]], [snx.param[ii].type for ii in ip[1]])
-        
         # Design matrix
         A = snx.helmert_partials(helmerts, 'STA')[isnx]
         if (len(np.intersect1d(isnx, snx.iv)) > 0):
@@ -4663,7 +4746,7 @@ class sinex:
             snx_perkey = list(snx.iper_dict.keys())
             ref_perkey = list(ref.iper_dict.keys())
             per_keys = [per for per in snx_perkey if per in ref_perkey] #select only common periods . key based on code 4 chr: 'A001' etc.
-            A = np.hstack((A, snx.helmert_partials(helmerts, 'PER', select_periods=per_keys)[isnx]))
+            A = np.hstack((A, snx.helmert_partials(helmerts, 'PERIOD', select_periods=per_keys)[isnx]))
 
         # Right-hand side
         y = snx.x[isnx] - ref.x[iref]
@@ -4681,9 +4764,7 @@ class sinex:
         b = np.dot(AtP, y)
         Qt = invspd(N)
         t = np.dot(Qt, b)
-        
-        print("SHAPE A:",A.shape, t.shape)
-        
+                
         # Residuals
         v = y - np.dot(A, t)
         
@@ -4801,7 +4882,6 @@ class sinex:
         nper = len(dict_all_iper.keys()) #number of periods
         all_iper = sorted(all_iper)
         
-        print("Keyyyys", dict_all_iper.keys())
         # Compute WRMS of ENH station periodic terms residuals
         if (nper > 0): #at least 1 period element in common, btw these 2 snx.
             snx.wrmsp = {} #init WRMS as a dict, key is period
@@ -4847,7 +4927,7 @@ class sinex:
             for num, per in enumerate(dict_all_iper.keys()): #loop over each period
                 for cs in range(2):
                     if ('T' in helmerts):
-                        ind.extend(list(startid + 7*(2*num+cs) + np.arange(0, 3)))
+                        ind.extend(startid + 7*(2*num+cs) + np.arange(0, 3))
                     if ('S' in helmerts):
                         ind.append(startid + 7*(2*num+cs) + 3)
                     if ('R' in helmerts):
@@ -4890,12 +4970,12 @@ class sinex:
                 
             if (nper>0):
                 for per in snx.wrmsp.keys():
-                    print('    WRMS {1} cos X   : {0:8.3f} mm/y'.format(snx.wrmsp[per][0], per), file=out)
-                    print('    WRMS {1} sin X   : {0:8.3f} mm/y'.format(snx.wrmsp[per][1], per), file=out)
-                    print('    WRMS {1} cos Y   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
-                    print('    WRMS {1} sin Y   : {0:8.3f} mm/y'.format(snx.wrmsp[per][3], per), file=out)
-                    print('    WRMS {1} cos Z   : {0:8.3f} mm/y'.format(snx.wrmsp[per][4], per), file=out)
-                    print('    WRMS {1} sin Z   : {0:8.3f} mm/y'.format(snx.wrmsp[per][5], per), file=out)
+                    print('    WRMS {1} cos E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][0], per), file=out)
+                    print('    WRMS {1} sin N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][1], per), file=out)
+                    print('    WRMS {1} cos H   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
+                    print('    WRMS {1} sin E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][3], per), file=out)
+                    print('    WRMS {1} cos N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][4], per), file=out)
+                    print('    WRMS {1} sin H   : {0:8.3f} mm/y'.format(snx.wrmsp[per][5], per), file=out)
             print('', file=out)
 
             # Print estimated parameters and formal errors
@@ -4974,7 +5054,7 @@ class sinex:
             if (nper > 0):
             
                 print('    Station seasonal signal residuals', file=out)
-                print('    --------------------------', file=out)
+                print('    ---------------------------------', file=out)
                 print('', file=out)
                 print('                         |    Raw residuals [mm]      |    Normalized residuals    |', file=out)
                 print('    ---------------------|----------------------------|----------------------------|', file=out)
