@@ -1149,7 +1149,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             
         ## check & warnings
         #check if vfconst & datum are coherent: no linked station (on same site) in datum
-        valid_vfcd, list_pbm = graph.valid_vfconst_datum(datum, vfconst=vfconst, type_graph='VEL') #simple check based on VEL...
+        valid_vfcd, list_pbm = graph.valid_datum(datum, vfconst=vfconst, type_graph='VEL') #simple check based on VEL...
         
         if not valid_vfcd:
             raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')

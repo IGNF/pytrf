@@ -161,6 +161,7 @@ class sinex:
         fix_params()       : Fix parameters of specified types in a normal equation
         setup_gc()         : Set up geocenter coordinates in a normal equation
         prior2ref()        : Set a priori parameter values to reference values
+        extend_param_per() : Extend sinex param with periods, useful to init datum. 
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
         add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
         add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
@@ -3914,6 +3915,63 @@ class sinex:
             snx.x0 = snx.x0 + dx0
             if (snx.N is not None):
                 snx.b = snx.b - np.dot(snx.N, dx0)
+                
+                
+    def extend_param_per(snx, periods):
+        """
+        Extend sinex param with periods (ex: 'A001CX', 'A001SX', 'A001CY', 'A001SY', 'A001CZ', 'A001SZ').
+        Useful to  init datum
+
+        Parameters
+        ----------
+        periods: list of objects (built with pytrf.utils.Period), optional
+            Periods of seasonal signal.
+
+        """
+        
+        for i in snx.ix: #loop over sta position
+            for per in periods: #Period object unit : day.
+                # Add new periodic parameters into combined solution
+                # Add 6 params by Period (3 cos+ 3 sin), copy correct code, soln, tref
+                snx.param.extend(copy.deepcopy(snx.param[i:i+3]))
+                snx.param.extend(copy.deepcopy(snx.param[i:i+3]))
+                
+                #order period p : ApppCX, ApppSX, ApppCY, ApppSY, ApppCZ, ApppSZ with "C" <> "COS" & "S" <> "SIN"
+                for (nu, dim) in enumerate(['X','Y','Z']):
+                    #num correspond to Period order inside list
+                    snx.param[-6+2*nu].type = '{}C{}'.format(per.code, dim)
+                    snx.param[-5+2*nu].type = '{}S{}'.format(per.code, dim)
+                    snx.param[-6+2*nu].unit = 'm   '
+                    snx.param[-5+2*nu].unit = 'm   '
+                
+                # Update combsnx.iper and combsnx.x0
+                # 1 id by amplitude >> 6 element
+                snx.iper.append(len(snx.param)-6) # 1 id by 6 params (consistent with ix and iv param)
+                
+                try:
+                    snx.x0.extend([0, 0, 0, 0, 0, 0])
+                except:
+                    pass
+                    
+                try:
+                    snx.x = np.array(list(snx.x) + [0, 0, 0, 0, 0, 0])
+                except:
+                    pass
+                    
+                try:
+                    snx.sig = np.array(list(snx.sig) + [0, 0, 0, 0, 0, 0])
+                except:
+                    pass
+        
+        
+        #reorder param & set indices
+        snx.npar = len(snx.param)
+        #Sort parameters
+        snx.sort_params()
+        # Reset parameter indices
+        snx.set_par_ind()
+    
+               
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
@@ -3957,7 +4015,7 @@ class sinex:
             positions/velocities of the candidate stations. Stations with traces
             lower than the median of traces divided by thr**2 are iteratively rejected.
         periods: list of objects (built with pytrf.utils.Period), optional
-            Period of periodic signals. Must be specified if mc_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
+            Periods of seasonal signals. Must be specified if mc_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         
         # If a datum is specified,
@@ -4042,7 +4100,6 @@ class sinex:
         
         if (par == 'STA') or (par == 'VEL'):
             A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
-            
             # Indices of relevant columns of A
             ind = []
             if ('T' in helmerts):
@@ -4056,20 +4113,20 @@ class sinex:
                 
         elif (par == 'PERIOD'):
             #get helmerts partial deriv. for all periods and param anyway: RSTA
-            A = snx.helmert_partials('RSTA', par, units='m', select_periods=[per.code for per in periods])[ix] #'select_periods' param: be sure of A columns order 
-            #shape A: (k,20*nper) 20: 10 cos (TTTSRRRAAA) + 10 sin (TTTSRRRAAA)
+            A = snx.helmert_partials('RST', par, units='m', select_periods=[per.code for per in periods])[ix] #'select_periods' param: be sure of A columns order 
+            #shape A: (k,14*nper) 14: 7 cos (TTTSRRR) + 7 sin (TTTSRRR)
             
             # Indices of relevant columns of A
             ind = []                
             for num, per in enumerate(periods): #loop over each period
                 for cs in range(2): #cos & sin 
-                    if ('T' in helmerts) and ('T' in per.mc_per): #ask by helmerts + depends on each period attribute: 'mc_per'
+                    if ('T' in helmerts) and ('T' in per.mc_period): #ask by helmerts + depends on each period attribute: 'mc_period'
                         ind.extend(7*(2*num+cs) + np.arange(0, 3))
-                    if ('S' in helmerts) and ('S' in per.mc_per):
+                    if ('S' in helmerts) and ('S' in per.mc_period):
                         ind.append(7*(2*num+cs) + 3)
-                    if ('R' in helmerts) and ('R' in per.mc_per):
+                    if ('R' in helmerts) and ('R' in per.mc_period):
                         ind.extend(7*(2*num+cs) + np.arange(4, 7))
-            
+                    
         # Either reduce columns of A and compute B
         if not(proj):
             A = A[:,ind]
@@ -4125,7 +4182,7 @@ class sinex:
             Reference date (SINEX date format)
             Must be specified if par='TREND'
         periods: list of objects (built with pytrf.utils.Period), optional
-            Period of periodic signals. Must be specified if ic_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
+            Periods of seasonal signals. Must be specified if ic_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         #initialize nc : number of constraints
         nc = 0
@@ -4360,7 +4417,7 @@ class sinex:
         sigma: float, optional
             sigma constraint [m/y] or [m]
         periods: list of objects (built with pytrf.utils.Period), optional
-            Period of periodic signals
+            Periods of seasonal signals
         Returns
         -------
         None.
@@ -4570,7 +4627,7 @@ class sinex:
         sigma: float, optional
             sigma constraint [m/y] or [m]
         periods: list of objects (built with pytrf.utils.Period), optional
-            Period of periodic signals
+            Periods of seasonal signals
         """
         if not os.path.exists(file):#e no file provides by user, vfconst_file applied
             print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
@@ -4604,6 +4661,8 @@ class sinex:
                     i1 = keys_v.index(const["sta1"].replace(" ", "")) #sta1
                     if "sta2" in const.keys():
                         i2 = keys_v.index(const["sta2"].replace(" ", "")) #sta2
+                    else: #absolute const
+                        snx.param[snx.iv[i1]].const = '0'
                         
                     # Add constraints between them on 3 dims
                     for k in range(3):
@@ -4629,6 +4688,8 @@ class sinex:
                     i1 = keys_per.index(const["sta1"].replace(" ", "")) #sta1
                     if "sta2" in const.keys():
                         i2 = keys_per.index(const["sta2"].replace(" ", "")) #sta1
+                    else: #absolute const
+                        snx.param[snx.iper_dict[percode][i1]].const = '0' #change code in sinex: this station has particular const
                         
                     # Add constraints between them on 3 dims COS + 3 dims SIN
                     for k in range(6):# COSX, SINX, COSY, SINY, COSZ, SINZ
