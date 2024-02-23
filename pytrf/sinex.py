@@ -129,7 +129,7 @@ class sinex:
         get_par_ind()      : Get indices of parameters of specified types
         get_sta_ind()      : Get indices of coordinates of specified station
         get_vel_ind()      : Get indices of velocities of specified station
-        get_per_ind()      : Get indices of periods  of specified station
+        get_per_ind()      : Get indices of periods of specified station
         get_rs_ind()       : Get indices of coordinates of specified radiosources
         get_common_par()   : Get indices of common parameters between two solutions
         get_common_sta()   : Get indices of common station positions between two solutions
@@ -2623,7 +2623,7 @@ class sinex:
     def get_common_per(snx, ref):
         
         """
-        Get indices of common station seasonal periods between two solutions
+        Get indices of common station periodic signals (seasonal, draconitic..) between two solutions
             
         Returns
         -------
@@ -2947,7 +2947,7 @@ class sinex:
             Indicates which type of parameters should be considered.
             It can be either 'STA' (station and radiosource positions)
             'VEL' (station velocities - radiosource velocities not supported yet).
-            'PERIOD' (station seasonal signals 'period')
+            'PERIOD' (station periodic signals 'period', such as seasonal, draconitic...)
         units : str, optional
             Specifies units of Helmert parameters. It can be either None (mm, ppb, mas)
             or 'm' (m).
@@ -3034,7 +3034,7 @@ class sinex:
             A[iv[:,1], 6] =  x[ix[:,0]]
             
             
-        # 3rd case : Helmert parameter rates, seasonal signals
+        # 3rd case : Helmert parameter rates, periodic signals (seasonal, draconitic..)
         elif (par == 'PERIOD'):
             # Re-Initializations: shape according to period number
             if select_periods=="all":
@@ -3925,7 +3925,7 @@ class sinex:
         Parameters
         ----------
         periods: list of objects (built with pytrf.utils.Period), optional
-            Periods of seasonal signal.
+            Periods of signals (seasonal, draconitic..).
 
         """
         
@@ -3995,7 +3995,7 @@ class sinex:
             Indicates to which type of parameters constraints should be applied.
             It can be either 'STA' (station and radiosource positions),
             'VEL' (station velocities - radiosource velocities not supported yet).
-            'PERIOD' (station seasonal signals 'period')
+            'PERIOD' (station periodic signals 'period', such as seasonal, draconitic...)
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -4015,7 +4015,7 @@ class sinex:
             positions/velocities of the candidate stations. Stations with traces
             lower than the median of traces divided by thr**2 are iteratively rejected.
         periods: list of objects (built with pytrf.utils.Period), optional
-            Periods of seasonal signals. Must be specified if mc_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
+            Periods of signals (seasonal, draconitic..). Must be specified if mc_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         
         # If a datum is specified,
@@ -4182,7 +4182,7 @@ class sinex:
             Reference date (SINEX date format)
             Must be specified if par='TREND'
         periods: list of objects (built with pytrf.utils.Period), optional
-            Periods of seasonal signals. Must be specified if ic_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
+            Periods of signals (seasonal, draconitic..). Must be specified if ic_type = "PERIOD". Each Period object contains Period attributes, as 'value' or 'code'
         """
         #initialize nc : number of constraints
         nc = 0
@@ -4417,7 +4417,7 @@ class sinex:
         sigma: float, optional
             sigma constraint [m/y] or [m]
         periods: list of objects (built with pytrf.utils.Period), optional
-            Periods of seasonal signals
+            Periods of signals (seasonal, draconitic..)
         Returns
         -------
         None.
@@ -4627,7 +4627,7 @@ class sinex:
         sigma: float, optional
             sigma constraint [m/y] or [m]
         periods: list of objects (built with pytrf.utils.Period), optional
-            Periods of seasonal signals
+            Periods of signals (seasonal, draconitic..)
         """
         if not os.path.exists(file):#e no file provides by user, vfconst_file applied
             print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
@@ -5033,10 +5033,10 @@ class sinex:
                 for per in snx.wrmsp.keys():
                     print('    WRMS {1} cos E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][0], per), file=out)
                     print('    WRMS {1} sin N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][1], per), file=out)
-                    print('    WRMS {1} cos H   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
+                    print('    WRMS {1} cos U   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
                     print('    WRMS {1} sin E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][3], per), file=out)
                     print('    WRMS {1} cos N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][4], per), file=out)
-                    print('    WRMS {1} sin H   : {0:8.3f} mm/y'.format(snx.wrmsp[per][5], per), file=out)
+                    print('    WRMS {1} sin U   : {0:8.3f} mm/y'.format(snx.wrmsp[per][5], per), file=out)
             print('', file=out)
 
             # Print estimated parameters and formal errors
@@ -5089,7 +5089,7 @@ class sinex:
             print('', file=out)
             print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
-            print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
+            print('     code pt soln |     E        N        U    |     E        N       U     |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
             for i in ix:
                 print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
@@ -5103,7 +5103,7 @@ class sinex:
                 print('', file=out)
                 print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
-                print('     code pt soln |     E        N        H    |     E        N        H    |', file=out)
+                print('     code pt soln |     E        N        U    |     E        N        U    |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
                 for i in iv:
                     print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
@@ -5114,12 +5114,12 @@ class sinex:
             # Print station PERIODS residuals
             if (nper > 0):
             
-                print('    Station seasonal signal residuals', file=out)
+                print('    Station periodic signal residuals', file=out)
                 print('    ---------------------------------', file=out)
                 print('', file=out)
                 print('                         |    Raw residuals [mm]      |    Normalized residuals    |', file=out)
                 print('    ---------------------|----------------------------|----------------------------|', file=out)
-                print('     code pt soln  type  |     E        N        H    |     E        N        H    |', file=out)
+                print('     code pt soln  type  |     E        N        U    |     E        N        U    |', file=out)
                 print('    ---------------------|----------------------------|----------------------------|', file=out)
                 for i in all_iper:
                     per = snx.param[i].type[:-2]
@@ -5235,7 +5235,7 @@ class sinex:
             print('', file=out)
             print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
-            print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
+            print('     code pt soln |     E        N        U    |     E        N       U     |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
             for i in indx:
                 print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[ix[i,0]], snx.v[ix[i]], snx.vn[ix[i]]), file=out)
@@ -5268,7 +5268,7 @@ class sinex:
             print('', file=out)
             print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
-            print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
+            print('     code pt soln |     E        N        U    |     E        N       U     |', file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
             for i in indv:
                 print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[iv[i,0]], snx.v[iv[i]], snx.vn[iv[i]]), file=out)
@@ -5716,10 +5716,7 @@ class sinex:
             
             # Component
             j = 'XYZ'.index(p.type[5])
-            
-            # Annual harmonic
-            k = int(p.type[1])
-            
+                        
             # Given date - reference date
             dt = mjd - date.from_tsnx(p.tref).mjd
             
@@ -5727,10 +5724,11 @@ class sinex:
             if snx.is_period(p.type): #it is a periodic param
                 #built period object (compatible old and new syntax A1COSX & A001CX)
                 per = Period.from_snx_param(p.type)
-                if (per.cs == 'COS'):
-                    c = cos(2*pi*k*dt/365.25)
-                elif (per.cs == 'SIN'):
-                    c = sin(2*pi*k*dt/365.25)
+                #period assumed to be type 'A' (annual) or 'D' (draconitic) -> per.value exists (no type 'P')
+                if (per.cs == 'COS') and (per.value!=0):
+                    c = cos(2*pi*dt/per.value)
+                elif (per.cs == 'SIN') and (per.value!=0):
+                    c = sin(2*pi*dt/per.value)
                 dx[j] = dx[j] + c*snx.x[i]
                 s2x[j] = s2x[j] + (c*snx.sig[i])**2
 
@@ -6032,11 +6030,14 @@ class sinex:
 
     # Print table of transformation parameters, as "status3.out" in catref software
     #-------------------------------------------------
-    def status3(snx, inputs, out="status3.out", quiet=False):
+    def status3(snx, inputs, out="status3.out", quiet=False, save_fout=True, save_ftable=True):
         """
-        Summarizes for each individual solution listed in "inputs" the transformation parameters, number of common points, WRMS
-        Writes defaults status3.out file.
-        The equivalent of "status3" catref module.
+        Summarizes the transformation parameters (values in "snx") for each solution listed in "inputs"
+           + number of common points & WRMS if "inputs" provided
+           
+        Writes files:
+            -status3.out     --> equivalent of "status3" catref module
+            -status3.out.tab --> summary table of the transformation parameters for each solution/time (easely re-openable)
         
         Apply this function to sinex object built after the combination process (i.e. snxcmb.combine() or snxcmb.combine_iter())
 
@@ -6045,72 +6046,105 @@ class sinex:
         snx : sinex object
             sinex built as a result of the combination process, from other sinex files.
         inputs : list of record() objects
-            Provides list of sinex solution object, particularly with ".snx" attribute of each elements.
+            Provides list of input solutions, particularly with ".snx" attribute (pytrf.sinex).
             Solutions read and build with read_yaml() function.
+            If inputs=None or []: only RST table provided, no WRMS stats on each input solutions.
         out: str
             path of output status3 file. Default "status3.out"
         quiet : bool, optional
             Whether not to print output messages. Default is False.
+        save_fout: bool, optional
+            If True, write status3.out file (equivalent of catref 'status3' output)
+        save_ftable: bool, optional
+            If True, write status3.out.table file (summary table with transf parameters, easely re-openable)
 
         Returns
         -------
-        None. Print status3 content and write table at out path (default: "status3.out")
-
+        Print status3 content and write table at out path (default: "status3.out")
+        df_transf: pandas.DataFrame
+            Summary table of the transformation parameters for each solution/time
         """
-        #transform param
-        list_id = snx.itrans
+        #retrieve values of snx.param. 1 object by line-> "type" attribute.
+        sols = [record.code for record in np.array(snx.param)[snx.itrans]]
+        names = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[snx.itrans]]
+        values = [snx.x[i] for i in snx.itrans]
+        sigs = [snx.sig[i] for i in snx.itrans]
+        epoch = [snx.param[i].tref for i in snx.itrans]
         
-        #name in snx.param. 1 object by line. We look "type" attribute.
-        codes = [record.code for record in np.array(snx.param)[list_id]]
-        names = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[list_id]]
-        values = [snx.x[i] for i in list_id]
-        sigs = [snx.sig[i] for i in list_id]
-        
-        #create df objetc
+        #create df object
         df_transf = pd.DataFrame()
-        df_transf["codes"] = codes
+        df_transf["solutions"] = sols
         df_transf["names"] = names
         df_transf["values"] = values
         df_transf["sigs"] = sigs
+        df_transf["epoch"] = epoch
         
-        df = df_transf.pivot(index='codes', columns = 'names', values='values')
-        df_sigs = df_transf.pivot(index='codes', columns = 'names', values='sigs')
+        #separation 2 df: values + sigmas
+        df = df_transf.pivot(index=['solutions', 'epoch'], columns = 'names', values='values')
+        df.columns.name=''
+        df = df.reset_index().set_index("solutions")
+     
+        df_sigs = df_transf.pivot(index=['solutions', 'epoch'], columns = 'names', values='sigs')
+        df_sigs.columns.name=''
+        df_sigs = df_sigs.reset_index().set_index("solutions")
         
         #reorder as catref : T,S,R
-        order = ["TX[mm]" ,"TY[mm]","TZ[mm]","SC[ppb]","RX[mas]","RY[mas]","RZ[mas]"]
+        order = ["TX[mm]" ,"TY[mm]","TZ[mm]","SC[ppb]","RX[mas]","RY[mas]","RZ[mas]", "epoch"]
         df = df.reindex(columns=order)
         df_sigs = df_sigs.reindex(columns=order)
         
-        centers = df.index
-        dims = df.columns
+        #concat RST values + sigmas in 1 table
+        df_sigs = df_sigs.rename(columns= {col: 's' + col for col in df_sigs.columns[:-1]})
+        df_transf = pd.concat([df.drop('epoch', axis=1), df_sigs], axis=1) #1 table
+        df_transf['mjd'] = df_transf["epoch"].apply(lambda t : date.from_tsnx(t).mjd) #add mjd date, allow to sort date not possible with sinex time format ('99': 1999 vs '01':2001)
+        df_transf = df_transf.sort_values(by='mjd') #sort according to date
+        df_transf = df_transf[[col for col in df_transf.columns if col != 'epoch'] + ['epoch']] #set epoch to the end
         
+        ### Write solution
+        solutions = df_transf.index
+        dims = order[:-1] #all columns, except 'epoch'
+                
         text = "{0:<10}".format("Solutions")
         for d in dims:
             text+="{0:>10}".format(d)
-            
-        text += "\n------------------------------------------------------------------------------------------"
+        text+="      mjd       epoch"   
+        text += "\n---------------------------------------------------------------------------------------------------------------"
         
-        for cent in centers:
-            text += "\n\n{0:<10}".format(cent)
-            for d in dims:
-                text+="{0:10.3f}".format(df.loc[cent,d])
+        for sol in solutions:
+            text += "\n\n{0:<10}".format(sol)
+            for d in dims: # T, S, R
+                text+="{0:10.3f}".format(df_transf.loc[sol,d])
+            
+            #add epochs
+            text+="   {0:10}".format(df_transf.loc[sol,'mjd'])
+            text+="   {}".format(df_transf.loc[sol,'epoch'])
             
             text += "\n{0:>10}".format("")
             for d in dims:
-                text+="{0:10.3f}".format(df_sigs.loc[cent,d])
+                text+="{0:10.3f}".format(df_transf.loc[sol,'s'+d]) #sTX, sTY ...
                 
         ### add WRMS
-        text += '\n\n__________________WRMS_________________'
-        text += '\n{0:9}{1:9}{2:9}{3:9}{4:9}{5:9}'.format('AC','N','E[mm]','N[mm]','H[mm]','vf')
-        text += '\n-----------------------------------------------'
-        for ac in inputs:
-            text+= '\n{0}{1:9}{2[0]:9.3f}{2[1]:9.3f}{2[2]:9.3f}{3:9.3f}'.format(ac.name, ac.nobs, ac.wrms, ac.vf)
-        
-        #global varince factor
-        text+= "\n\nGlobal var factor : {}".format(np.sqrt(snx.stats.vf))
+        if bool(inputs): #if no inputs, this WRMS stats block not computed, only RST from snx.
+            text += '\n\n__________________WRMS_________________'
+            text += '\n{0:9}{1:9}{2:9}{3:9}{4:9}{5:9}'.format('AC','N','E[mm]','N[mm]','U[mm]','vf')
+            text += '\n-----------------------------------------------'
+            for ac in inputs:
+                text+= '\n{0}{1:9}{2[0]:9.3f}{2[1]:9.3f}{2[2]:9.3f}{3:9.3f}'.format(ac.name, ac.nobs, ac.wrms, ac.vf)
+            
+            #global varince factor
+            text+= "\n\nGlobal var factor : {}".format(np.sqrt(snx.stats.vf))
         
         if not quiet:
             print(text)
         
-        with open(out, 'w') as f:
-            f.write(text)
+        if save_fout: #save status3 file
+            with open(out, 'w') as f:
+                f.write(text)
+        
+        if save_ftable: #save df_transf as table file
+            with open(out + '.tab', 'w') as f: #write df_transf (easy re-openable table)
+                df_transf['mjd'] = df_transf['mjd'].astype(str) #set mjd type as str (format write)
+                f.write(df_transf.to_string(float_format='%7.3f'))
+                df_transf['mjd'] = df_transf['mjd'].astype(float) #set mjd type as float again 
+                
+        return df_transf

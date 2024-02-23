@@ -358,15 +358,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
     mc_period : str, optional
-        String indicating which minimal constraints should be applied to station seasonal periods.
+        String indicating which minimal constraints should be applied to station periodic signals (seasonal, draconitic..).
         It can be composed of any combination of letters 'T' (translations),
         'S' (scale) and 'R' (rotations). Default is None.
     mc_period_sig : float or str, optional
-        Sigma of minimal constraints to be applied to station seasonal periods in m. Default is 1e-5.
+        Sigma of minimal constraints to be applied to station periodic signals (seasonal, draconitic..) in m. Default is 1e-5.
         It can also be set to 'auto' in which case an adequate sigma will be automatically set
         by sinex.add_mc().
     mc_period_thr : float, optional
-        If set, then station seasonal periods with large uncertainties will be rejected from the set
+        If set, then station periodic signals (seasonal, draconitic..) with large uncertainties will be rejected from the set
         of station positions to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
     
@@ -630,7 +630,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
                 # Add new station into combined solution
                 combsnx.sta.append(copy.deepcopy(snx.sta[ista]))
-                combsnx.sta[-1].soln = [snx.sta[ista].soln[isoln]]
+                combsnx.sta[-1].soln = [copy.deepcopy(snx.sta[ista].soln[isoln])]
                 combsnx.codept.append(p.code+p.pt)
                 
                 combsnx.sta[-1].soln[0].nobs = 1
@@ -925,8 +925,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Make room if needed
         if not(store_inputs):
             del sol.snx
-
-
 
     # Add transfomation parameters
     #-----------------------------
@@ -1421,10 +1419,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 print('        Add minimal constraints to station velocities', file=out)
             nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
             
-        # Add minimal constraints to station seasonal periods
+        # Add minimal constraints to station periodic signals (seasonal, draconitic..)
         if (mc_period):
             if not(quiet):
-                print('        Add minimal constraints to station seasonal periods', file=out)
+                print('        Add minimal constraints to station periodic signals', file=out)
                 print('          {}'.format([(per.code, per.mc_period) for per in periods]), file=out)
             nc += combsnx.add_mc(mc_period, 'PERIOD', sigma=mc_period_sig, datum=datum, thr=mc_period_thr, periods=periods)
             
@@ -1783,15 +1781,15 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
     mc_period : str, optional
-        String indicating which minimal constraints should be applied to station seasonal periods.
+        String indicating which minimal constraints should be applied to station periodic signals (seasonal, draconitic..).
         It can be composed of any combination of letters 'T' (translations),
         'S' (scale) and 'R' (rotations). Default is None.
     mc_period_sig : float or str, optional
-        Sigma of minimal constraints to be applied to station seasonal periods in m. Default is 1e-5.
+        Sigma of minimal constraints to be applied to station periodic signals (seasonal, draconitic..) in m. Default is 1e-5.
         It can also be set to 'auto' in which case an adequate sigma will be automatically set
         by sinex.add_mc().
     mc_period_thr : float, optional
-        If set, then station seasonal periods with large uncertainties will be rejected from the set
+        If set, then station periodic signals (seasonal, draconitic..) with large uncertainties will be rejected from the set
         of station positions to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
     
@@ -1983,7 +1981,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
             print('', file=out)
             print('                       |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
             print('    -------------------|----------------------------|----------------------------|', file=out)
-            print('     sol. code pt soln |     E        N        H    |     E        N        H    |', file=out)
+            print('     sol. code pt soln |     E        N        U    |     E        N        U    |', file=out)
             print('    -------------------|----------------------------|----------------------------|', file=out)
 
         # Second loop over input solutions to reject outliers
