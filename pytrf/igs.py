@@ -439,16 +439,16 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
                 s = ' {0.name}   {1} {0.nsta:5d} {0.ndat:5d} {0.ncore:5d} '.format(ac, d)
                 y = '    - {{ac: {0.name}, day: {1}, nsta: {0.nsta:5d}, nrf: {0.ndat:5d}, ncore: {0.ncore:5d}, '.format(ac, d)
                 if hasattr(ac, 'sf'):
-                    s = s + '{0:10.6f} '.format(ac.sf)
-                    y = y + 'sqrtvf: {0:10.6f}, '.format(ac.sf)
+                    s += '{0:10.6f} '.format(ac.sf)
+                    y += 'sqrtvf: {0:10.6f}, '.format(ac.sf)
                 else:
-                    s = s + '           '
-                    y = y + 'sqrtvf:           , '
-                s = s + '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f} '.format(ac.wrms)
-                y = y + 'wrms: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}], '.format(ac.wrms)
+                    s += '           '
+                    y += 'sqrtvf:           , '
+                s += '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f} '.format(ac.wrms)
+                y += 'wrms: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}], '.format(ac.wrms)
                 if hasattr(ac, 'sigm'):
-                    s = s + '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f}'.format(ac.sigm)
-                    y = y + 'sigm: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}]}}'.format(ac.sigm)
+                    s += '{0[0]:9.3f} {0[1]:9.3f} {0[2]:9.3f}'.format(ac.sigm)
+                    y += 'sigm: [{0[0]:9.3f},{0[1]:9.3f},{0[2]:9.3f}]}}'.format(ac.sigm)
                 else:
                     y = y[:-2] + '}'
                 print(s, file=fsum)
@@ -498,53 +498,53 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
                 y = '    - {ac: '+ac.name+', day: '+str(d)
 
                 if hasattr(ac, 'vxpo'):
-                    s = s + ' {0:9.3f}'.format(ac.vxpo)
-                    y = y + ', dxpo:{0:9.3f}'.format(ac.vxpo)
+                    s += ' {0:9.3f}'.format(ac.vxpo)
+                    y += ', dxpo:{0:9.3f}'.format(ac.vxpo)
                 else:
-                    s = s + '          '
-                    y = y + ', dxpo:         '
+                    s += '          '
+                    y += ', dxpo:         '
 
                 if hasattr(ac, 'vypo'):
-                    s = s + ' {0:9.3f}'.format(ac.vypo)
-                    y = y + ', dypo:{0:9.3f}'.format(ac.vypo)
+                    s += ' {0:9.3f}'.format(ac.vypo)
+                    y += ', dypo:{0:9.3f}'.format(ac.vypo)
                 else:
-                    s = s + '          '
-                    y = y + ', dypo:         '
+                    s += '          '
+                    y += ', dypo:         '
 
                 if hasattr(ac, 'vxpor'):
-                    s = s + ' {0:9.3f}'.format(ac.vxpor)
-                    y = y + ', dxpor:{0:9.3f}'.format(ac.vxpor)
+                    s += ' {0:9.3f}'.format(ac.vxpor)
+                    y += ', dxpor:{0:9.3f}'.format(ac.vxpor)
                 else:
-                    s = s + '          '
-                    y = y + ', dxpor:         '
+                    s += '          '
+                    y += ', dxpor:         '
 
                 if hasattr(ac, 'vypor'):
-                    s = s + ' {0:9.3f}'.format(ac.vypor)
-                    y = y + ', dypor:{0:9.3f}'.format(ac.vypor)
+                    s += ' {0:9.3f}'.format(ac.vypor)
+                    y += ', dypor:{0:9.3f}'.format(ac.vypor)
                 else:
-                    s = s + '          '
-                    y = y + ', dypor:         '
+                    s += '          '
+                    y += ', dypor:         '
 
                 if hasattr(ac, 'vlod'):
-                    s = s + ' {0:9.3f}'.format(ac.vlod)
-                    y = y + ', dlod:{0:9.3f}'.format(ac.vlod)
+                    s += ' {0:9.3f}'.format(ac.vlod)
+                    y += ', dlod:{0:9.3f}'.format(ac.vlod)
                 else:
-                    s = s + '          '
-                    y = y + ', dlod:         '
+                    s += '          '
+                    y += ', dlod:         '
 
                 if hasattr(ac, 'vxgc'):
-                    s = s + ' {0:9.3f} {1:9.3f} {2:9.3f}'.format(ac.vxgc, ac.vygc, ac.vzgc)
-                    y = y + ', dgc:[{0:9.3f},{1:9.3f},{2:9.3f}]'.format(ac.vxgc, ac.vygc, ac.vzgc)
+                    s += ' {0:9.3f} {1:9.3f} {2:9.3f}'.format(ac.vxgc, ac.vygc, ac.vzgc)
+                    y += ', dgc:[{0:9.3f},{1:9.3f},{2:9.3f}]'.format(ac.vxgc, ac.vygc, ac.vzgc)
                 else:
-                    s = s + 3*'          '
-                    y = y + ', dgc:                               '
+                    s += 3*'          '
+                    y += ', dgc:                               '
 
                 if hasattr(ac, 'vsc'):
-                    s = s + ' {0:9.3f}'.format(ac.vsc)
-                    y = y + ', dsc:{0:9.3f}}}'.format(ac.vsc)
+                    s += ' {0:9.3f}'.format(ac.vsc)
+                    y += ', dsc:{0:9.3f}}}'.format(ac.vsc)
                 else:
-                    s = s + '          '
-                    y = y + ', dsc:         }'
+                    s += '          '
+                    y += ', dsc:         }'
 
                 print(s, file=fsum)
                 print(y, file=fyml)
@@ -628,8 +628,8 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
                     s = ' {0}   {1}   '.format(ac.name, d)
                     y = '  - {{ac: {0}, day: {1}, sta: ['.format(ac.name, d)
                     for sta in ac.rej:
-                        s = s + sta + ' '
-                        y = y + sta + ', '
+                        s += sta + ' '
+                        y += sta + ', '
                     s = s[:-1]
                     y = y[:-2] + ']}'
                     print(s, file=fsum)
@@ -689,7 +689,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('', file=fsum)
     s = '  - No sitelog found for station(s): '
     for sta in nolog:
-        s = s + sta + ', '
+        s += sta + ', '
     if (len(nolog) > 0):
         s = s[:-2]
     print(s, file=fsum)
@@ -718,10 +718,10 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('', file=fyml)
     s = 'nologs: ['
     for sta in nolog:
-        s = s + sta + ', '
+        s += sta + ', '
     if (len(nolog) > 0):
         s = s[:-2]
-    s = s + ']'
+    s += ']'
     print(s, file=fyml)
     print('', file=fyml)
     print('errors:', file=fyml)    
@@ -761,10 +761,10 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
     print('', file=fyml)
     s = 'missing: ['
     for sta in missing:
-        s = s + sta + ', '
+        s += sta + ', '
     if (len(missing) > 0):
         s = s[:-2]
-    s = s + ']'
+    s += ']'
     print(s, file=fyml)
     
     # Close output files
