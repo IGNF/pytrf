@@ -11,7 +11,7 @@ import sys
 eps = sys.float_info.epsilon
 import copy
 import pickle
-from math import pi, sqrt, exp, log, ceil, factorial
+from math import pi, sqrt, exp, log, ceil, factorial, tanh, atanh
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
 from scipy.stats import median_abs_deviation as mad
@@ -1217,7 +1217,118 @@ class function:
         f.yc = None
         f.A = None
 
+# dirac class
+#--------------
+class dirac(function):
 
+    """
+    Sub-class of the function class for dirac functions
+
+    A dirac instance is initialized by:
+    
+        f = dirac()
+
+    A dirac instance inherits the attributes from a function instance.
+        
+    Each dirac instance additionally has the following attribute:
+
+        t   : List of outlier dates
+        
+    Each dirac instance additionally has the following methods:
+
+        set_x0()  : Set default a priori values for unknown parameters
+        set_oeq() : Compute predicted observations and design matrix
+
+    """
+
+    # Initialize a dirac instance
+    #------------------------------
+    def __init__(f, t, x=None, fix_x=False, yunit='m'):
+
+        """
+        Initialize a dirac instance
+
+        Returns
+        -------
+        f : dirac instance
+        
+        Parameters
+        ----------
+        t : list, optional
+            List of jump dates
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori)
+            Default is False.
+        yunit : str, optional
+            Time series unit. Default is 'm'.
+
+        """
+
+        super().__init__()
+        
+        if np.isscalar(t) :
+            f.t = [t]
+        else :
+            f.t = t
+        
+        if (x is None):
+            x = len(t) * [None]
+            
+        elif np.isscalar(x):
+            x = len(t) * [x]
+        
+        if isinstance(fix_x, bool):
+            fix_x = len(t) * [fix_x]
+        
+        for i in range(len(t)) :
+            f.par.append(param(type='dirac amplitude', x=x[i], fixed=fix_x[i], unit=yunit))
+
+    # Set default a priori values for unknown parameters
+    #---------------------------------------------------
+    def set_x0(f, m):
+
+        """
+        Set default a priori values for unknown parameters
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+
+        for p in f.par:
+            if (p.x is None):
+                if (p.xc is not None):
+                    p.x = p.xc
+                else:
+                    p.x = 0
+
+    # Compute predicted observations and design matrix
+    #-------------------------------------------------
+    def set_oeq(f, m):
+
+        """
+        Compute predicted observations and design matrix
+
+        set_oeq() does not return anything, but sets attributes yc and A of the polynom instance.
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+            
+        """
+        
+        f.yc = np.zeros(len(m.r.t))
+        f.A = []
+
+        # Initializations
+        for i in range(len(f.t)) :
+            f.A.append((m.r.t == f.t[i]).astype(float))
+            f.yc += f.A[i]*f.par[i].x
 
 # polynom class
 #--------------
@@ -3486,6 +3597,7 @@ class model:
         Qv    : Covariance matrix of residuals
         sv    : Formal errors of residuals
         vn    : Normalized residuals
+        rms   : RMS of residuals
         wrms  : WRMS of residuals
         logl  : Log-likelihood
         loglr : Restricted log-likelihood
@@ -3616,6 +3728,7 @@ class model:
             m.sv = None
             m.Qv = None
             m.vn = None
+            m.rms = None
             m.wrms = None
             m.logl = None
             m.loglr = None
@@ -3812,6 +3925,30 @@ class model:
         
         for d in range(m.nd):
             m[d].f.append(f)
+            
+    # Add dirac function to model
+    #---------------------------------
+    def add_dirac(m, t, x=None, fix_x=False):
+
+        """
+        Add dirac function to model
+
+        Parameters
+        ----------
+        t : list, optional
+            List of outlier dates
+        x : array, optional
+            Parameter values. Default is None.
+        fix_x : bool or array of bool, optional
+            Whether the provided parameter values should be fixed (or only used as a priori)
+            Default is False.
+            
+        """
+        if np.isscalar(t) :
+            t = [t]
+        
+        for d in range(m.nd):
+            m[d].f.append(dirac(t, x, fix_x, m.r.yunit))
 
     # Add polynomial function to model
     #---------------------------------
@@ -5772,6 +5909,9 @@ class model:
                             m[d].sv = np.sqrt(m[d].Qv)
                         else:
                             m[d].sv = np.sqrt(np.diag(m[d].Qv))
+                                        
+                    # RMS of residuals
+                    m[d].rms = sqrt(np.mean((m[d].v)**2))
                     
                     # Normalized residuals
                     m[d].vn = m[d].v / m[d].sv
@@ -5849,6 +5989,7 @@ class model:
                 m[d].sv = None
                 m[d].Qv = None
                 m[d].vn = None
+                m[d].rms = None
                 m[d].wrms = None
                 m[d].logl = None
                 m[d].loglr = None
@@ -5859,7 +6000,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout, use_dirac=False):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -5882,6 +6023,7 @@ class model:
         sv    : Formal errors of residuals
         Qv    : Covariance matrix of residuals
         vn    : Normalized residuals
+        rms   : RMS of residuals
         wrms  : WRMS of residuals
         logl  : Log-likelihood
         loglr : Restricted log-likelihood
@@ -5928,6 +6070,8 @@ class model:
             Whether to hide messages. Default is False.
         verbose : bool, optional
             Whether to show detailed messages. Default is False.
+        use_dirac : bool, optional
+            Whether to model outliers using dirac functions instead of removing them.
         out : file-like, optional
             Log file. Default is sys.stdout.
 
@@ -5954,6 +6098,7 @@ class model:
                     for d in range(m.nd):
                         m[d].sv = np.sqrt(m[d].s2*m[d].Q)
                         m[d].vn = m[d].v / m[d].sv
+                        # m[d].rms  = sqrt(np.mean((m[d].v)**2))
                         m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
                         m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
 
@@ -5980,11 +6125,15 @@ class model:
                         ind = ind + np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
                 ind = list(set(ind))
                 
-                # Clean outliers
+                # Handle outliers
                 if (len(ind) > 0):
-                    m.r.del_points(ind)
-                    for d in range(m.nd):
-                        m[d].r = m.r[d]
+                    
+                    if use_dirac :
+                        m.add_dirac(t=m.r.t[ind])
+                    else :
+                        m.r.del_points(ind)
+                        for d in range(m.nd):
+                            m[d].r = m.r[d]
                     
                 # Or exit
                 else:
