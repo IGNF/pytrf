@@ -2311,8 +2311,12 @@ class sinex:
             List of solns. Default is None.
         
         """
-        # Keys and holes : init on 1st period (normally all stations have same periods / same order...)
+        # Keys and holes : init on 1st period (assumed that all stations have same periods, in the same order...)
         per = percode[0]
+        if per not in snx.iper_dict.keys(): # unknown period
+            logging.warning(f"period '{per}' not in sinex. Possible periods: {list(snx.iper_dict.keys())}")
+            return np.array([])
+        
         if (pt) and (soln):
             keys = [code[i]+pt[i]+soln[i] for i in range(len(code))]
             holes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper_dict[per]]]
@@ -5460,7 +5464,7 @@ class sinex:
         
     # Compute post-seismic deformation of given station at given date
     #----------------------------------------------------------------
-    def get_psd(snx, code, t):
+    def get_psd(snx, code, t, pt=''):
 
         """
         Compute post-seismic deformation of given station at given date
@@ -5476,6 +5480,8 @@ class sinex:
         ----------
         code : str
             4-char station code
+        pt : str
+            PT code
         t : str
             Date (SINEX date format)
         
@@ -5490,7 +5496,7 @@ class sinex:
         ind = []
         for i in range(snx.npar):
             p = snx.param[i]
-            if ((p.code == code) and (p.type[5] == 'E') and (earlier(p.tref, t))):
+            if ((p.code == code) and (p.pt.replace(" ","") == pt.replace(" ","") or pt=='') and (p.type[5] == 'E') and (earlier(p.tref, t))):
                 ind.append(i)
             
         # Loop over model functions
@@ -5534,7 +5540,7 @@ class sinex:
         ind = []
         for i in range(snx.npar):
             p = snx.param[i]
-            if ((p.code == code) and (p.type[5] == 'N') and (earlier(p.tref, t))):
+            if ((p.code == code) and (p.pt.replace(" ","") == pt.replace(" ","") or pt=='') and (p.type[5] == 'N') and (earlier(p.tref, t))):
                 ind.append(i)
             
         # Loop over model functions
@@ -5578,7 +5584,7 @@ class sinex:
         ind = []
         for i in range(snx.npar):
             p = snx.param[i]
-            if ((p.code == code) and (p.type[5] in 'HU') and (earlier(p.tref, t))):
+            if ((p.code == code) and (p.pt.replace(" ","") == pt.replace(" ","") or pt=='') and (p.type[5] in 'HU') and (earlier(p.tref, t))):
                 ind.append(i)
             
         # Loop over model functions

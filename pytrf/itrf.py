@@ -83,9 +83,9 @@ def write_res(snx, acs, fres, fyml):
     print(' ------------------------------', file=fres)
     print('', file=fres)
     
-    header1 = '                  ___________residual__________ _____________sigma___________'
-    header2 = ' sta          AC     E[mm]     N[mm]     H[mm]     E[mm]     N[mm]     H[mm]     mjd        epoch '
-    header3 = ' ------------------------------------------------------------------------------------------------------'
+    header1 = '                    __________________________________model___________________________   ___________________residues______________________   __________obs_________'
+    header2 = ' sta         AC     Em[m]         Nm[m]          Um[m]         sEm[mm] sNm[mm] sUm[mm]   Er[mm]  Nr[mm]  Ur[mm]   sEr[mm] sNr[mm] sUr[mm]    sE[mm]  sN[mm]  sU[mm]      mjd      epoch '
+    header3 = ' ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
     print(header1, file=fres)
     print(header2, file=fres)
     print(header3, file=fres)
@@ -93,7 +93,7 @@ def write_res(snx, acs, fres, fyml):
     # Station position residuals YML header
     print('', file=fyml)
     print('', file=fyml)
-    print('# 1) Station position residuals (unit: mm, frame: ENH):', file=fyml)
+    print('# 1) Station position residuals (unit: mm, frame: ENU):', file=fyml)
     print('#------------------------------------------------------', file=fyml)
     print('', file=fyml)
     print('stares:', file=fyml)
@@ -101,8 +101,9 @@ def write_res(snx, acs, fres, fyml):
     # Station position residuals
     for stasnx in snx.sta:
         code = stasnx.code
+        pt  = stasnx.pt.replace(" ","")
         #write 1 file by station
-        with open(f'res/{code}.res', 'w') as f_stares:
+        with open(f'res/{code}_{pt}.res', 'w') as f_stares:
             f_stares.write(header1 +'\n')
             f_stares.write(header2 +'\n')
             f_stares.write(header3 +'\n')
@@ -118,11 +119,16 @@ def write_res(snx, acs, fres, fyml):
                         datemean = sta.soln[0].datamean
                     #mjd date conversion, usefull for time format pytrf.ts    
                     mjddatemean = date.from_tsnx(datemean).mjd
-                    res_sta_line = ' {0}   {1} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}   {4}   {5}'.format(sta.code+sta.pt+sta.soln[0].soln, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3], mjddatemean, datemean)
+                    #res_sta_line = ' {0}   {1} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}'.format(code, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3])
+                    res_sta_line = ' {0}  {1}  {2[0]:14.5f} {2[1]:14.5f} {2[2]:14.5f} {3[0]:7.3f} {3[1]:7.3f} {3[2]:7.3f}   {4[0]:7.3f} {4[1]:7.3f} {4[2]:7.3f}  {5[0]:7.3f} {5[1]:7.3f} {5[2]:7.3f}   {6[0]:7.3f} {6[1]:7.3f} {6[2]:7.3f}    {7}   {8}'.format(sta.code+sta.pt+sta.soln[0].soln, ac.name, 
+                                                                                                                                                                                                                                                      ac.ym[ix:ix+3], ac.sm[ix:ix+3],
+                                                                                                                                                                                                                                                      ac.v[ix:ix+3],  ac.sv[ix:ix+3],
+                                                                                                                                                                                                                                                      ac.sobs[ix:ix+3], #mm
+                                                                                                                                                                                                                                                      mjddatemean, datemean)
                     # write res_sta_line 
                     f_stares.write(res_sta_line +'\n') #in station res file
                     print(res_sta_line, file=fres)
-                    print('  - {{sta: {0}, ac: {1}, res:[{2[0]:9.3f},{2[1]:9.3f},{2[2]:9.3f}], sig:[{3[0]:9.3f},{3[1]:9.3f},{3[2]:9.3f}], mjd:{4:9}, epoch: {5}}}'.format(code, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3], mjddatemean, datemean), file=fyml)
+                    print('  - {{sta: {0}, ac: {1}, res:[{2[0]:9.4f},{2[1]:9.4f},{2[2]:9.4f}], sig:[{3[0]:9.3f},{3[1]:9.3f},{3[2]:9.3f}], mjd:{4:9}, epoch: {5}}}'.format(code, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3], mjddatemean, datemean), file=fyml)
             print('---------------------------------------------------------------------------------------', file=fres)
             print('', file=fyml)
     
@@ -249,64 +255,113 @@ def write_res(snx, acs, fres, fyml):
     fyml.close()
     
     
-def plot_coord_res_1_sta(snx, sta, solns, psd, detrend=True, res_folder="res"):
     
+def plot_coord_res_1_sta(code, pt, solns, psd, detrend=True, res_folder="res"):
+    """
+    Plot 1 station time serie residues + model
+
+    Parameters
+    ----------
+    code : str
+        station code 4 chr
+    pt : str
+        pt code
+    solns : pytrf.record()
+        solns file, from read_solns
+    psd : pytrf.sinex
+        psd sinex open file
+    detrend : Tbool, optional
+        If plot must be detrended. The default is True. If False: only mean serie is remove.
+    res_folder : str, optional
+        residues folder. The default is "res".
+
+    Returns
+    -------
+    None.
+
+    """
     #open sta residues file
-    df_sta = pd.read_csv('{}/{}.res'.format(res_folder, sta), sep="\s+", header=None, skiprows=3, names=["code","pt","soln","E","N","U","sE","sN","sU","epoch"])
+    pt = pt.replace(" ","")
+    names = ["code","pt","soln", "sol", "Em","Nm","Um","sEm","sNm","sUm","Er","Nr","Ur","sEr","sNr","sUr", "sE","sN","sU", "mjd", "epoch"]
+    df_sta = pd.read_csv('res/{}_{}.res'.format(code, pt), sep="\s+", header=None, index_col=False, skiprows=3, names=names)
     
-    # Read station position time series
-    r = ts.read('../data/coord/'+sta+'_igs.plh', usecols=(3, 6, 7, 8, 9, 10, 11), format=('t', 'y', 'x', 'z', 'sy', 'sx', 'sz'), dims=['East', 'North', 'Up'])
+    r = ts(t=df_sta["mjd"].to_numpy(), y =df_sta.loc[:,["Em","Nm","Um"]].to_numpy(), dims=['East', 'North', 'Up'])
     
-    # Degree -> m conversion
-    r.y[:,0:2] = np.pi/180*ae * r.y[:,0:2]
-    r.Q[:,0:2,0:2] = (np.pi/180*ae)**2 * r.Q[:,0:2,0:2]
-    
-    # Detrend time series
     if detrend:
-        r.detrend()
+        r.detrend(dtrd=1)
+        
+    else: #del only mean
+        r.detrend(dtrd=0)
     
-    # Read discontinuity list and PSD models
-    # solns = read_solns('../data/discontinuities/soln.snx')
-    # psd = sinex.read('../data/psd/psd_IGS.snx')
+    #detrended model [mm]
+    df_sta["Emm"] = r.y[:,0] * 1e3 
+    df_sta["Nmm"] = r.y[:,1] * 1e3
+    df_sta["Umm"] = r.y[:,2] * 1e3
+    
+
+    #observations: model + residues [mm]
+    df_sta["E"] = df_sta["Emm"] + df_sta["Er"]
+    df_sta["N"] = df_sta["Nmm"] + df_sta["Nr"]
+    df_sta["U"] = df_sta["Umm"] + df_sta["Ur"]
+    
+    
+    # Add PSD
+    e_psd, n_psd, u_psd = [], [], []
+    for d in df_sta["epoch"]:
+        e, n, u = psd.get_psd(code, d)[0] #unit: m
+        e_psd.append(e*1e3) #mm conversion
+        n_psd.append(n*1e3)
+        u_psd.append(u*1e3)
+        
+    df_sta["Emmpsd"] = df_sta["Emm"] + np.array(e_psd)
+    df_sta["Nmmpsd"] = df_sta["Nmm"] + np.array(n_psd)
+    df_sta["Ummpsd"] = df_sta["Umm"] + np.array(u_psd)
+    
     
     # Get dates and causes of discontinuities
-    i = [s.code for s in solns].index(sta)
-    yd = [date.from_tsnx(p.end).ydec() for p in solns[i].P[:-1]]
-    cd = [p.cause for p in solns[i].P[:-1]]
-    
-    # Format causes of discontinuities
-    for i in range(len(cd)):
-        if (cd[i][:2] == 'EQ'):
-            cd[i] = cd[i][:7]
-        elif (len(cd[i]) > 20):
-            cd[i] = cd[i][:20]
-    
-    # Initialize model
-    m = model.from_solns(r, solns, sta, per=[365.25, 182.625], noise=['vw'], psd=psd, fix_tau=True, fix_amp=True)
-    
-    # Iteratively fit model and remove outliers
-    m.fit_iter(thr_norm=5, finalize=False, quiet=True)
-    
-    # Plot station position time series + residuals
+    try: 
+        i = [s.code for s in solns].index(code)
+        yd = [date.from_tsnx(p.end).ydec() for p in solns[i].P[:-1]]
+        cd = [p.cause for p in solns[i].P[:-1]]
+        
+        # Format causes of discontinuities
+        for i in range(len(cd)):
+            if (cd[i][:2] == 'EQ'):
+                cd[i] = cd[i][:7]
+            elif (len(cd[i]) > 20):
+                cd[i] = cd[i][:20]
+                
+    except: #not in soln
+        yd = []
+        pass
+        
+    #### Plot station position time series + residuals
     pp.figure(figsize=(20, 10), tight_layout=True)
-    y = [date.from_mjd(d).ydec() for d in m.r.t]
-    mv = [mad(m[d].v) for d in range(3)]
+    y = [date.from_mjd(d).ydec() for d in df_sta["mjd"]]
+    mv = [mad(df_sta[dim]) for dim in ['Er', 'Nr', 'Ur']] #mm
     
-    for d in range(3): #ENU
+    print("mv:",mv)
+    
+    dims = ['East', 'North', 'Up']
+    for d, dim in enumerate(dims): #ENU
         pp.subplot(3, 2, 2*d+1)
         pp.grid()
-        pp.errorbar(y, 1000*m.r[d].y, yerr=1000*m[d].sv, fmt='.k', ecolor='grey', zorder=10)
-        pp.plot(y, 1000*m[d].yc, 'r', linewidth=2, zorder=20)
-        ymin = 1000*np.min(m[d].yc)-5000*mv[d]
-        ymax = 1000*np.max(m[d].yc)+5000*mv[d]
+        pp.errorbar(y, df_sta['{}'.format(dim[0])], yerr=df_sta['s{}'.format(dim[0])], fmt='.k', ecolor='grey', zorder=10)
+        #pp.plot(y, df_sta['{}mm'.format(dim[0])], 'g', linewidth=2, zorder=20) # only model
+        pp.plot(y, df_sta['{}mmpsd'.format(dim[0])], 'r', linewidth=2, zorder=20) #model + psd
+        ymin = np.min(df_sta['{}mm'.format(dim[0])])-5*mv[d]
+        ymax = np.max(df_sta['{}mm'.format(dim[0])])+5*mv[d]
         pp.axis([y[0], y[-1], ymin, ymax])
-        pp.ylabel(m[d].r.dims+' [mm]')
+        pp.ylabel(dim+' [mm]')
 
         for i in range(len(yd)):
             pp.plot([yd[i], yd[i]], [ymin, ymax], '--r', linewidth=2, zorder=5)
             pp.text(yd[i], (ymin+ymax)/2, cd[i], ha='right', va='center', color='r', rotation=90, fontsize=10, zorder=15, fontweight='bold')
         if (d == 0):
-            pp.title('Detrended station position time series + model')
+            if detrend:
+                pp.title('Detrended station position time series + model')
+            else:
+                pp.title('Station position time series + model')
            
         if (d == 2):
             pp.xlabel('time [yr]')
@@ -314,11 +369,11 @@ def plot_coord_res_1_sta(snx, sta, solns, psd, detrend=True, res_folder="res"):
         #residues     
         pp.subplot(3, 2, 2*d+2)
         pp.grid()
-        pp.errorbar(y, 1000*m[d].v, yerr=1000*m[d].sv, fmt='.k', ecolor='gray', zorder=10)
-        ymin = -5000*mv[d]
-        ymax = +5000*mv[d]
+        pp.errorbar(y, df_sta['{}r'.format(dim[0])], yerr=df_sta['s{}r'.format(dim[0])], fmt='.k', ecolor='gray', zorder=10)
+        ymin = -5*mv[d]
+        ymax = +5*mv[d]
         pp.axis([y[0], y[-1], ymin, ymax])
-        pp.ylabel(m[d].r.dims+' residuals [mm]')
+        pp.ylabel(dim+' residuals [mm]')
     
         for i in range(len(yd)):
             pp.plot([yd[i], yd[i]], [ymin, ymax], '--r', linewidth=2, zorder=5)

@@ -25,7 +25,7 @@ from astropy.timeseries.periodograms.lombscargle.implementations.utils import tr
 #-----------------
 from pytrf import date
 from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot
-
+from pytrf.utils import Period
 
 
 # ts class
@@ -3796,6 +3796,130 @@ class model:
             m.add_psd(psd, code=code, pt=pt, fix_tau=fix_tau, fix_amp=fix_amp, dims=dims)
             
         return m
+    
+    # Initialize model instance from discontinuity list in (pseudo-)SINEX format
+    #---------------------------------------------------------------------------
+    @classmethod
+    def from_sinex(m, r, snx, code, pt=None, noise=None, psd=None, fix_tau=False, fix_amp=False, dims='ENU'):
+        
+        """
+        Create model instance from sinex instance ('snx'), discontinuity list in (pseudo-)SINEX format
+        and optionally SINEX file containing post-seismic deformation models
+        
+        In case the specified station is not found in the discontinuity list,
+        a model instance with "constant position" and "constant velocity" is returned.        
+        
+        Warning: Dates in the returned model are MJDs. The dates of the time series r
+        must therefore also be MJDs.
+
+        Warning: If a SINEX file containing post-seismic deformation models is provided,
+        the amplitudes of the exp/log functions in the returned model are in m.
+        The time series r must therefore also be expressed in m.
+        
+        Parameters
+        ----------
+        r : ts instance
+            The corresponding time series
+        snx : pytrf.sinex object
+            sinex instance, containing station model ('VEL', periodic signals...)
+        code : str
+            4-char station ID
+        pt : str, optional
+            Station PT code. Default is None.
+        noise : list, optional
+            List of noise types
+        psd : sinex instance, optional
+            sinex instance containing post-seismic deformation models. Default is None.
+        fix_tau : bool, optional
+            Whether relaxation times should be considered fixed. Default is False.
+        fix_amp : bool, optional
+            Whether amplitudes should be considered fixed. Default is False.
+        dims: str, optional
+            If a sinex instance with post-seismic deformation models is provided, then
+            this keyword is needed to know the order of the ENH component(s) in the time
+            series r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
+            in the same order as those components are stored in r. Default is 'ENU'.
+            
+        """
+
+        # Raise an error if a SINEX file with post-seismic deformation models is provided,
+        # but there is an obvious problem with argument dims.
+        if (psd is not None) and (len(dims) != r.nd):
+            raise RuntimeError('Provided argument dims=\''+dims+'\' does not match time series dimension.')
+        
+        #retrieve sta informations in sinex: sinex.sta (record obj)
+        if (pt is not None):
+            _pt = [pt]
+            staid = (code + pt).replace(" ","") #del space: more flexible (pt: ' A'..)
+            sta = [sta for sta in snx.sta if (sta.code + sta.pt).replace(" ","") == staid][0]  #del space: more flexible (pt: ' A'..)
+        else: #no pt
+            _pt = None
+            staid = code
+            sta = [sta for sta in snx.sta if sta.code == staid][0]
+        
+        #get sta information in sinex.sta
+        solns = sta.soln
+        # t0 from tref of parameters
+        t0 = snx.param[snx.get_sta_ind([code]).reshape(-1)[0]].tref #tsnx
+        t0 = date.from_tsnx(t0).mjd #mjd
+        
+        # Initialize model instance
+        m = model(r, t0=t0, noise=noise)
+        
+        #list of time discontinuities, mjd format
+        mjd_disc = np.array([date.from_tsnx(soln.dataend).mjd for soln in solns if (soln.dataend != '00:000:00000')])
+        #init dict_f: dict with functions values (polynom + sine)
+        dict_f={"sta":{"x":{0:[], 1:[], 2:[]}, "sig":{0:[], 1:[], 2:[]}}, "per":{}}
+        
+        for soln in solns: #loop over sta solns
+            #STA
+            ids = snx.get_sta_ind(code=[code], pt=_pt, soln=[soln.soln]).reshape(-1) #3 id XYZ
+            for dim in range(3):
+                dict_f["sta"]["x"][dim].append(snx.x[ids[dim]])
+                dict_f["sta"]["sig"][dim].append(snx.sig[ids[dim]])
+                
+            #VEL
+            if bool(snx.iv):
+                # create keys in dict_f if doesn't exist yet (1st soln loop)
+                dict_f.setdefault("vel", {"x":{0:[], 1:[], 2:[]}, "sig":{0:[], 1:[], 2:[]}})
+                
+                ids = snx.get_vel_ind(code=[code], pt=_pt, soln=[soln.soln]).reshape(-1) #3 id XYZ
+                for dim in range(3):
+                    dict_f["vel"]["x"][dim].append(snx.x[ids[dim]])
+                    dict_f["vel"]["sig"][dim].append(snx.sig[ids[dim]])
+                  
+            #PERIOD
+            if bool(snx.iper):
+                for per in snx.iper_dict.keys():
+                    # create keys in dict_f if doesn't exist yet (1st soln loop)
+                    per_obj = Period(code=per)
+                    dict_f["per"].setdefault(per_obj.value, {"x":{0:[], 1:[], 2:[]}, "sig":{0:[], 1:[], 2:[]}}) # per:{365.25:{x:{0:[],1:[],2:[]}, sig:{0:[],1:[],2:[]}}, 182.625:{...}}
+                    ids = snx.get_per_ind([per], code=[code], pt=_pt, soln=[soln.soln]).reshape(-1) #6 ids: cosX, sinX, cosY, sinY, cosZ, sinZ
+                    for dim in range(3):
+                        dict_f["per"][per_obj.value]["x"][dim] += [ snx.x[ids[2*dim]], snx.x[ids[2*dim+1] ]]
+                        dict_f["per"][per_obj.value]["sig"][dim] += [ snx.sig[ids[2*dim]], snx.sig[ids[2*dim+1] ]]
+                             
+        for dim in range(3): #loop other 3 dims ENU
+            #STA
+            m[dim].add_polynom(0, t=mjd_disc, x=np.array(dict_f["sta"]["x"][dim]), fix_x=True)
+            
+            #VEL
+            if bool(snx.iv):
+                m[dim].add_polynom(1, t=mjd_disc, x=np.array(dict_f["vel"]["x"][dim]), fix_x=True)
+                
+            #PERIOD
+            if bool(snx.iper):
+                for per_key, per_val in dict_f["per"].items(): # per:{365.25:{x:{0:[],1:[],2:[]}, sig:{0:[],1:[],2:[]}}, 182.625:{...}}
+                    m[dim].add_sine(per_key, t=mjd_disc, x=np.array(dict_f["per"][per_obj.value]["x"][dim]), fix_x=True)
+                    
+            m[dim].set_oeq()
+            
+        # If a PSD file is provided, add PSD functions to model
+        if (psd is not None):
+            m.add_psd(psd, code=code, pt=pt, fix_tau=fix_tau, fix_amp=fix_amp, dims=dims)
+            
+        return m
+    
         
     # Add custom function to model
     #-----------------------------

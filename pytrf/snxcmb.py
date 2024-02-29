@@ -1505,6 +1505,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     vPv = 0
     ntrans = 0
     
+    # compute R matrix for each station
+    for ista, sta in enumerate(combsnx.sta):
+        idx = combsnx.get_sta_ind(code=[sta.code], pt=[sta.pt], soln=[sta.soln[0].soln]).reshape(-1) #coordinates indices of 1st sta soln [[x,y,z]]
+        combsnx.sta[ista].R = xyz2enh(combsnx.x[idx])
     
     
     # Loop over input solutions
@@ -1527,7 +1531,17 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
         # Store number of observations
         sol.nobs = snx.npar
+        
+        # Compute predicted observations and sigmas
+        data = copy.deepcopy(A[isol].data)
+        data[A[isol].indptr[sol.itrans[0]]: A[isol].indptr[sol.itrans[-1]+1]] = 0
+        Am = sparse.csc_matrix((data, A[isol].indices, A[isol].indptr))
+        ind = np.nonzero(Am.indptr[:-1] != Am.indptr[1:])[0] #optimization
 
+        sol.ym = Am[:,ind] @ combsnx.x[ind] #model time serie
+        Qm = Am[:,ind] @ (Am[:,ind] @ combsnx.Q[np.ix_(ind,ind)]).T
+        sol.sm = np.sqrt(np.diag(Qm))
+        
         # Compute residuals
         sol.v = dy[isol] - A[isol].dot(dx)
         
@@ -1589,12 +1603,24 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Rotate residuals into ENH frames and compute variances of ENH observations
         s2 = np.diag(Q).copy()
+        sol.sobs = sol.snx.sig #init sol observation sigma ENU with XYZ sigma
         for i in snx.ix:
-            R = xyz2enh(snx.x[i:i+3])
+            param = snx.param[i]
+            ista = [sta.code + sta.pt for sta in combsnx.sta].index(param.code + param.pt) #find sta.R in combsnx
+            R = combsnx.sta[ista].R
+            print("R station",R.shape, R)
             sol.v[i:i+3] = np.dot(R, sol.v[i:i+3])
             s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3,i:i+3], R.T)))
+            
+            #print(snx.x[i:i+3], sol.ym[i:i+3])
+            #model rotation
+            sol.ym[i:i+3] = np.dot(R, sol.ym[i:i+3])
+            sol.sm[i:i+3] = np.sqrt(np.diag(R @ Qm[i:i+3,i:i+3] @ R.T))
+            sol.sobs[i:i+3] = np.sqrt(np.diag(R @ Q[i:i+3,i:i+3] @ R.T))
+            
             if (norm_res == 'correct'):
                 sol.sv[i:i+3] = np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3,i:i+3], R.T))))
+                
             else:
                 sol.sv[i:i+3] = np.sqrt(s2[i:i+3])
             sol.vn[i:i+3] = sol.v[i:i+3] / sol.sv[i:i+3]
@@ -1613,6 +1639,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Convert residuals, WRMS and median formal errors into mm
         sol.v[ix] = 1000*sol.v[ix]
         sol.sv[ix] = 1000*sol.sv[ix]
+        sol.sm[ix] = 1000*sol.sm[ix]
+        sol.sobs[ix] = 1000*sol.sobs[ix]
+        
         if (len(igc) > 0):
             sol.v[igc] = 1000*sol.v[igc]
             sol.sv[igc] = 1000*sol.sv[igc]
