@@ -52,15 +52,15 @@ def write_mat(M, f):
                 if ((j+2 <= i) and (M[i,j+2] != 0)):
                     f.write(' {0:21.14e}'.format(M[i,j+1]))
                     f.write(' {0:21.14e}\n'.format(M[i,j+2]))
-                    j = j+3
+                    j = j+3 # += ?
                 elif ((j+1 <= i) and (M[i,j+1] != 0)):
                     f.write(' {0:21.14e}\n'.format(M[i,j+1]))
-                    j = j+2
+                    j = j+2 # += ?
                 else: 
                     f.write('\n')
-                    j = j+1
+                    j = j+1 # += ?
             else:
-                j = j+1
+                j = j+1 # += ?
 
 
 
@@ -547,7 +547,7 @@ class sinex:
             i = -1
             while (line[0] != '-'):
                 if (line[0] != '*'):
-                    i = i+1
+                    i = i+1  # += ?
                     r = record()
                     r.type = line[7:13]
                     r.code = line[14:18].upper()
@@ -758,16 +758,16 @@ class sinex:
                     irs = snx.irs + [i+1 for i in snx.irs]
                     f = np.ones(snx.npar)
                     f[irs] = 1/mas2rad
-                    snx.x = f*snx.x
-                    snx.sig = f*snx.sig
+                    snx.x = f*snx.x # *= ?
+                    snx.sig = f*snx.sig # *= ?
                     if (snx.Q is not None):
                         snx.Q = (snx.Q*f).T*f
                     if (snx.x0 is not None):
-                        snx.x0 = f*snx.x0
-                        snx.sig0 = f*snx.sig0
+                        snx.x0 = f*snx.x0  # *= ?
+                        snx.sig0 = f*snx.sig0 # *= ?
                     if (snx.N is not None):
                         snx.N = (snx.N/f).T/f
-                        snx.b = snx.b/f
+                        snx.b = snx.b/f # /= ?
                     if (snx.Nc is not None):
                         snx.Nc = (snx.Nc/f).T/f
                     for i in irs:
@@ -936,7 +936,7 @@ class sinex:
                 if not(snx.sta[i].code+snx.sta[i].pt in keys):
                     snx.sta.pop(i)
                 else:
-                    i = i+1
+                    i = i+1 # += ?
 
             # Update snx.sta[*].soln
             keys = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
@@ -946,7 +946,7 @@ class sinex:
                     if not(s.code+s.pt+s.soln[i].soln in keys):
                         s.soln.pop(i)
                     else:
-                        i = i+1
+                        i = i+1 # += ?
                 
     # Clean radiosource list (remove radiosources that do not correspond to parameters)
     #----------------------------------------------------------------------------------
@@ -967,7 +967,7 @@ class sinex:
                 if not(snx.rs[i].code in keys):
                     snx.rs.pop(i)
                 else:
-                    i = i+1
+                    i = i+1 # += ?
                     
             # Attribute IERS names to radiosource coordinate parameters
             keys = [r.code for r in snx.rs]
@@ -1911,7 +1911,7 @@ class sinex:
                     if (len(ant) == 1) and (len(s.ant) == 1):
                         daz = (int(s.ant[0].daz) - int(ant[0].daz)) % 360
                         if (daz > 180):
-                            daz = daz - 360
+                            daz = daz - 360 # -= ?
                         if (abs(daz) >= 1):
                             metaerr.append('{0}   antenna orientation   {1:<20d}   {2:<20d}   {3:<6s}'.format(s.code, int(s.ant[0].daz), int(ant[0].daz), source))
                         if (abs(daz) > 10):
@@ -2647,9 +2647,9 @@ class sinex:
                     if (core[i][j]+snx.param[isnx].pt+snx.param[isnx].soln in keyr):
                         b = True
                     else:
-                        j = j+1
+                        j = j+1 # += ?
                 else:
-                    j = j+1
+                    j = j+1 # += ?
 
             # If one station of the cluster was found in snx and ref,
             if (b):
@@ -2783,9 +2783,9 @@ class sinex:
 
         # Express Helmert parameters in adequate units
         if (units is None):
-            A = A * np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad])
+            A = A * np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad]) # *= ?
         else:
-            A = A / ae
+            A = A / ae # /= ?
         
         # Indices of relevant columns of A
         ind = []
@@ -3004,8 +3004,8 @@ class sinex:
         P = np.dot(NA, ANAi)
         
         # Update snx.N and snx.b
-        snx.N = snx.N - np.dot(P, NA.T)
-        snx.b = snx.b - np.dot(P, np.dot(A.T, snx.b))
+        snx.N = snx.N - np.dot(P, NA.T) # -= ?
+        snx.b = snx.b - np.dot(P, np.dot(A.T, snx.b)) # -= ?
     
     # Delete (reduce) specified stations
     #----------------------------------
@@ -3283,7 +3283,7 @@ class sinex:
 
                 # If current receiver is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1
+                    i = i+1 # += ?
 
                 # Else, remove it.
                 else:
@@ -3296,7 +3296,7 @@ class sinex:
 
                 # If current antenna is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1
+                    i = i+1 # += ?
 
                 # Else, remove it.
                 else:
@@ -3309,7 +3309,7 @@ class sinex:
 
                 # If current eccentricity is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1
+                    i = i+1 # += ?
 
                 # Else, remove it.
                 else:
@@ -3342,7 +3342,7 @@ class sinex:
         snx.b = np.dot(snx.N, snx.x - snx.x0)
         
         # Unconstrained normal matrix
-        snx.N = snx.N - snx.Nc
+        snx.N = snx.N - snx.Nc # -= ?
         
         # Delete covariance matrix
         snx.Q = None
@@ -3495,7 +3495,7 @@ class sinex:
         snx.b = A.dot(snx.b)
 
         # Update snx.npar
-        snx.npar = snx.npar + 3
+        snx.npar = snx.npar + 3 # += ?
         
     # Set up scale factor in a normal equation
     #-----------------------------------------
@@ -3549,7 +3549,7 @@ class sinex:
         snx.b = A.dot(snx.b)
 
         # Update snx.npar
-        snx.npar = snx.npar + 1
+        snx.npar = snx.npar + 1 # += ?
 
     # Set a priori parameter values to reference values
     #--------------------------------------------------
@@ -3572,9 +3572,9 @@ class sinex:
         dx0 = np.zeros(snx.npar)
         dx0[isnx] = ref.x[iref] - snx.x0[isnx]
         if (np.any(dx0)):
-            snx.x0 = snx.x0 + dx0
+            snx.x0 = snx.x0 + dx0 # += ?
             if (snx.N is not None):
-                snx.b = snx.b - np.dot(snx.N, dx0)
+                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
@@ -3636,8 +3636,8 @@ class sinex:
             dx0 = np.zeros(snx.npar)
             dx0[ix] = datum.x[ir] - snx.x0[ix]
             if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0
-                snx.b = snx.b - np.dot(snx.N, dx0)
+                snx.x0 = snx.x0 + dx0 # += ?
+                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
             
         # Else,
         else:
@@ -3662,8 +3662,8 @@ class sinex:
             dx0 = np.zeros(snx.npar)
             dx0[irs] = crf_datum.x[iref] - snx.x0[irs]
             if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0
-                snx.b = snx.b - np.dot(snx.N, dx0)
+                snx.x0 = snx.x0 + dx0 # += ?
+                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
 
         # Else, get indices of all radiosources,
         elif (par == 'STA'):
@@ -3717,7 +3717,7 @@ class sinex:
         
         # Add minimal constraints to normal matrix of constraints
         ix2 = np.ix_(ix, ix)
-        snx.Nc[ix2] = snx.Nc[ix2] + np.dot(B.T, B) / sigma**2
+        snx.Nc[ix2] = snx.Nc[ix2] + np.dot(B.T, B) / sigma**2 # += ?
         
         # Change constraint codes of constrained parameters
         for i in ix:
@@ -3920,14 +3920,14 @@ class sinex:
         # Compute covariance matrix of residuals if needed
         if (norm_res == 'correct'):
             Qv = np.zeros((snx.npar, snx.npar))
-            Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T))
+            Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T)) 
             
         # Scale covariance matrices with unit variance factor if needed
         if (apply_vf):
-            Q = sig02 * Q
-            Qt = sig02 * Qt
+            Q = sig02 * Q # *= ?
+            Qt = sig02 * Qt # *= ?
             if (norm_res == 'correct'):
-                Qv = sig02 * Qv
+                Qv = sig02 * Qv # *= ?
                 
         # Variances of observations
         s2 = np.diag(Q).copy()
@@ -3981,8 +3981,8 @@ class sinex:
                 
         # Convert geocenter residuals into mm
         igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
-        snx.v[igc] = 1000*snx.v[igc]
-        snx.sv[igc] = 1000*snx.sv[igc]
+        snx.v[igc] = 1000*snx.v[igc] # *= ?
+        snx.sv[igc] = 1000*snx.sv[igc]  # *= ?
         
         # Indices of radiosource coordinate residuals
         indrs = np.nonzero(snx.v[snx.irs])[0]
@@ -4473,7 +4473,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[0] = dx[0] + amp * da
+                dx[0] = dx[0] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4484,7 +4484,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[0] = dx[0] + amp * da
+                dx[0] = dx[0] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4517,7 +4517,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[1] = dx[1] + amp * da
+                dx[1] = dx[1] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4528,7 +4528,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[1] = dx[1] + amp * da
+                dx[1] = dx[1] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4561,7 +4561,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[2] = dx[2] + amp * da
+                dx[2] = dx[2] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4572,7 +4572,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[2] = dx[2] + amp * da
+                dx[2] = dx[2] + amp * da # += ?
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4624,14 +4624,14 @@ class sinex:
                 
                 # Add or remove post-seismic deformations
                 if (remove):
-                    snx.x[i:i+3] = snx.x[i:i+3] - dxyz
+                    snx.x[i:i+3] = snx.x[i:i+3] - dxyz # -= ?
                 else:
-                    snx.x[i:i+3] = snx.x[i:i+3] + dxyz
+                    snx.x[i:i+3] = snx.x[i:i+3] + dxyz # += ?
                     
                 # Update covariance matrix if required
                 if (update_cov):
                     if (snx.Q is not None):
-                        snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz
+                        snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz # += ?
                         snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
                     else:
                         snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
@@ -4693,8 +4693,8 @@ class sinex:
                 c = cos(2*pi*k*dt/365.25)
             elif (p.type[2:5] == 'SIN'):
                 c = sin(2*pi*k*dt/365.25)
-            dx[j] = dx[j] + c*snx.x[i]
-            s2x[j] = s2x[j] + (c*snx.sig[i])**2
+            dx[j] = dx[j] + c*snx.x[i] # += ?
+            s2x[j] = s2x[j] + (c*snx.sig[i])**2 # += ?
 
         return (dx, np.sqrt(s2x))
         
@@ -4724,9 +4724,9 @@ class sinex:
             (dx, sx) = seas.get_seas(p.code, p.pt, p.soln, p.tref)
             
             # Add seasonal signals
-            snx.x[i:i+3] = snx.x[i:i+3] + dx
+            snx.x[i:i+3] = snx.x[i:i+3] + dx # += ?
             if (snx.Q is not None):
-                snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + np.diag(sx**2)
+                snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + np.diag(sx**2) # += ?
                 snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
             else:
                 snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
@@ -4772,15 +4772,15 @@ class sinex:
                     if (mjd in rec.mjd) and (mjd in ref.mjd):
                         irec = (np.nonzero(rec.mjd == mjd))[0][0]
                         iref = (np.nonzero(ref.mjd == mjd))[0][0]
-                        b = b + ref.lod[iref] - rec.lod[irec]
-                        n = n+1
+                        b = b + ref.lod[iref] - rec.lod[irec] # += ?
+                        n = n+1 # += ?
 
                 # If at least one previous day was available,
                 if (n > 0):
 
                     # Modify normal equation
-                    b = b / n
-                    snx.b = snx.b + b*snx.N[:,i]
+                    b = b / n # /= ?
+                    snx.b = snx.b + b*snx.N[:,i] # += ?
 
                     # Print message
                     if not(quiet):
