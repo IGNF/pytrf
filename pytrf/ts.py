@@ -222,7 +222,7 @@ class ts:
                 r.ctrd = np.zeros((1, r.nd))
                 for j in range(r.nd):
                     r.ctrd[0,j] = np.mean(r.y[:,j])
-                    r.y[:,j] = r.y[:,j] - r.ctrd[0,j] # -= ?
+                    r.y[:,j] -= r.ctrd[0,j]
                     
             elif (dtrd == 1):
                 r.dtrd = 1
@@ -230,7 +230,7 @@ class ts:
                 dt = r.t - r.t0 
                 for j in range(r.nd):
                     r.ctrd[:,j] = trend(dt, r.y[:,j])
-                    r.y[:,j] = r.y[:,j] - r.ctrd[0,j] - r.ctrd[1,j]*dt # -= ?
+                    r.y[:,j] -= r.ctrd[0,j] + r.ctrd[1,j]*dt
 
             # Initialize outliers
             r.ndel = 0
@@ -566,8 +566,8 @@ class ts:
                 
             for j in range(r.nd):
                 tr = np.mean(r.y[:,j])
-                r.ctrd[0,j] = r.ctrd[0,j] + tr # += ?
-                r.y[:,j] = r.y[:,j] - tr # += ?
+                r.ctrd[0,j] += tr
+                r.y[:,j] -= tr
                 
         elif (dtrd == 1):
             if (r.dtrd is None):
@@ -577,20 +577,20 @@ class ts:
                 r.dtrd = 1
                 r.ctrd = np.vstack((r.ctrd, np.zeros((1, r.nd))))
             elif (r.dtrd == 1) and (r.t0 != t0):
-                r.ctrd[:,0] = r.ctrd[:,0] + r.ctrd[:,1]*(t0-r.t0) # += ?
+                r.ctrd[:,0] += r.ctrd[:,1]*(t0-r.t0)
             
             r.t0 = t0
             t = r.t - r.t0
 
             if (r.nd == 1):
                 tr = trend(t, r.y)
-                r.ctrd = r.ctrd + tr # += ?
-                r.y = r.y - tr[0] - tr[1]*t # -= ?
+                r.ctrd += tr
+                r.y -= tr[0] + tr[1]*t 
             else:
                 for j in range(r.nd):
                     tr = trend(t, r.y[:,j])
-                    r.ctrd[:,j] = r.ctrd[:,j] + tr # += ?
-                    r.y[:,j] = r.y[:,j] - tr[0] - tr[1]*t  # -= ?
+                    r.ctrd[:,j] += tr
+                    r.y[:,j] -= tr[0] + tr[1]*t 
 
     # Flag outliers
     #--------------
@@ -607,7 +607,7 @@ class ts:
         """
         
         # Update list of outliers
-        r.ndel = r.ndel + len(ind) # += ?
+        r.ndel += len(ind)
         r.tdel = np.hstack((r.tdel, r.t[ind]))
         if not(np.isscalar(r.T)):
             r.Tdel = np.hstack((r.Tdel, r.T[ind]))
@@ -657,7 +657,7 @@ class ts:
                 else:
                     s = np.sqrt(r.Q[:,i,i])
                 sm = np.median(s)
-                ind = ind + np.nonzero(s > thr*sm)[0].tolist() # += ?
+                ind += np.nonzero(s > thr*sm)[0].tolist()
             ind = list(set(ind))
             
             # If any outlier remains, delete them
@@ -1313,7 +1313,7 @@ class dirac(function):
         """
         Compute predicted observations and design matrix
 
-        set_oeq() does not return anything, but sets attributes yc and A of the polynom instance.
+        set_oeq() does not return anything, but sets attributes yc and A of the dirac instance.
 
         Parameters
         ----------
@@ -1458,7 +1458,7 @@ class polynom(function):
                 t0 = t[0]
             b = (t >= t0)
             a = b * (t-t0)**f.deg/factorial(f.deg)
-            f.yc = f.yc + p.x*a # += ?
+            f.yc += p.x*a
             if not(p.fixed):
                 f.A.append(a)
 
@@ -1582,7 +1582,7 @@ class sine(function):
             b = (t >= pc.t)
             Ac = b * np.cos(2*pi*dt/f.per)
             As = b * np.sin(2*pi*dt/f.per)
-            f.yc = f.yc + pc.x*Ac + ps.x*As # += ?
+            f.yc += pc.x*Ac + ps.x*As
             if not(pc.fixed):
                 f.A.append(Ac)
             if not(ps.fixed):
@@ -1711,7 +1711,7 @@ class poisson(function):
             Ac = dt**deg * np.cos(2*pi*dt/f.per)
             As = dt**deg * np.sin(2*pi*dt/f.per)
 
-            f.yc = f.yc + pc.x*Ac + ps.x*As # += ?
+            f.yc += pc.x*Ac + ps.x*As
 
             if not(pc.fixed):
                 f.A.append(Ac)
@@ -2128,11 +2128,11 @@ class noise:
         
         # Date of the noise's beginning and end
         if n.tn is None :
-            n.tn = [t[0],t[-1]]
+            n.tn = [t[0], t[-1]]
         if np.isscalar(n.tn) :
-            n.tn = [n.tn,t[-1]]
+            n.tn = [n.tn, t[-1]]
         elif len(n.tn) == 1 :
-            n.tn = [n.tn[0],t[-1]]
+            n.tn = [n.tn[0], t[-1]]
                 
         # Dates of original noise
         if np.isscalar(T):
@@ -2186,7 +2186,7 @@ class noise:
         if np.isscalar(T) and (T/dt).is_integer():
             
             # Dates of averaged noise
-            td = np.arange(n.tn[0],n.tn[-1]+T, T)
+            td = np.arange(n.tn[0], n.tn[-1]+T, T)
             nd = len(td)
 
             # Averaging factor
@@ -2234,7 +2234,8 @@ class noise:
                         L[i,:(i+1)*d] = hd[-(i+1)*d:]
                     n.Q = np.dot(L, L.T)
                     if (n.flow == '2-way'):
-                        n.Q = (n.Q + n.Q[::-1,::-1]) / 2 # += ?
+                        n.Q += n.Q[::-1,::-1]
+			n.Q /= 2
                     
                     # And its partial derivatives
                     if (set_dcov):
@@ -2245,7 +2246,8 @@ class noise:
                             dLLt = np.dot(dL, L.T)
                             n.dQ.append(dLLt + dLLt.T)
                             if (n.flow == '2-way'):
-                                n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2 # += ?
+                                n.dQ[-1] += n.dQ[-1][::-1,::-1]
+				n.dQ[-1] /= 2
                             
             # Else (no averaging needed),
             else:
@@ -2268,7 +2270,8 @@ class noise:
                     L = linalg.toeplitz(n.h, np.zeros(nf))
                     n.Q = np.dot(L, L.T)
                     if (n.flow == '2-way'):
-                        n.Q = (n.Q + n.Q[::-1,::-1]) / 2 # += ?
+                        n.Q += n.Q[::-1,::-1]
+			n.Q /= 2
                     
                     # And its partial derivatives
                     if (set_dcov):
@@ -2277,15 +2280,16 @@ class noise:
                             dLLt = np.dot(dL, L.T)
                             n.dQ.append(dLLt + dLLt.T)                
                             if (n.flow == '2-way'):
-                                n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2 # += ?
+                                n.dQ[-1] += n.dQ[-1][::-1,::-1]
+				n.dQ[-1] /= 2
 
             # Modulate covariance matrix and partial derivatives with sine wave if needed
             if (n.per is not None):
                 C = linalg.toeplitz(np.cos(2*pi*np.arange(nd)*T/n.per))
-                n.Q = n.Q * C # *= ?
+                n.Q *= C
                 if (n.dQ is not None):
                     for k in range(len(n.dQ)):
-                        n.dQ[k] = n.dQ[k] * C # *= ?
+                        n.dQ[k] *= C
 
             # If there are gaps in the series,
             if (m.r.n < nd):
@@ -2328,7 +2332,8 @@ class noise:
                 L = linalg.toeplitz(n.h, np.zeros(nf))
                 n.Q = np.dot(L, L.T)
                 if (n.flow == '2-way'):
-                    n.Q = (n.Q + n.Q[::-1,::-1]) / 2 # += ?
+                    n.Q += n.Q[::-1,::-1]
+		    n.Q /= 2
                 
                 # And its partial derivatives
                 if (set_dcov):
@@ -2337,15 +2342,16 @@ class noise:
                         dLLt = np.dot(dL, L.T)
                         n.dQ.append(dLLt + dLLt.T)
                         if (n.flow == '2-way'):
-                            n.dQ[-1] = (n.dQ[-1] + n.dQ[-1][::-1,::-1]) / 2 # += ?
+                            n.dQ[-1] += n.dQ[-1][::-1,::-1]
+			    n.dQ[-1] /= 2
             
             # Modulate covariance matrix and partial derivatives with sine wave if needed
             if (n.per is not None):
                 C = linalg.toeplitz(np.cos(2*pi*np.arange(nf)*dt/n.per))
-                n.Q = n.Q * C # *= ?
+                n.Q *= C
                 if (n.dQ is not None):
                     for k in range(len(n.dQ)):
-                        n.dQ[k] = n.dQ[k] * C # *= ?
+                        n.dQ[k] *= C
 
             # Set original noise dates -> observation dates matrix
             A_rows = []
@@ -2428,15 +2434,15 @@ class noise:
                 
             for i in range(m.r.n):
                 ind = ((m.r.t[i] - m.r.t[:i+1]) / dt).astype(int)
-                q[ind] = q[ind] + n.Q[i,:i+1] # += ? 
+                q[ind] += n.Q[i,:i+1]
                 if (set_dpsd):
                     for k in range(len(n.dQ)):
-                        dq[k][ind] = dq[k][ind] + n.dQ[k][i,:i+1] # += ? 
+                        dq[k][ind] += n.dQ[k][i,:i+1]
                         
-            q[1:] = 2*q[1:] # *= ? 
+            q[1:] *= 2
             if (set_dpsd):
                 for k in range(len(n.dQ)):
-                    dq[k][1:] = 2*dq[k][1:] # *= ? 
+                    dq[k][1:] *= 2
 
         # Else (PSD is computed from the covariance vector or MA representation of original noise,
         # assuming constant integration intervals and ignoring gaps in the series),
@@ -2480,14 +2486,14 @@ class noise:
             q[1:] = 2*q[1:]
             if (set_dpsd):
                 for k in range(len(dq)):
-                    dq[k][1:] = 2*dq[k][1:] # *= ? 
+                    dq[k][1:] *= 2
 
             # Modulate total covariance with sine wave if needed
             if (n.per is not None):
-                q = q * np.cos(2*pi*tau/n.per) # *= ? 
+                q *= np.cos(2*pi*tau/n.per)
                 if (set_dpsd):
                     for k in range(len(dq)):
-                        dq[k] = dq[k] * np.cos(2*pi*tau/n.per) # *= ?                  
+                        dq[k] *= np.cos(2*pi*tau/n.per)                
 
         # Compute PSD
         n.P = trig_sum(tau, q/(f*nf), fr[1]-fr[0], len(fr), f0=fr[0], Mfft=24)[1]
@@ -3518,7 +3524,7 @@ class ggm(noise):
             n.dh.append(np.zeros(nf))
             for i in range(1, nf):
                 n.dh[-1][i] = (a/2+i-1)/i * (phi*n.dh[-1][i-1] + n.h[i-1])
-            n.dh[-1] = dt/tau**2*phi * n.dh[-1] # *= ? 
+            n.dh[-1] *= dt/tau**2*phi
 
 
 
@@ -4831,7 +4837,7 @@ class model:
         # Loop over model functions
         for f in m.f:
             f.set_oeq(m)
-            m.yc = m.yc + f.yc # += ? 
+            m.yc += f.yc
             m.A.extend(f.A)
             
         # Finalize design matrix
@@ -4886,9 +4892,9 @@ class model:
         # Compute total covariance matrix
         for n in m.n:
             if (nd == 2) and (n.Q.ndim == 1):
-                m.Q = m.Q + np.diag(n.Q) # += ? 
+                m.Q += np.diag(n.Q)
             else:
-                m.Q = m.Q + n.Q # += ? 
+                m.Q += n.Q
                 
         # Factorize covariance matrix if requested
         if (chol) and (nd == 2):
@@ -4965,7 +4971,7 @@ class model:
         # Compute total PSD of noise model
         m.pn = np.zeros(len(m.fr))
         for n in m.n:
-            m.pn = m.pn + n.P # += ? 
+            m.pn += n.P
             
         # Compute covariance matrix and formal errors of noise model PSD if requested
         if (set_spsd):
@@ -5059,9 +5065,9 @@ class model:
 
                 # Add noise to time series values
                 if (m.nd > 1):
-                    m.r.y[:,d] = m.r.y[:,d] + n.xi # += ? 
+                    m.r.y[:,d] += n.xi
                 else:
-                    m.r.y = m.r.y + n.xi # += ? 
+                    m.r.y += n.xi
 
     # Fit deterministic model with fixed covariance matrix
     #-----------------------------------------------------
@@ -5150,7 +5156,7 @@ class model:
                 for f in m.f:
                     if isinstance(f, fexp) or isinstance(f, flog):
                         if (f.par[1].estim):
-                            i = i+1 # += ? 
+                            i += 1
                             f.par[1].x = f.par[1].xr2x(ltau[i])
             
             # Set predicted observations and design matrix
@@ -5182,8 +5188,8 @@ class model:
                             x0 = p.x
                             xc = p.xc
                             sc = p.sigc
-                        N[i,i] = N[i,i] + 1/sc**2 # += ? 
-                        b[i] = b[i] + (xc-x0)/sc**2 # += ? 
+                        N[i,i] += 1/sc**2
+                        b[i] += (xc-x0)/sc**2
             
             # Solve normal equation
             (m.Qx, m.dN) = invspd(N, return_det=True)
@@ -5216,7 +5222,7 @@ class model:
                 for f in m.f:
                     for p in f.par:
                         if not(p.fixed):
-                            i = i+1 # += ? 
+                            i += 1
                         if (p.sigc is not None):
                             if hasattr(p, 'x2xr'):
                                 x0 = p.x2xr(p.x)
@@ -5226,7 +5232,7 @@ class model:
                                 x0 = p.x
                                 xc = p.xc
                                 sc = p.sigc
-                            N[i,i] = N[i,i] + 1/sc**2 # += ? 
+                            N[i,i] += 1/sc**2
                 (m.Qx, m.dN) = invspd(N, return_det=True)
                 
             # Else, just update observation equations
@@ -5240,11 +5246,11 @@ class model:
         else:
             m.Qx = np.array([[]])
             m.dN = 0
-            
         
-        # Compute residuals
+        # Compute residuals and their RMS
         m.set_oeq()
         m.v = m.r.y - m.yc
+        m.rms = sqrt(np.mean((m.v)**2))
         
         # Weight matrix * residuals
         if (m.Q.ndim == 2) and (m.P is not None):
@@ -5273,7 +5279,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    i = i+1 # += ? 
+                    i += 1
                 if (p.sigc is not None):
                     if hasattr(p, 'x2xr'):
                         x = p.x2xr(p.x)
@@ -5283,9 +5289,9 @@ class model:
                         x = p.x
                         xc = p.xc
                         sc = p.sigc
-                    c = c + 1 # += ? 
-                    dQc = dQc + log(sc**2) # += ? 
-                    vcPcvc = vcPcvc + ((xc-x)/sc)**2 # += ? 
+                    c += 1
+                    dQc += log(sc**2)
+                    vcPcvc += ((xc-x)/sc)**2
         
         # Global variance factor
         if (vf):
@@ -5303,7 +5309,7 @@ class model:
         m.loglr = m.logl + m.nx/2*log(2*pi*m.s2) - m.dN/2 + dQc/2
         
         # Finalize parameter covariance matrix
-        m.Qx = m.s2 * m.Qx # *= ? 
+        m.Qx *= m.s2
         dx = m.dx_dxr()
         m.Qx = dx*(m.Qx*dx).T
         m.set_sigx()
@@ -5525,7 +5531,7 @@ class model:
                             
                             # Multiply all variance factors by estimated global variance factor
                             for n in m[d].n:
-                                n.par[0].x = m[d].s2 * n.par[0].x # *= ?
+                                n.par[0].x *= m[d].s2
                         
                     # 2nd sub-case : conjugate gradient maximization
                     #-----------------------------------------------
@@ -5673,7 +5679,6 @@ class model:
                                     else:
                                         N[i,j] = np.sum(dQP[i]*dQP[j]) / 2
                                     N[j,i] = N[i,j]
-                                    
                             N = db_dbr*(N*db_dbr).T
                             
                             # Fill in right-hand side
@@ -5683,7 +5688,7 @@ class model:
                                     b[i] = (np.sum(m[d].Pv*dQPv[i]) - np.trace(dQP[i])) / 2
                                 else:
                                     b[i] = (np.sum(m[d].Pv*dQPv[i]) - np.sum(dQP[i])) / 2
-                            b = db_dbr*b # *= ?
+                            b *= db_dbr
                             
                             # Solve normal equation
                             db = 0.5*linalg.solve(N, b)
@@ -5697,7 +5702,7 @@ class model:
                             d2b = 0
                             
                             # Update noise parameters
-                            br = br + db + d2b # += ?
+                            br += db + d2b
                             m[d].set_br(br)
                             
                             # Store increment
@@ -5822,7 +5827,7 @@ class model:
                     while (np.max(np.abs(db)) > 1e-5):
                         
                         # Raise error if we're at more than 200 iterations
-                        niter = niter + 1 # += ?
+                        niter += 1
                         if (niter > 200):
                             raise RuntimeError('Maximum number of iterations exceeded.')
                         
@@ -5853,13 +5858,13 @@ class model:
                         N = np.dot(AtP, A)
                         
                         (ll, vv) = linalg.eig(N)
-                        N = N + np.min(np.real(ll))*np.eye(len(N)) # += ?
+                        N += np.min(np.real(ll))*np.eye(len(N))
                         
                         b = np.dot(AtP, m[d].pv - m[d].pn)
                         db = linalg.solve(N, b)
 
                         # Update noise parameters
-                        br = br + db # += ?
+                        br += db
                         m[d].set_br(br)
 
                     # Message
@@ -5910,9 +5915,6 @@ class model:
                             m[d].sv = np.sqrt(m[d].Qv)
                         else:
                             m[d].sv = np.sqrt(np.diag(m[d].Qv))
-                                        
-                    # RMS of residuals
-                    m[d].rms = sqrt(np.mean((m[d].v)**2))
                     
                     # Normalized residuals
                     m[d].vn = m[d].v / m[d].sv
@@ -6001,7 +6003,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout, use_dirac=False):
+    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, use_dirac=False, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -6053,6 +6055,9 @@ class model:
         fr : array, optional
             Frequency range used to compute PSD of noise model and residuals.
             Default is None (automatically set).
+        use_dirac : bool, optional
+            Whether to model outliers using dirac functions instead of removing them.
+            Default is False.
         thr_raw : float, optional
             Multiplicative factor defining thresholds for raw residuals:
             along each component, threshold = thr_raw * WRMS. Default is 5.
@@ -6071,8 +6076,6 @@ class model:
             Whether to hide messages. Default is False.
         verbose : bool, optional
             Whether to show detailed messages. Default is False.
-        use_dirac : bool, optional
-            Whether to model outliers using dirac functions instead of removing them.
         out : file-like, optional
             Log file. Default is sys.stdout.
 
@@ -6084,7 +6087,7 @@ class model:
             i = 0
             end = False
             while (not(end)):
-                i = i+1 # += ?
+                i += 1
                 
                 # De-activate initial LS fit of noise parameters if we're after the 1st iteration
                 if (i > 1):
@@ -6099,7 +6102,6 @@ class model:
                     for d in range(m.nd):
                         m[d].sv = np.sqrt(m[d].s2*m[d].Q)
                         m[d].vn = m[d].v / m[d].sv
-                        # m[d].rms  = sqrt(np.mean((m[d].v)**2))
                         m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
                         m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
 
@@ -6128,10 +6130,9 @@ class model:
                 
                 # Handle outliers
                 if (len(ind) > 0):
-                    
-                    if use_dirac :
+                    if use_dirac:
                         m.add_dirac(t=m.r.t[ind])
-                    else :
+                    else:
                         m.r.del_points(ind)
                         for d in range(m.nd):
                             m[d].r = m.r[d]
@@ -6735,8 +6736,8 @@ class model:
             for i in range(m.r.n):
                 Nc = CtPC[i]
                 if (m[d].nx > 0):
-                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T)) # -= ?
-                T[i] = T[i] + np.sum(CtPv[i]**2/Nc) # += ?
+                    Nc -= np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
+                T[i] += np.sum(CtPv[i]**2/Nc)
                 
         return T
 
@@ -6777,9 +6778,9 @@ class model:
             for i in range(m.r.n-1):
                 Nc = CtPC[i]
                 if (m[d].nx > 0):
-                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T)) # -= ?
+                    Nc -= np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                 if (Nc > 0):
-                    T[i+1] = T[i+1] + np.sum(CtPv[i]**2/Nc) # += ?
+                    T[i+1] += np.sum(CtPv[i]**2/Nc)
                 
         return T
 
@@ -6821,9 +6822,9 @@ class model:
             for i in range(m.r.n):
                 Nc = CtPC[i]
                 if (m[d].nx > 0):
-                    Nc = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T)) # -= ?
+                    Nc -= np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                 if (Nc > 0):
-                    T[i] = T[i] + np.sum(CtPv[i]**2/Nc) # += ?
+                    T[i] += np.sum(CtPv[i]**2/Nc)
                 
         return T
 
@@ -6911,7 +6912,7 @@ class model:
             j = 0
             for i in range(m.r.n):
                 while (tf[j] < t[i]):
-                    j = j+1 # += ?
+                    j += 1
                 ind.append(j)
 
             # Loop over dimensions
@@ -6969,7 +6970,7 @@ class model:
                         Nc2 = Nc - np.dot(CtPA[i], np.dot(m[d].Qx, CtPA[i].T))
                     if (np.linalg.det(Nc2)/np.linalg.det(Nc) > 1e-12):
                         xc = linalg.solve(Nc2, CtPv[i])
-                        T[i] = T[i] + np.dot(xc.T, CtPv[i]) # += ?
+                        T[i] += np.dot(xc.T, CtPv[i])
             
         # Else (irregularly sampled series),
         else:
@@ -6993,6 +6994,6 @@ class model:
                     Nc = CtPC - np.dot(CtPA, np.dot(m[d].Qx, CtPA.T))
                     if (np.linalg.matrix_rank(Nc) == 2):
                         xc = linalg.solve(Nc, CtPv)
-                        T[i] = T[i] + np.dot(xc.T, CtPv) # += ?
+                        T[i] += np.dot(xc.T, CtPv)
                 
         return T

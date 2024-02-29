@@ -276,7 +276,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         snx.codept = [s.code+s.pt for s in snx.sta]
 
         # Update number of observations
-        nobs = nobs + snx.npar # += ?
+        nobs += snx.npar
 
         # Update INPUT/HISTORY and INPUT/FILES blocks of combined SINEX solution
         r = record()
@@ -851,10 +851,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             A_rows.extend(ind[0].tolist())
             A_cols.extend([sol.itrans[i] for i in ind[1]])
             A_vals.extend(H[ind].tolist())
-
-        # Build sparse design matrix of current solution
-        A.append(sparse.csr_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
         
+        # Build sparse design matrix of current solution
+        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
+        ind = np.nonzero(A[isol].indptr[:-1] != A[isol].indptr[1:])[0]
+
         # Get weight matrix of solution isol
         if (snx.N is not None) and (snx.Nc is not None):
             P = snx.N + snx.Nc
@@ -862,22 +863,22 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             P = snx.N
         else:
             P = invspd(snx.Q)
-            
+
         # Project weight matrix if transformation parameters are reduced
         if (reduce_trans):
             HtP = np.dot(H.T, P)
             HtPHi = invspd(np.dot(HtP, H))
-            P = P - np.dot(HtP.T, np.dot(HtPHi, HtP)) # -= ?
+            P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
 
         # Divide weight matrix by a priori variance factor
         if (sol.sf != 1):
-            P = P / sol.sf**2 # /= ?
-        
+            P /= sol.sf**2
+
         # Update normal equation
-        AtP = A[isol].T.dot(P)
-        combsnx.N += A[isol].T.dot(AtP.T)
-        combsnx.b += np.dot(AtP, dy[isol])
-        
+        AtP = A[isol][:,ind].T.dot(P)
+        combsnx.N[np.ix_(ind,ind)] += A[isol][:,ind].T.dot(AtP.T)
+        combsnx.b[ind] += np.dot(AtP, dy[isol])
+
         # Make room if needed
         if not(store_inputs):
             del sol.snx
@@ -981,17 +982,17 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Get covariance matrix of input solution
         Q = snx.Q
         if (sol.sf != 1):
-            Q = Q * sol.sf**2 # *= ?
+            Q *= sol.sf**2
         
         # Get weight matrix of input solution
         if (snx.N is not None) and (snx.Nc is not None):
             P = snx.N + snx.Nc
             if (sol.sf != 1):
-                P = P / sol.sf**2 # /= ?
+                P /= sol.sf**2
         elif (snx.N is not None):
             P = snx.N
             if (sol.sf != 1):
-                P = P / sol.sf**2 # /= ?
+                P /= sol.sf**2
         else:
             P = invspd(Q)
             
@@ -1001,8 +1002,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             H = snx.helmert_partials(sol.params, 'STA')
             HtP = np.dot(H.T, P)
             HtPHi = invspd(np.dot(HtP, H))
-            sol.v = sol.v - np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v))) # -= ?
-            ntrans = ntrans + H.shape[1] # += ?
+            sol.v -= np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v)))
+            ntrans += H.shape[1]
             
         # Covariance matrices of predicted observations if needed
         if not(reduce_trans) and ((norm_res == 'correct') or (vce == 'correct')):
@@ -1025,7 +1026,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         sol.vPv = np.sum(sol.v * np.dot(P, sol.v))
         
         # Update total weighted squared sum of residuals
-        vPv = vPv + sol.vPv # += ?
+        vPv += sol.vPv
 
         # Compute solution variance factor
         if not(reduce_trans) and (vce == 'correct'):
@@ -1058,13 +1059,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             sol.sigm[i] = np.median(np.sqrt(s2[ix[:,i]]))
 
         # Convert residuals, WRMS and median formal errors into mm
-        sol.v[ix] = 1000*sol.v[ix] # *= ?
-        sol.sv[ix] = 1000*sol.sv[ix] # *= ?
+        sol.v[ix] *= 1000
+        sol.sv[ix] *= 1000
         if (len(igc) > 0):
-            sol.v[igc] = 1000*sol.v[igc] # *= ?
-            sol.sv[igc] = 1000*sol.sv[igc] # *= ?
-        sol.wrms = 1000*sol.wrms # *= ?
-        sol.sigm = 1000*sol.sigm # *= ?
+            sol.v[igc] *= 1000
+            sol.sv[igc] *= 1000
+        sol.wrms *= 1000
+        sol.sigm *= 1000
 
         # Make room if needed
         if not(store_inputs):
@@ -1081,13 +1082,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Update standard devations of residuals, normalized residuals and median ENH formal errors
     # with global variance factor
     for sol in inputs:
-        sol.sv = sol.sv * sqrt(vf) # *= ?
-        sol.vn = sol.vn / sqrt(vf) # /= ?
-        sol.sigm = sol.sigm * sqrt(vf) # *= ?
+        sol.sv *= sqrt(vf)
+        sol.vn /= sqrt(vf)
+        sol.sigm *= sqrt(vf)
         
     # Update combined solution with global variance factor
-    combsnx.Nc = combsnx.Nc / vf # /= ?
-    combsnx.Q = combsnx.Q * vf # *= ?
+    combsnx.Nc /= vf 
+    combsnx.Q *= vf
     combsnx.sig = np.sqrt(np.diag(combsnx.Q))
     
     # Set content of SOLUTION/STATISTICS block
