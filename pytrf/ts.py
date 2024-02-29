@@ -2235,7 +2235,7 @@ class noise:
                     n.Q = np.dot(L, L.T)
                     if (n.flow == '2-way'):
                         n.Q += n.Q[::-1,::-1]
-			n.Q /= 2
+                        n.Q /= 2
                     
                     # And its partial derivatives
                     if (set_dcov):
@@ -2247,7 +2247,7 @@ class noise:
                             n.dQ.append(dLLt + dLLt.T)
                             if (n.flow == '2-way'):
                                 n.dQ[-1] += n.dQ[-1][::-1,::-1]
-				n.dQ[-1] /= 2
+                                n.dQ[-1] /= 2
                             
             # Else (no averaging needed),
             else:
@@ -2271,7 +2271,7 @@ class noise:
                     n.Q = np.dot(L, L.T)
                     if (n.flow == '2-way'):
                         n.Q += n.Q[::-1,::-1]
-			n.Q /= 2
+                        n.Q /= 2
                     
                     # And its partial derivatives
                     if (set_dcov):
@@ -2281,7 +2281,7 @@ class noise:
                             n.dQ.append(dLLt + dLLt.T)                
                             if (n.flow == '2-way'):
                                 n.dQ[-1] += n.dQ[-1][::-1,::-1]
-				n.dQ[-1] /= 2
+                                n.dQ[-1] /= 2
 
             # Modulate covariance matrix and partial derivatives with sine wave if needed
             if (n.per is not None):
@@ -2299,7 +2299,7 @@ class noise:
                 j = 0
                 for i in range(len(t)):
                     while (td[j] < t[i]):
-                        j = j+1
+                        j += 1
                     ind.append(j)
 
                 # Covariance matrix of averaged noise at observation dates
@@ -2333,7 +2333,7 @@ class noise:
                 n.Q = np.dot(L, L.T)
                 if (n.flow == '2-way'):
                     n.Q += n.Q[::-1,::-1]
-		    n.Q /= 2
+                    n.Q /= 2
                 
                 # And its partial derivatives
                 if (set_dcov):
@@ -2343,7 +2343,7 @@ class noise:
                         n.dQ.append(dLLt + dLLt.T)
                         if (n.flow == '2-way'):
                             n.dQ[-1] += n.dQ[-1][::-1,::-1]
-			    n.dQ[-1] /= 2
+                            n.dQ[-1] /= 2
             
             # Modulate covariance matrix and partial derivatives with sine wave if needed
             if (n.per is not None):
@@ -2360,7 +2360,7 @@ class noise:
             j = 0
             for i in range(len(t)):
                 while (tf[j] < t[i]-T[i]/2):
-                    j = j+1
+                    j += 1
                 k = j
                 end = False
                 while not(end):
@@ -2369,7 +2369,7 @@ class noise:
                     elif (tf[k] > t[i]+T[i]/2):
                         end = True
                     else:
-                        k = k+1
+                        k += 1
                 ind = np.arange(j, k)
                 A_rows.extend(len(ind)*[i])
                 A_cols.extend(range(j, k))
@@ -4474,7 +4474,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     p.x = x[i]
 
     # Get values of unknown deterministic parameters
@@ -4530,7 +4530,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     if hasattr(p, 'xr2x'):
                         p.x = p.xr2x(xr[i])
                     else:
@@ -4583,7 +4583,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     p.sig = sqrt(m.Qx[i,i])
                     
     # Compute partial derivatives of deterministic parameters wrt reparameterized parameters
@@ -4671,7 +4671,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     p.x = x[i]
 
     # Get values of unknown noise parameters
@@ -4730,7 +4730,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     if hasattr(p, 'xr2x'):
                         p.x = p.xr2x(xr[i])
                     else:
@@ -4783,7 +4783,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    i = i+1
+                    i += 1
                     p.sig = sqrt(m.Qb[i,i])
                     
     # Compute partial derivatives of noise parameters wrt reparameterized parameters
@@ -5140,7 +5140,7 @@ class model:
                     for f in m.f:
                         if isinstance(f, fexp) or isinstance(f, flog):
                             if (f.par[1].estim):
-                                i = i+1
+                                i += 1
                                 f.par[1].x = f.par[1].xr2x(ltau[i])
                     m.fitx(vf=vf, estimator=estimator)
                     if (estimator == 'reml'):
@@ -5178,7 +5178,7 @@ class model:
             for f in m.f:
                 for p in f.par:
                     if not(p.fixed):
-                        i = i+1
+                        i += 1
                     if (p.sigc is not None):
                         if hasattr(p, 'x2xr'):
                             x0 = p.x2xr(p.x)
@@ -6119,13 +6119,13 @@ class model:
                 ind = []
                 if (thr_raw is not None):
                     for d in range(m.nd):
-                        ind = ind + np.nonzero(np.abs(m[d].v) > thr_raw*m[d].wrms)[0].tolist()
+                        ind += np.nonzero(np.abs(m[d].v) > thr_raw*m[d].wrms)[0].tolist()
                 if (thr_norm is not None):
                     for d in range(m.nd):
-                        ind = ind + np.nonzero(np.abs(m[d].vn) > thr_norm)[0].tolist()
+                        ind += np.nonzero(np.abs(m[d].vn) > thr_norm)[0].tolist()
                 if (thr_mad is not None):
                     for d in range(m.nd):
-                        ind = ind + np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
+                        ind += np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
                 ind = list(set(ind))
                 
                 # Handle outliers
@@ -6542,119 +6542,119 @@ class model:
         txt = ''
 
         # Print "metadata"
-        txt = txt + 'ndim: '+str(m.nd) + '\n'
+        txt += 'ndim: '+str(m.nd) + '\n'
         if (m.nd > 1) and (m.r.dims is not None):
             s = 'dims: ['
             for d in range(m.nd):
-                s = s + m.r[d].dims + ', '
+                s +=  m.r[d].dims + ', '
             s = s[:-2] + ']'
-            txt = txt + s + '\n'
-        txt = txt + 'nobs: '+str(m.r.n) + '\n'
-        txt = txt + 'time_unit: '+tunit + '\n'
-        txt = txt + 'series_unit: '+m.r.yunit + '\n'
-        txt = txt + 'date_format: '+dateformat + '\n'
-        txt = txt + 't0: '+print_date(m.t0) + '\n'
-        txt = txt + '\n'
+            txt += s + '\n'
+        txt += 'nobs: '+str(m.r.n) + '\n'
+        txt += 'time_unit: '+tunit + '\n'
+        txt += 'series_unit: '+m.r.yunit + '\n'
+        txt += 'date_format: '+dateformat + '\n'
+        txt += 't0: '+print_date(m.t0) + '\n'
+        txt += '\n'
         
         # Print statistics
         if (m.nd == 1):
-            txt = txt + 'npar:  {0}'.format(m[0].nx+m[0].nb) + '\n'
-            txt = txt + 'wrms:  {0:13.6e}'.format(m[0].wrms) + '\n'
-            txt = txt + 'logl:  {0:13.6e}'.format(m[0].logl) + '\n'
-            txt = txt + 'loglr: {0:13.6e}'.format(m[0].loglr) + '\n'
+            txt += 'npar:  {0}'.format(m[0].nx+m[0].nb) + '\n'
+            txt += 'wrms:  {0:13.6e}'.format(m[0].wrms) + '\n'
+            txt += 'logl:  {0:13.6e}'.format(m[0].logl) + '\n'
+            txt += 'loglr: {0:13.6e}'.format(m[0].loglr) + '\n'
             if (m[0].bic is not None):
-                txt = txt + 'bic:   {0:13.6e}'.format(m[0].bic) + '\n'
+                txt += 'bic:   {0:13.6e}'.format(m[0].bic) + '\n'
             if (m[0].bicr is not None):
-                txt = txt + 'bicr:  {0:13.6e}'.format(m[0].bicr) + '\n'
+                txt += 'bicr:  {0:13.6e}'.format(m[0].bicr) + '\n'
             if (m[0].E is not None):
-                txt = txt + 'E:     {0:13.6e}'.format(m[0].E) + '\n'
+                txt += 'E:     {0:13.6e}'.format(m[0].E) + '\n'
             if (m[0].Er is not None):
-                txt = txt + 'Er:    {0:13.6e}'.format(m[0].Er) + '\n'
+                txt += 'Er:    {0:13.6e}'.format(m[0].Er) + '\n'
         else:
             s = 'npar:  ['
             for d in range(m.nd):
-                s = s + '{0}, '.format(m[d].nx+m[d].nb)
+                s +=  '{0}, '.format(m[d].nx+m[d].nb)
             s = s[:-2] + ']'
-            txt = txt + s + '\n'
+            txt += s + '\n'
             
             if (m[d].wrms is not None):
                 s = 'wrms:  ['
                 for d in range(m.nd):
-                    s = s + '{0:13.6e}, '.format(m[d].wrms)
+                    s +=  '{0:13.6e}, '.format(m[d].wrms)
                 s = s[:-2] + ']'
-                txt = txt + s + '\n'
+                txt += s + '\n'
             
             s = 'logl:  ['
             for d in range(m.nd):
-                s = s + '{0:13.6e}, '.format(m[d].logl)
+                s +=  '{0:13.6e}, '.format(m[d].logl)
             s = s[:-2] + ']'
-            txt = txt + s + '\n'
+            txt += s + '\n'
             
             s = 'loglr: ['
             for d in range(m.nd):
-                s = s + '{0:13.6e}, '.format(m[d].loglr)
+                s +=  '{0:13.6e}, '.format(m[d].loglr)
             s = s[:-2] + ']'
-            txt = txt + s + '\n'
+            txt += s + '\n'
 
             if (m[d].bic is not None):
                 s = 'bic:   ['
                 for d in range(m.nd):
-                    s = s + '{0:13.6e}, '.format(m[d].bic)
+                    s +=  '{0:13.6e}, '.format(m[d].bic)
                 s = s[:-2] + ']'
-                txt = txt + s + '\n'
+                txt += s + '\n'
 
             if (m[d].bicr is not None):
                 s = 'bicr:  ['
                 for d in range(m.nd):
-                    s = s + '{0:13.6e}, '.format(m[d].bicr)
+                    s +=  '{0:13.6e}, '.format(m[d].bicr)
                 s = s[:-2] + ']'
-                txt = txt + s + '\n'
+                txt += s + '\n'
 
             if (m[d].E is not None):
                 s = 'E:     ['
                 for d in range(m.nd):
-                    s = s + '{0:13.6e}, '.format(m[d].E)
+                    s +=  '{0:13.6e}, '.format(m[d].E)
                 s = s[:-2] + ']'
-                txt = txt + s + '\n'
+                txt += s + '\n'
 
             if (m[d].Er is not None):
                 s = 'Er:    ['
                 for d in range(m.nd):
-                    s = s + '{0:13.6e}, '.format(m[d].Er)
+                    s +=  '{0:13.6e}, '.format(m[d].Er)
                 s = s[:-2] + ']'
-                txt = txt + s + '\n'
+                txt += s + '\n'
 
-        txt = txt + '\n'
+        txt += '\n'
         
         # Loop over noise parameters
-        txt = txt + 'noise_params:\n'
+        txt += 'noise_params:\n'
         for d in range(m.nd):
             for n in m[d].n:
                 for p in n.par:
                     
                     # Print current parameter
                     if (n.per is not None):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, n.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
+                        txt += '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, n.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     else:
-                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
+                        txt += '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
 
-        txt = txt + '\n'
+        txt += '\n'
         
         # Loop over deterministic parameters
-        txt = txt + 'params:\n'
+        txt += 'params:\n'
         for d in range(m.nd):
             for f in m[d].f:
                 for p in f.par:
                     
                     # Print current parameter
                     if isinstance(f, polynom):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.deg, print_date(p.t), p.x, p.sig, p.unit) + '\n'
+                        txt += '    - {{idim: {0}, type: {1:<27s}, degree: {2:<7d}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.deg, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     elif isinstance(f, sine):
-                        txt = txt + '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
+                        txt += '    - {{idim: {0}, type: {1:<27s}, period: {2:7.3f}, start: {3}, value: {4:13.6e}, sigma: {5:12.6e}, unit: {6}}}'.format(d, p.type, f.per, print_date(p.t), p.x, p.sig, p.unit) + '\n'
                     else:
-                        txt = txt + '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
+                        txt += '    - {{idim: {0}, type: {1:<44s}, start: {2}, value: {3:13.6e}, sigma: {4:12.6e}, unit: {5}}}'.format(d, p.type, print_date(p.t), p.x, p.sig, p.unit) + '\n'
 
-        txt = txt + '\n'
+        txt += '\n'
         
         return txt
 
