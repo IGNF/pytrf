@@ -26,7 +26,7 @@ from pytrf.io import get_sitelog, read_sitelog
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
 
-
+import gzip
 
 # Some useful functions
 #----------------------
@@ -257,13 +257,20 @@ class sinex:
               - 'stats' in order not to read SOLUTION/STATISTICS block
         
         """
-        
+        def is_gzip(file):
+            gzip_magic_nb = "1f8b"
+            with open(file, "rb") as f:
+                return f.read(2).hex() == gzip_magic_nb
+            
         # Initialization
         snx = sinex()
         snx.file = os.path.basename(file)
 
         # Open input SINEX file
-        f = open(file)#, encoding='ISO-8859-1')
+        if is_gzip(file):
+            f = gzip.open(file,"rt", encoding='ISO-8859-1')
+        else:
+            f = open(file,"r")
 
         # Read 1st line
         line = f.readline()
