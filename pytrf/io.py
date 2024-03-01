@@ -16,6 +16,8 @@ import copy
 import unicodedata
 import numpy as np
 from math import sqrt, log10
+import subprocess
+import sys
 
 # Internal imports
 #-----------------
@@ -47,7 +49,9 @@ def read_yaml(inp, sed=False, t=None):
         Date to be used for keywords substitutions. Default is None.
     """
   
-    y = yaml.load(open(inp), Loader=yaml.FullLoader)
+    # y = yaml.load(open(inp), Loader=yaml.FullLoader)
+
+    y = load_yaml_and_substitute(inp)
     
     # If y is a dictionary,
     if (isinstance(y, dict)):
@@ -1151,3 +1155,89 @@ def read_ndk(files):
         f.close()
     
     return eqs
+
+
+# -----------------------------------------
+
+def parse_real_type(value):
+    """
+    Returns the typed value of a string
+    Args:
+        value (str): value to parse
+
+    Returns:
+        int, float ou str depending of the value content
+
+    >>> parse('1')
+    1
+    >>> parse('0')
+    0
+    >>> parse('-1')
+    -1
+    >>> parse('3.14')
+    3.14
+    >>> parse('0.0')
+    0.0
+    >>> parse('-0.0123456')
+    -0.0123456
+    >>> parse('ABC')
+    'ABC'
+    >>> parse('')
+    ''
+    >>> parse('3x2')
+    '3x2'
+    """
+    try:
+        value = int(value)
+    except ValueError:
+        try:
+            value = float(value)
+        except:
+            pass
+    return value
+            
+
+def substitute_env_variables(data):
+
+    def contains_cmd_substitution(value):
+        # Define regular expressions to match command substitution patterns
+        # backticks_pattern = "^`.*`$"
+        # dollar_parentheses_pattern = "^[$(].*[)]$"
+        backticks_pattern = r"`[^`]*`"
+        dollar_parentheses_pattern = r"\$\([^)]*\)"
+        return re.search(backticks_pattern, value) or re.search(dollar_parentheses_pattern, value)
+
+    def check_elt_type(key_or_id, value):
+
+        if isinstance(value, str):
+            data[key_or_id] = os.path.expandvars(value) # env var substitution
+
+            # original    
+            if contains_cmd_substitution(data[key_or_id]):
+                cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip()
+                data[key_or_id] = parse_real_type(cmd_stdout_as_str)
+
+        if isinstance(value, (dict, list)): # nested
+            substitute_env_variables(value)
+
+    if isinstance(data, dict):
+        for key, value in data.items():
+            check_elt_type(key,value)
+
+    elif isinstance(data, list):
+        for index, item in enumerate(data):
+            check_elt_type(index,item)
+
+
+def load_yaml_and_substitute(filename):
+    try:
+        with open(filename, 'r') as file:
+            yaml_content = yaml.safe_load(file)
+            substitute_env_variables(yaml_content)
+            return yaml_content
+    except FileNotFoundError as e:
+        print(f"File {filename} not found or cannot be opened:", str(e))
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occured while trying to read {filename}:", str(e))
+        sys.exit(1)
