@@ -127,51 +127,47 @@ def read_domes(file, coord=True):
     domes = []
 
     # Open input file
-    f = open(file, 'r')
+    with open(file) as f:
 
-    # Read file
-    line = f.readline()
-    while (line):
-        r = record()
-        r.code = line[0:4]
-        r.pt = line[5:7]
-        r.domes = line[8:17]
-        r.description = line[18:40].strip()
-        r.description = re.subn('–', '-', r.description)[0]
-        r.description = unicodedata.normalize('NFD', r.description).encode('ascii', 'ignore').decode()
-        while (len(r.description) < 22):
-            r.description = r.description + ' '
-      
-        if (coord):
-            tab = line.strip().split()
-            r.lon = float(tab[-2])
-            r.lat = float(tab[-1])
-            #r.lon = int(r.lon) + (r.lon-int(r.lon))/0.6
-            #r.lat = int(r.lat) + (r.lat-int(r.lat))/0.6
-        
-        domes.append(r)
+        # Read file
         line = f.readline()
+        while (line):
+            r = record()
+            r.code = line[0:4]
+            r.pt = line[5:7]
+            r.domes = line[8:17]
+            r.description = line[18:40].strip()
+            r.description = re.subn('–', '-', r.description)[0]
+            r.description = unicodedata.normalize('NFD', r.description).encode('ascii', 'ignore').decode()
+            while (len(r.description) < 22):
+                r.description = r.description + ' '
 
-    # Some manual changes to handle duplicate DOMES numbers
-    for i in range(len(domes)):
-        if (domes[i].code == 'GOLD'):
-            domes[i].domes = '40405S031'
-        elif (domes[i].code == 'IISC'):
-            domes[i].domes = '22306M002'
-        elif (domes[i].code == 'KELY'):
-            domes[i].domes = '43005M002'
-        elif (domes[i].code == 'MDVO'):
-            domes[i].domes = '12309M002'
-        elif (domes[i].code == 'MTKA'):
-            domes[i].domes = '21741S002'
-        elif (domes[i].code == 'UPAD'):
-            domes[i].domes = '12750M002'
-        elif (domes[i].code == 'WEL2'):
-            domes[i].domes = '50208S003'
+            if (coord):
+                tab = line.strip().split()
+                r.lon = float(tab[-2])
+                r.lat = float(tab[-1])
+                #r.lon = int(r.lon) + (r.lon-int(r.lon))/0.6
+                #r.lat = int(r.lat) + (r.lat-int(r.lat))/0.6
 
-    # Close file
-    f.close()
+            domes.append(r)
+            line = f.readline()
 
+        # Some manual changes to handle duplicate DOMES numbers
+        for i in range(len(domes)):
+            if (domes[i].code == 'GOLD'):
+                domes[i].domes = '40405S031'
+            elif (domes[i].code == 'IISC'):
+                domes[i].domes = '22306M002'
+            elif (domes[i].code == 'KELY'):
+                domes[i].domes = '43005M002'
+            elif (domes[i].code == 'MDVO'):
+                domes[i].domes = '12309M002'
+            elif (domes[i].code == 'MTKA'):
+                domes[i].domes = '21741S002'
+            elif (domes[i].code == 'UPAD'):
+                domes[i].domes = '12750M002'
+            elif (domes[i].code == 'WEL2'):
+                domes[i].domes = '50208S003'
     return domes
 
 # Read discontinuity list in (pseudo-)SINEX format
@@ -199,61 +195,58 @@ def read_solns(file):
     ista  = -1    
 
     # Open input file
-    f = open(file, 'r')
+    with open(file) as f:
 
-    # Try to reach beginning of SOLUTION/DISCONTINUITY block
-    end = False
-    while not(end):
+        # Try to reach beginning of SOLUTION/DISCONTINUITY block
+        end = False
+        while not(end):
+            line = f.readline()
+            if not(line):
+                return
+            elif (line[0:23] == '+SOLUTION/DISCONTINUITY'):
+                end = True
+
+        # Read SOLUTION/DISCONTINUITY block
         line = f.readline()
-        if not(line):
-            return
-        elif (line[0:23] == '+SOLUTION/DISCONTINUITY'):
-            end = True
-        
-    # Read SOLUTION/DISCONTINUITY block
-    line = f.readline()
-    end = False
-    while not(end):
-        if not(line):
-            end = True
-        elif (line[0:1] == '-'):
-            end = True
-        elif (line[0:1] != '*'):
+        end = False
+        while not(end):
+            if not(line):
+                end = True
+            elif (line[0:1] == '-'):
+                end = True
+            elif (line[0:1] != '*'):
 
-            # New station?
-            if ((line[1:5] != code) or (line[6:8] != pt)):
-                ista = ista+1
-                code = line[1:5]
-                pt = line[6:8]
-                r = record()
-                r.code = code
-                r.pt = pt
-                r.P = []
-                r.V = []
-                solns.append(r)
+                # New station?
+                if ((line[1:5] != code) or (line[6:8] != pt)):
+                    ista = ista+1
+                    code = line[1:5]
+                    pt = line[6:8]
+                    r = record()
+                    r.code = code
+                    r.pt = pt
+                    r.P = []
+                    r.V = []
+                    solns.append(r)
 
-            # Position soln?
-            if (line[42:43] == 'P'):
-                r = record()
-                r.soln = line[9:13]
-                r.start = line[16:28]
-                r.end = line[29:41]
-                r.cause = line[46:].strip()
-                solns[ista].P.append(r)
+                # Position soln?
+                if (line[42:43] == 'P'):
+                    r = record()
+                    r.soln = line[9:13]
+                    r.start = line[16:28]
+                    r.end = line[29:41]
+                    r.cause = line[46:].strip()
+                    solns[ista].P.append(r)
 
-            # Velocity soln?
-            elif (line[42:43] == 'V'):
-                r = record()
-                r.soln = line[9:13]
-                r.start = line[16:28]
-                r.end = line[29:41]
-                r.cause = line[46:].strip()
-                solns[ista].V.append(r)
+                # Velocity soln?
+                elif (line[42:43] == 'V'):
+                    r = record()
+                    r.soln = line[9:13]
+                    r.start = line[16:28]
+                    r.end = line[29:41]
+                    r.cause = line[46:].strip()
+                    solns[ista].V.append(r)
 
-        line = f.readline()
-
-    # Close file
-    f.close()
+            line = f.readline()
 
     return solns
 
@@ -280,20 +273,17 @@ def get_ant_list(file):
     ant = []
 
     # Open input ANTEX file
-    f = open(file, 'r')
-    line = f.readline()
-
-    # While there remains something to read,
-    while (line):
-
-        # New ground antenna
-        if ((line[60:76] == 'TYPE / SERIAL NO') and (line[0:5] != 'BLOCK') and (line[0:7] != 'GLONASS') and (line[0:7] != 'GALILEO') and (line[0:6] != 'BEIDOU') and (line[0:4] != 'QZSS') and (line[0:5] != 'IRNSS')):
-            ant.append(line[0:20])
-            
+    with open(file, 'r') as f:
         line = f.readline()
-        
-    # Close input file
-    f.close()
+
+        # While there remains something to read,
+        while (line):
+
+            # New ground antenna
+            if ((line[60:76] == 'TYPE / SERIAL NO') and (line[0:5] != 'BLOCK') and (line[0:7] != 'GLONASS') and (line[0:7] != 'GALILEO') and (line[0:6] != 'BEIDOU') and (line[0:4] != 'QZSS') and (line[0:5] != 'IRNSS')):
+                ant.append(line[0:20])
+
+            line = f.readline()
 
     return ant
 
@@ -332,92 +322,89 @@ def atx2snx(file, t):
     snx.sig = []
 
     # Open input ANTEX file
-    f = open(file, 'r')
-    line = f.readline()
-
-    # While there remains something to read,
-    while (line):
-        
-        # New GPS, GLONASS or Galileo satellite
-        if (line[60:76] == 'TYPE / SERIAL NO') and ((line[0:5] == 'BLOCK') or (line[0:7] in ['GLONASS', 'GALILEO'])):
-            svn = line[40:44]
-            pco = []
-            frq = []
-
-            # Start of validity
-            while (line[60:70] != 'VALID FROM'):
-                line = f.readline()
-            start = (date.from_ymdhms(int(line[2:6]), int(line[10:12]), int(line[16:18]), int(line[22:24]), int(line[28:30]), int(line[33:35]))).tsnx()
-
-            # End of validity
-            line = f.readline()
-            end = '00:000:00000'
-            if (line[60:71] == 'VALID UNTIL'):
-                end = (date.from_ymdhms(int(line[2:6]), int(line[10:12]), int(line[16:18]), int(line[22:24]), int(line[28:30]), int(line[33:35]))).tsnx()
-            
-            # Get frequency-specific PCOs
-            while (line[60:74] != 'END OF ANTENNA'):
-                if (line[60:78] == 'START OF FREQUENCY'):
-                    frq.append('L'+line[5])
-                    line = f.readline()
-                    pco.append(np.array([float(line[1:10]), float(line[11:20]), float(line[21:30])]) / 1000)
-                line = f.readline()
-                    
-            # Compute iono-free PCO
-            if (svn[0] == 'G'):
-                f1 = 1575.42
-                f2 = 1227.60
-                i1 = frq.index('L1')
-                i2 = frq.index('L2')
-            elif (svn[0] == 'R'):
-                f1 = 1602
-                f2 = 1246
-                i1 = frq.index('L1')
-                i2 = frq.index('L2')
-            elif (svn[0] == 'E'):
-                f1 = 1575.42
-                f2 = 1176.45
-                i1 = frq.index('L1')
-                i2 = frq.index('L5')
-            frq.append('LC')
-            pco.append((f1**2*pco[i1] - f2**2*pco[i2]) / (f1**2 - f2**2))
-
-            # If current PCO is valid at requested date,
-            if (earlier(start, t)) and ((end == '00:000:00000') or earlier(t, end)):
-                
-                # Loop over frequencies
-                for i in range(len(frq)):
-                    
-                    # Add SATA_X parameter
-                    r = record()
-                    r.type = 'SATA_X'
-                    r.code = svn
-                    r.pt = frq[i]
-                    r.soln = '----'
-                    r.tref = t
-                    r.unit = 'm   '
-                    r.const = '0'
-                    snx.param.append(r)
-                    snx.x.append(pco[i][0])
-                    snx.sig.append(0)
-                    
-                    # Add SATA_Y parameter
-                    snx.param.append(copy.deepcopy(r))
-                    snx.param[-1].type = 'SATA_Y'
-                    snx.x.append(pco[i][1])
-                    snx.sig.append(0)
-                    
-                    # Add SATA_Z parameter
-                    snx.param.append(copy.deepcopy(r))
-                    snx.param[-1].type = 'SATA_Z'
-                    snx.x.append(pco[i][2])
-                    snx.sig.append(0)
-        
+    with open(file, 'r') as f:
         line = f.readline()
-        
-    # Close input file
-    f.close()
 
+        # While there remains something to read,
+        while (line):
+
+            # New GPS, GLONASS or Galileo satellite
+            if (line[60:76] == 'TYPE / SERIAL NO') and ((line[0:5] == 'BLOCK') or (line[0:7] in ['GLONASS', 'GALILEO'])):
+                svn = line[40:44]
+                pco = []
+                frq = []
+
+                # Start of validity
+                while (line[60:70] != 'VALID FROM'):
+                    line = f.readline()
+                start = (date.from_ymdhms(int(line[2:6]), int(line[10:12]), int(line[16:18]), int(line[22:24]), int(line[28:30]), int(line[33:35]))).tsnx()
+
+                # End of validity
+                line = f.readline()
+                end = '00:000:00000'
+                if (line[60:71] == 'VALID UNTIL'):
+                    end = (date.from_ymdhms(int(line[2:6]), int(line[10:12]), int(line[16:18]), int(line[22:24]), int(line[28:30]), int(line[33:35]))).tsnx()
+
+                # Get frequency-specific PCOs
+                while (line[60:74] != 'END OF ANTENNA'):
+                    if (line[60:78] == 'START OF FREQUENCY'):
+                        frq.append('L'+line[5])
+                        line = f.readline()
+                        pco.append(np.array([float(line[1:10]), float(line[11:20]), float(line[21:30])]) / 1000)
+                    line = f.readline()
+
+                # Compute iono-free PCO
+                if (svn[0] == 'G'):
+                    f1 = 1575.42
+                    f2 = 1227.60
+                    i1 = frq.index('L1')
+                    i2 = frq.index('L2')
+                elif (svn[0] == 'R'):
+                    f1 = 1602
+                    f2 = 1246
+                    i1 = frq.index('L1')
+                    i2 = frq.index('L2')
+                elif (svn[0] == 'E'):
+                    f1 = 1575.42
+                    f2 = 1176.45
+                    i1 = frq.index('L1')
+                    i2 = frq.index('L5')
+                frq.append('LC')
+                pco.append((f1**2*pco[i1] - f2**2*pco[i2]) / (f1**2 - f2**2))
+
+                # If current PCO is valid at requested date,
+                if (earlier(start, t)) and ((end == '00:000:00000') or earlier(t, end)):
+
+                    # Loop over frequencies
+                    for i in range(len(frq)):
+
+                        # Add SATA_X parameter
+                        r = record()
+                        r.type = 'SATA_X'
+                        r.code = svn
+                        r.pt = frq[i]
+                        r.soln = '----'
+                        r.tref = t
+                        r.unit = 'm   '
+                        r.const = '0'
+                        snx.param.append(r)
+                        snx.x.append(pco[i][0])
+                        snx.sig.append(0)
+
+                        # Add SATA_Y parameter
+                        snx.param.append(copy.deepcopy(r))
+                        snx.param[-1].type = 'SATA_Y'
+                        snx.x.append(pco[i][1])
+                        snx.sig.append(0)
+
+                        # Add SATA_Z parameter
+                        snx.param.append(copy.deepcopy(r))
+                        snx.param[-1].type = 'SATA_Z'
+                        snx.x.append(pco[i][2])
+                        snx.sig.append(0)
+
+            line = f.readline()
+        
     # Finalize sinex instance
     snx.npar = len(snx.x)
     snx.x = np.array(snx.x)
@@ -526,40 +513,37 @@ def sitelog_coord(file):
     X = np.zeros(3)
 
     # Open input file
-    f = open(file, encoding='ISO-8859-1')
-    line = f.readline()
-
-    # Look for X,Y,Z coordinates
-    while (line):
-
-        if ('X coordinate' in line):
-            try:
-                tab = line.strip().split(':')
-                tab = tab[1].strip().split()
-                X[0] = float(tab[0])
-            except:
-                pass
-
-        elif ('Y coordinate' in line):
-            try:
-                tab = line.strip().split(':')
-                tab = tab[1].strip().split()
-                X[1] = float(tab[0])
-            except:
-                pass
-
-        elif ('Z coordinate' in line):
-            try:
-                tab = line.strip().split(':')
-                tab = tab[1].strip().split()
-                X[2] = float(tab[0])
-            except:
-                pass
-
+    with open(file, encoding='ISO-8859-1') as f:
         line = f.readline()
 
-    # Close input file
-    f.close()
+        # Look for X,Y,Z coordinates
+        while (line):
+
+            if ('X coordinate' in line):
+                try:
+                    tab = line.strip().split(':')
+                    tab = tab[1].strip().split()
+                    X[0] = float(tab[0])
+                except:
+                    pass
+
+            elif ('Y coordinate' in line):
+                try:
+                    tab = line.strip().split(':')
+                    tab = tab[1].strip().split()
+                    X[1] = float(tab[0])
+                except:
+                    pass
+
+            elif ('Z coordinate' in line):
+                try:
+                    tab = line.strip().split(':')
+                    tab = tab[1].strip().split()
+                    X[2] = float(tab[0])
+                except:
+                    pass
+
+            line = f.readline()
     
     # Nullify all coordinates if one of them could not be read
     if not(np.all(X)):
@@ -604,146 +588,143 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
     antenna = False
     
     # Open input file
-    f = open(file, encoding='ISO-8859-1')
+    with open(file, encoding='ISO-8859-1') as f:
     
-    # Read input file
-    line = f.readline()
-    while (line):
-      
-        # New receiver
-        if (re.match('3\.\d+\s+Receiver Type', line, re.I)):
-            receiver = True
-            antenna = False
-            r = record()
-            i = line.index(':')
-            r.type = line[i+2:].strip()[0:20].upper()
-            while (len(r.type) < 20):
-                r.type = r.type + ' '
-            r.system = 'GPS'
-            r.serie = '-----'
-            r.firmware = '-----------'
-            r.cutoff = 'n/a'
-            r.start = '00:000:00000'
-            r.end = '00:000:00000'
-            rec.append(r)
-          
-        # New antenna
-        elif (re.match('4\.\d+\s+Antenna Type', line, re.I)):
-            receiver = False
-            antenna = True
-            r = record()
-            i = line.index(':')
-            r.type = line[i+2:].strip().split()[0][0:16].upper()
-            while (len(r.type) < 16):
-              r.type = r.type + ' '
-            r.type = r.type + 'NONE'
-            r.serie = '-----'
-            r.start = '00:000:00000'
-            r.end = '00:000:00000'
-            r.system = 'UNE'
-            r.dx = ['  0.0000']*3
-            r.daz = '   0'
-            ant.append(r)
-        
-        # Satellite systems
-        elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
-            i = line.index(':')
-            if (line[i+2:].strip()):
-                rec[-1].system = line[i+2:].strip()
-        
-        # Serial number
-        elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
-            i = line.index(':')
-            if (line[i+2:].strip()):
-                if not(line[i+2:].strip().split()[0] in ['(A20,', '(A20)']):
-                    if (receiver):
-                        rec[-1].serie = line[i+2:].strip()
-                    elif (antenna):
-                        ant[-1].serie = line[i+2:].strip()
-          
-        # Firmware version
-        elif (re.match('\s*Firmware Version.*:', line, re.I) and receiver):
-            i = line.index(':')
-            if (line[i+2:].strip()):
-                if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
-                    rec[-1].firmware = line[i+2:].strip()
-              
-        # Cutoff angle
-        elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
-            i = line.index(':')
-            if (line[i+2:].strip()):
-                tab = line[i+2:].strip().split()
-                if (isfloat(tab[0])):
-                    rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
-
-        # Date installed
-        elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
-            i = line.index(':')
-            if (receiver):
-                rec[-1].start = sitelog_date(line[i+2:].strip())
-            elif (antenna):
-                ant[-1].start = sitelog_date(line[i+2:].strip())
-          
-        # Date removed
-        elif (re.match('\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
-            i = line.index(':')
-            if (receiver):
-                rec[-1].end = sitelog_date(line[i+2:].strip())
-            elif (antenna):
-                ant[-1].end = sitelog_date(line[i+2:].strip())
-            
-        # Up eccentricity
-        elif ((re.match('\s*Antenna Height.*:', line, re.I) or re.match('\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
-            i = line.index(':')
-            tab = line[i+2:].strip().split()
-            if (len(tab) > 0):
-                tab[0] = re.subn('m', '', tab[0])[0]
-                if (isfloat(tab[0])):
-                    ant[-1].dx[0] = '{0:8.4f}'.format(float(tab[0]))
-          
-        # North eccentricity
-        elif (re.match('\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
-            i = line.index(':')
-            tab = line[i+2:].strip().split()
-            if (len(tab) > 0):
-                tab[0] = re.subn('m', '', tab[0])[0]
-                if (isfloat(tab[0])):
-                    ant[-1].dx[1] = '{0:8.4f}'.format(float(tab[0]))
-          
-        # East eccentricity
-        elif (re.match('\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
-            i = line.index(':')
-            tab = line[i+2:].strip().split()
-            if (len(tab) > 0):
-                tab[0] = re.subn('m', '', tab[0])[0]
-                if (isfloat(tab[0])):
-                    ant[-1].dx[2] = '{0:8.4f}'.format(float(tab[0]))
-              
-        # Radome type
-        elif (re.match('\s*Antenna Radome Type.*:', line, re.I) and antenna):
-            i = line.index(':')
-            rad = line[i+2:].strip()[0:4].strip().upper()
-            if (len(rad) == 4):
-                ant[-1].type = ant[-1].type[0:16] + rad
-        
-        # Alignment from true North
-        elif (re.match('\s*Alignment from True N.*:', line, re.I) or re.match('\s*Degree Offset from North.*:', line, re.I)) and (antenna):
-            i = line.index(':')
-            tab = line[i+2:].strip().split()
-            if (len(tab) > 0):
-                tab[0] = re.subn('deg', '', tab[0])[0]
-                if (isfloat(tab[0])):
-                    ant[-1].daz = '{0:4d}'.format(round(float(tab[0])))
-        
-        # Default receiver or default antenna or new section
-        elif ((line[0:3] == '3.x') or (line[0:3] == '4.x') or (line[0:2] == '5.')):
-            receiver = False
-            antenna = False
-        
+        # Read input file
         line = f.readline()
-    
-    # Close input file
-    f.close()
+        while (line):
+
+            # New receiver
+            if (re.match('3\.\d+\s+Receiver Type', line, re.I)):
+                receiver = True
+                antenna = False
+                r = record()
+                i = line.index(':')
+                r.type = line[i+2:].strip()[0:20].upper()
+                while (len(r.type) < 20):
+                    r.type = r.type + ' '
+                r.system = 'GPS'
+                r.serie = '-----'
+                r.firmware = '-----------'
+                r.cutoff = 'n/a'
+                r.start = '00:000:00000'
+                r.end = '00:000:00000'
+                rec.append(r)
+
+            # New antenna
+            elif (re.match('4\.\d+\s+Antenna Type', line, re.I)):
+                receiver = False
+                antenna = True
+                r = record()
+                i = line.index(':')
+                r.type = line[i+2:].strip().split()[0][0:16].upper()
+                while (len(r.type) < 16):
+                    r.type = r.type + ' '
+                r.type = r.type + 'NONE'
+                r.serie = '-----'
+                r.start = '00:000:00000'
+                r.end = '00:000:00000'
+                r.system = 'UNE'
+                r.dx = ['  0.0000']*3
+                r.daz = '   0'
+                ant.append(r)
+
+            # Satellite systems
+            elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
+                i = line.index(':')
+                if (line[i+2:].strip()):
+                    rec[-1].system = line[i+2:].strip()
+
+            # Serial number
+            elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
+                i = line.index(':')
+                if (line[i+2:].strip()):
+                    if not(line[i+2:].strip().split()[0] in ['(A20,', '(A20)']):
+                        if (receiver):
+                            rec[-1].serie = line[i+2:].strip()
+                        elif (antenna):
+                            ant[-1].serie = line[i+2:].strip()
+
+            # Firmware version
+            elif (re.match('\s*Firmware Version.*:', line, re.I) and receiver):
+                i = line.index(':')
+                if (line[i+2:].strip()):
+                    if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
+                        rec[-1].firmware = line[i+2:].strip()
+
+            # Cutoff angle
+            elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
+                i = line.index(':')
+                if (line[i+2:].strip()):
+                    tab = line[i+2:].strip().split()
+                    if (isfloat(tab[0])):
+                        rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
+
+            # Date installed
+            elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
+                i = line.index(':')
+                if (receiver):
+                    rec[-1].start = sitelog_date(line[i+2:].strip())
+                elif (antenna):
+                    ant[-1].start = sitelog_date(line[i+2:].strip())
+
+            # Date removed
+            elif (re.match('\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
+                i = line.index(':')
+                if (receiver):
+                    rec[-1].end = sitelog_date(line[i+2:].strip())
+                elif (antenna):
+                    ant[-1].end = sitelog_date(line[i+2:].strip())
+
+            # Up eccentricity
+            elif ((re.match('\s*Antenna Height.*:', line, re.I) or re.match('\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
+                i = line.index(':')
+                tab = line[i+2:].strip().split()
+                if (len(tab) > 0):
+                    tab[0] = re.subn('m', '', tab[0])[0]
+                    if (isfloat(tab[0])):
+                        ant[-1].dx[0] = '{0:8.4f}'.format(float(tab[0]))
+
+            # North eccentricity
+            elif (re.match('\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
+                i = line.index(':')
+                tab = line[i+2:].strip().split()
+                if (len(tab) > 0):
+                    tab[0] = re.subn('m', '', tab[0])[0]
+                    if (isfloat(tab[0])):
+                        ant[-1].dx[1] = '{0:8.4f}'.format(float(tab[0]))
+
+            # East eccentricity
+            elif (re.match('\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
+                i = line.index(':')
+                tab = line[i+2:].strip().split()
+                if (len(tab) > 0):
+                    tab[0] = re.subn('m', '', tab[0])[0]
+                    if (isfloat(tab[0])):
+                        ant[-1].dx[2] = '{0:8.4f}'.format(float(tab[0]))
+
+            # Radome type
+            elif (re.match('\s*Antenna Radome Type.*:', line, re.I) and antenna):
+                i = line.index(':')
+                rad = line[i+2:].strip()[0:4].strip().upper()
+                if (len(rad) == 4):
+                    ant[-1].type = ant[-1].type[0:16] + rad
+
+            # Alignment from true North
+            elif (re.match('\s*Alignment from True N.*:', line, re.I) or re.match('\s*Degree Offset from North.*:', line, re.I)) and (antenna):
+                i = line.index(':')
+                tab = line[i+2:].strip().split()
+                if (len(tab) > 0):
+                    tab[0] = re.subn('deg', '', tab[0])[0]
+                    if (isfloat(tab[0])):
+                        ant[-1].daz = '{0:4d}'.format(round(float(tab[0])))
+
+            # Default receiver or default antenna or new section
+            elif ((line[0:3] == '3.x') or (line[0:3] == '4.x') or (line[0:2] == '5.')):
+                receiver = False
+                antenna = False
+
+            line = f.readline()
     
     # Remove receivers with undefined dates
     i = 0
@@ -1067,87 +1048,84 @@ def read_ndk(files):
     for file in files:
   
         # Open input file and read 1st line
-        f = open(file)
-        line = f.readline()
-        
-        # While there remains lines to read,
-        while (line):
-            
-            # New earthquake record
-            r = record()
-            
-            # Date
-            sec = int(round(float(line[22:26])))
-            if (sec < 60):
-                r.t = date.from_ymdhms(int(line[5:9]), int(line[10:12]), int(line[13:15]), int(line[16:18]), int(line[19:21]), sec)
-            else:
-                r.t = date.from_ymdhms(int(line[5:9]), int(line[10:12]), int(line[13:15]), int(line[16:18]), int(line[19:21]), sec-1)
-                r.t.add_s(1)
-            
-            # Location
-            r.lat = float(line[27:33])
-            r.lon = float(line[34:41])
-            r.depth = float(line[42:47])
-            r.location = line[56:].strip().title()
-            
-            # Read next 3 lines
+        with open(file) as f:
             line = f.readline()
-            line = f.readline()
-            line = f.readline()
-            
-            # Moment exponent converted into N.m
-            momentexp = int(line[0:2]) - 7
-            
-            # Read next line
-            line = f.readline()
-            
-            # Log-moment
-            r.logmoment = log10(float(line[49:56])) + momentexp
-            
-            # Magnitude
-            r.Mw = round(2./3*(r.logmoment-9.1)*10)/10
-            
-            # Moment tensor
-            r.Tval = float(line[4:11]) * 10**momentexp
-            r.Tpl = float(line[12:14])
-            r.Taz = float(line[15:18])
-            r.Nval = float(line[19:26]) * 10**momentexp
-            r.Npl = float(line[27:29])
-            r.Naz = float(line[30:33])
-            r.Pval = float(line[34:41]) * 10**momentexp
-            r.Ppl = float(line[42:44])
-            r.Paz = float(line[45:48])
-            
-            # Nodal planes
-            r.strike1 = float(line[57:60])
-            r.dip1 = float(line[61:63])
-            r.rake1 = float(line[64:68])
-            r.strike2 = float(line[69:72])
-            r.dip2 = float(line[73:75])
-            r.rake2 = float(line[76:80])
-            
-            # Compute rupture parameters from either Mai & Beroza (2000)'s scaling law for large earthquakes
-            # or Yen & Ma (2012)'s scaling law for smaller earthquakes
-            if (r.Mw > 7.6):
-                r.width = 10**(-1.28 + 0.29*r.logmoment)
-                r.length = 10 **(-2.20 + 0.35*r.logmoment)
-                r.slip = 10**(-6.98 + 0.35*r.logmoment)
-            elif (r.logmoment >= 20):
-                r.width = 10**(-1.84 + r.logmoment/3)
-                r.length = 10**(-2.27 + r.logmoment/3)
-                r.slip = 10**(-6.37 + r.logmoment/3)
-            else:
-                r.width = 10**(-5.08 + r.logmoment/2)
-                r.length = r.width
-                r.slip = 10**(-0.32)
-            
-            # Store earthquake
-            eqs.append(r)
-            
-            # Read next line
-            line = f.readline()
-    
-        # Close input file
-        f.close()
+
+            # While there remains lines to read,
+            while (line):
+
+                # New earthquake record
+                r = record()
+
+                # Date
+                sec = int(round(float(line[22:26])))
+                if (sec < 60):
+                    r.t = date.from_ymdhms(int(line[5:9]), int(line[10:12]), int(line[13:15]), int(line[16:18]), int(line[19:21]), sec)
+                else:
+                    r.t = date.from_ymdhms(int(line[5:9]), int(line[10:12]), int(line[13:15]), int(line[16:18]), int(line[19:21]), sec-1)
+                    r.t.add_s(1)
+
+                # Location
+                r.lat = float(line[27:33])
+                r.lon = float(line[34:41])
+                r.depth = float(line[42:47])
+                r.location = line[56:].strip().title()
+
+                # Read next 3 lines
+                line = f.readline()
+                line = f.readline()
+                line = f.readline()
+
+                # Moment exponent converted into N.m
+                momentexp = int(line[0:2]) - 7
+
+                # Read next line
+                line = f.readline()
+
+                # Log-moment
+                r.logmoment = log10(float(line[49:56])) + momentexp
+
+                # Magnitude
+                r.Mw = round(2./3*(r.logmoment-9.1)*10)/10
+
+                # Moment tensor
+                r.Tval = float(line[4:11]) * 10**momentexp
+                r.Tpl = float(line[12:14])
+                r.Taz = float(line[15:18])
+                r.Nval = float(line[19:26]) * 10**momentexp
+                r.Npl = float(line[27:29])
+                r.Naz = float(line[30:33])
+                r.Pval = float(line[34:41]) * 10**momentexp
+                r.Ppl = float(line[42:44])
+                r.Paz = float(line[45:48])
+
+                # Nodal planes
+                r.strike1 = float(line[57:60])
+                r.dip1 = float(line[61:63])
+                r.rake1 = float(line[64:68])
+                r.strike2 = float(line[69:72])
+                r.dip2 = float(line[73:75])
+                r.rake2 = float(line[76:80])
+
+                # Compute rupture parameters from either Mai & Beroza (2000)'s scaling law for large earthquakes
+                # or Yen & Ma (2012)'s scaling law for smaller earthquakes
+                if (r.Mw > 7.6):
+                    r.width = 10**(-1.28 + 0.29*r.logmoment)
+                    r.length = 10 **(-2.20 + 0.35*r.logmoment)
+                    r.slip = 10**(-6.98 + 0.35*r.logmoment)
+                elif (r.logmoment >= 20):
+                    r.width = 10**(-1.84 + r.logmoment/3)
+                    r.length = 10**(-2.27 + r.logmoment/3)
+                    r.slip = 10**(-6.37 + r.logmoment/3)
+                else:
+                    r.width = 10**(-5.08 + r.logmoment/2)
+                    r.length = r.width
+                    r.slip = 10**(-0.32)
+
+                # Store earthquake
+                eqs.append(r)
+
+                # Read next line
+                line = f.readline()
     
     return eqs
