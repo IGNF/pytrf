@@ -83,8 +83,8 @@ def write_res(snx, acs, fres, fyml):
     print(' ------------------------------', file=fres)
     print('', file=fres)
     
-    header1 = '                    __________________________________model___________________________   ___________________residues______________________   __________obs_________'
-    header2 = ' sta         AC     Em[m]         Nm[m]          Um[m]         sEm[mm] sNm[mm] sUm[mm]   Er[mm]  Nr[mm]  Ur[mm]   sEr[mm] sNr[mm] sUr[mm]    sE[mm]  sN[mm]  sU[mm]      mjd      epoch '
+    header1 = '                    __________________________________model_______________________   ___________________residues______________________   __________obs_________'
+    header2 = ' sta         AC     Em[m]     Nm[m]          Um[m]         sEm[mm] sNm[mm] sUm[mm]   Er[mm]  Nr[mm]  Ur[mm]   sEr[mm] sNr[mm] sUr[mm]    sE[mm]  sN[mm]  sU[mm]      mjd      epoch '
     header3 = ' ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------'
     print(header1, file=fres)
     print(header2, file=fres)
@@ -120,7 +120,7 @@ def write_res(snx, acs, fres, fyml):
                     #mjd date conversion, usefull for time format pytrf.ts    
                     mjddatemean = date.from_tsnx(datemean).mjd
                     #res_sta_line = ' {0}   {1} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}'.format(code, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3])
-                    res_sta_line = ' {0}  {1}  {2[0]:14.5f} {2[1]:14.5f} {2[2]:14.5f} {3[0]:7.3f} {3[1]:7.3f} {3[2]:7.3f}   {4[0]:7.3f} {4[1]:7.3f} {4[2]:7.3f}  {5[0]:7.3f} {5[1]:7.3f} {5[2]:7.3f}   {6[0]:7.3f} {6[1]:7.3f} {6[2]:7.3f}    {7}   {8}'.format(sta.code+sta.pt+sta.soln[0].soln, ac.name, 
+                    res_sta_line = ' {0}  {1}  {2[0]:8.5f} {2[1]:14.5f} {2[2]:14.5f} {3[0]:7.3f} {3[1]:7.3f} {3[2]:7.3f}   {4[0]:7.3f} {4[1]:7.3f} {4[2]:7.3f}  {5[0]:7.3f} {5[1]:7.3f} {5[2]:7.3f}   {6[0]:7.3f} {6[1]:7.3f} {6[2]:7.3f}    {7}   {8}'.format(sta.code+sta.pt+sta.soln[0].soln, ac.name, 
                                                                                                                                                                                                                                                       ac.ym[ix:ix+3], ac.sm[ix:ix+3],
                                                                                                                                                                                                                                                       ac.v[ix:ix+3],  ac.sv[ix:ix+3],
                                                                                                                                                                                                                                                       ac.sobs[ix:ix+3], #mm

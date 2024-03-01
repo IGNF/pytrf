@@ -302,7 +302,7 @@ def rec2dict(r):
 
 # Execute multiple commands in parallel
 #--------------------------------------
-def parallel_sh(file, nproc):
+def parallel_sh(file, nproc, quiet=False, ignore_errors=False):
   
     """
     Execute multiple commands in parallel
@@ -313,6 +313,10 @@ def parallel_sh(file, nproc):
         File containing list of commands to execute
     nproc : int
         Number of CPUs to use
+    quiet : bool
+        Whether not to print executed commands
+    ignore_errors : bool
+        Whether to run further jobs after one job failed
     """
   
     # Read list of commands
@@ -320,17 +324,21 @@ def parallel_sh(file, nproc):
     
     # Write make file
     makefile = temp_file()+'.make'
-    f = open(makefile, 'w')
-    f.write('all :')
-    for i in range(len(commands)):
-        f.write(' job{0}'.format(i))
-    f.write('\n')
-    for i in range(len(commands)):
-        f.write('job{0} :\n\t{1}'.format(i, commands[i]))
-    f.close()
+    with open(makefile, 'w') as f:
+        f.write('all :')
+        for i in range(len(commands)):
+            f.write(' job{0}'.format(i))
+        f.write('\n')
+        for i in range(len(commands)):
+            f.write('job{0} :\n\t{1}'.format(i, commands[i]))
     
     # Execute make file
-    os.system('make -j{0} -f {1}'.format(nproc, makefile))
+    command = 'make -j{0} -f {1}'.format(nproc, makefile)
+    if (quiet):
+        command += ' -s'
+    if (ignore_errors):
+        command += ' -i'
+    os.system(command)
     
     # Remove make file
     os.system('rm {0}'.format(makefile))
