@@ -768,20 +768,21 @@ class param:
 
     Once initialized, each param instance has the following attributes:
 
-        type  : Description of parameter type (str)
-        t     : Start of validity (date instance or None)
-        x     : Value (float or None)
-        fixed : Fixed or estimated parameter? (bool)
-        sig   : Formal error (float or None)
-        unit  : Parameter unit (str)
-        xc    : Reference value of constraint (float or None)
-        sigc  : Sigma of constraint (float or None)
+        type    : Description of parameter type (str)
+        t       : Start of validity (date instance or None)
+        x       : Value (float or None)
+        fixed   : Fixed or estimated parameter? (bool)
+        sig     : Formal error (float or None)
+        unit    : Parameter unit (str)
+        xc      : Reference value of constraint (float or None)
+        sigc    : Sigma of constraint (float or None)
+        reparam : Type of internal reparametrization used (str or None)
         
     """
 
     # Initialize a param instance
     #----------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None, reparam=False):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None, reparam=None):
       
         """
         Initialize a param instance
@@ -806,6 +807,10 @@ class param:
             Reference value of constraint
         sigc : float, optional
             Sigma of constraint
+        reparam : str, optional
+            Code of the internal reparametrization used
+            "positive" : positivity constraint on the parameter
+            "spectral-index" : bound constrain on the spectral index
         """
 
         p.type = type
@@ -820,7 +825,7 @@ class param:
         p.xc = xc
         p.sigc = sigc
         
-        if reparam == False :
+        if reparam is None :
             p.fx2xr = None
             p.fxr2x = None
             p.dfxr2x = None
@@ -836,17 +841,17 @@ class param:
             p.dfxr2x = dar2a
         
         
-    # Compute reparameterized value (xr=log(x)) from original value
+    # Compute reparameterized value from original value
     #--------------------------------------------------------------
     def x2xr(p, x):
         
         """
-        Compute reparameterized value (xr=log(x)) from original value
+        Compute reparameterized value from original value
 
         Returns
         -------
         xr : float
-            Reparameterized value (xr=log(x))
+            Reparameterized value
         
         Parameter
         ---------
@@ -859,17 +864,17 @@ class param:
         else :
             pass # Should raise warning
 
-    # Compute original value (x=exp(xr)) from reparameterized value
+    # Compute original value from reparameterized value
     #--------------------------------------------------------------
     def xr2x(p, xr):
         
         """
-        Compute original value (x=exp(xr)) from reparameterized value
+        Compute original value from reparameterized value
 
         Returns
         -------
         x : float
-            Original value (x=exp(xr))
+            Original value
         
         Parameter
         ---------
