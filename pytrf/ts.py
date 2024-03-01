@@ -24,7 +24,7 @@ from astropy.timeseries.periodograms.lombscargle.implementations.utils import tr
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot
+from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot, identity, a2ar, ar2a, dar2a
 
 
 
@@ -781,7 +781,7 @@ class param:
 
     # Initialize a param instance
     #----------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
+    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None, reparam=False):
       
         """
         Initialize a param instance
@@ -819,62 +819,22 @@ class param:
         p.unit = unit
         p.xc = xc
         p.sigc = sigc
-
-
-
-# scale_param class
-#------------------
-class scale_param(param):
-  
-    """
-    Sub-class of the param class for scale parameters (variance factors, decay times)
-    whose logarithms are internally estimated
-
-    A scale_param instance is initialized by:
-    
-        p = scale_param()
-
-    A scale_param instance inherits the attributes from a param instance.
         
-    Each scale_param instance additionally has the following methods:
-
-        x2xr()   : Compute reparameterized value (xr=log(x)) from original value
-        xr2x()   : Compute original value (x=exp(xr)) from reparameterized value
-        dx_dxr() : Compute partial derivative of original value wrt reparameterized value
-        
-    """
-
-    # Initialize a scale_param instance
-    #----------------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
-      
-        """
-        Initialize a scale_param instance
-
-        Returns
-        -------
-        p : scale_param instance
-        
-        Parameters
-        ----------
-        type : str
-            Parameter type
-        t : date instance, optional
-            Start of validity
-        x : float, optional
-            Parameter value
-        fixed : bool, optional
-            Fixed or estimated parameter?
-        unit : str, optional
-            Parameter unit. Default is ''.
-        xc : float, optional
-            Reference value of constraint
-        sigc : float, optional
-            Sigma of constraint
+        if reparam == False :
+            p.fx2xr = None
+            p.fxr2x = None
+            p.dfxr2x = None
             
-        """
-
-        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
+        if reparam == "positive" :
+            p.fx2xr = log
+            p.fxr2x = exp
+            p.dfxr2x = identity
+            
+        if reparam == "spectral-index" :
+            p.fx2xr = a2ar
+            p.fxr2x = ar2a
+            p.dfxr2x = dar2a
+        
         
     # Compute reparameterized value (xr=log(x)) from original value
     #--------------------------------------------------------------
@@ -894,8 +854,10 @@ class scale_param(param):
             Original value
             
         """
-        
-        return log(x)
+        if p.fx2xr is not None :
+            return p.fx2xr(x)
+        else :
+            pass # Should raise warning
 
     # Compute original value (x=exp(xr)) from reparameterized value
     #--------------------------------------------------------------
@@ -915,8 +877,10 @@ class scale_param(param):
             Reparameterized value
             
         """
-        
-        return exp(xr)
+        if p.fx2xr is not None :
+            return p.fxr2x(xr)
+        else :
+            pass
     
     # Compute partial derivative of original value wrt reparameterized value
     #-----------------------------------------------------------------------
@@ -934,250 +898,368 @@ class scale_param(param):
         ---------
         x : float
             Original value
-            
         """
-        
-        return x
+        if p.fx2xr is not None :
+            return p.dfxr2x(x)
+        else :
+            pass
 
-
-
-# tanh_param class
-#-----------------
-class tanh_param(param):
+# # scale_param class
+# #------------------
+# class scale_param(param):
   
-    """
-    Sub-class of the param class for parameters in ]-1,1[ (e.g., MA(1) coefficients)
-    whose inverse hyperbolic tangents are internally estimated
+#     """
+#     Sub-class of the param class for scale parameters (variance factors, decay times)
+#     whose logarithms are internally estimated
 
-    A tanh_param instance is initialized by:
+#     A scale_param instance is initialized by:
     
-        p = tanh_param()
+#         p = scale_param()
 
-    A tanh_param instance inherits the attributes from a param instance.
+#     A scale_param instance inherits the attributes from a param instance.
         
-    Each tanh_param instance additionally has the following methods:
+#     Each scale_param instance additionally has the following methods:
 
-        x2xr()   : Compute reparameterized value (xr=atanh(x)) from original value
-        xr2x()   : Compute original value (x=tanh(xr)) from reparameterized value
-        dx_dxr() : Compute partial derivative of original value wrt reparameterized value
+#         x2xr()   : Compute reparameterized value (xr=log(x)) from original value
+#         xr2x()   : Compute original value (x=exp(xr)) from reparameterized value
+#         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
         
-    """
+#     """
 
-    # Initialize a tanh_param instance
-    #---------------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
+#     # Initialize a scale_param instance
+#     #----------------------------------
+#     def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
       
-        """
-        Initialize an tanh_param instance
+#         """
+#         Initialize a scale_param instance
 
-        Returns
-        -------
-        p : tanh_param instance
+#         Returns
+#         -------
+#         p : scale_param instance
         
-        Parameters
-        ----------
-        type : str
-            Parameter type
-        t : date instance, optional
-            Start of validity
-        x : float, optional
-            Parameter value
-        fixed : bool, optional
-            Fixed or estimated parameter?
-        unit : str, optional
-            Parameter unit. Default is ''.
-        xc : float, optional
-            Reference value of constraint
-        sigc : float, optional
-            Sigma of constraint
+#         Parameters
+#         ----------
+#         type : str
+#             Parameter type
+#         t : date instance, optional
+#             Start of validity
+#         x : float, optional
+#             Parameter value
+#         fixed : bool, optional
+#             Fixed or estimated parameter?
+#         unit : str, optional
+#             Parameter unit. Default is ''.
+#         xc : float, optional
+#             Reference value of constraint
+#         sigc : float, optional
+#             Sigma of constraint
             
-        """
+#         """
 
-        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
+#         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
-    # Compute reparameterized value (xr=atanh(x)) from original value
-    #----------------------------------------------------------------
-    def x2xr(p, x):
+#     # Compute reparameterized value (xr=log(x)) from original value
+#     #--------------------------------------------------------------
+#     def x2xr(p, x):
         
-        """
-        Compute reparameterized value (xr=atanh(x)) from original value
+#         """
+#         Compute reparameterized value (xr=log(x)) from original value
 
-        Returns
-        -------
-        xr : float
-            Reparameterized value (xr=atanh(x))
+#         Returns
+#         -------
+#         xr : float
+#             Reparameterized value (xr=log(x))
         
-        Parameter
-        ---------
-        x : float
-            Original value
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
             
-        """
+#         """
         
-        return atanh(x)
+#         return log(x)
 
-    # Compute original value (x=tanh(xr)) from reparameterized value
-    #---------------------------------------------------------------
-    def xr2x(p, xr):
+#     # Compute original value (x=exp(xr)) from reparameterized value
+#     #--------------------------------------------------------------
+#     def xr2x(p, xr):
         
-        """
-        Compute original value (x=tanh(xr)) from reparameterized value
+#         """
+#         Compute original value (x=exp(xr)) from reparameterized value
 
-        Returns
-        -------
-        x : float
-            Original value (x=tanh(xr))
+#         Returns
+#         -------
+#         x : float
+#             Original value (x=exp(xr))
         
-        Parameter
-        ---------
-        xr : float
-            Reparameterized value
+#         Parameter
+#         ---------
+#         xr : float
+#             Reparameterized value
             
-        """
+#         """
         
-        return tanh(xr)
+#         return exp(xr)
     
-    # Compute partial derivative of original value wrt reparameterized value
-    #-----------------------------------------------------------------------
-    def dx_dxr(p, x):
+#     # Compute partial derivative of original value wrt reparameterized value
+#     #-----------------------------------------------------------------------
+#     def dx_dxr(p, x):
         
-        """
-        Compute partial derivative of original value wrt reparameterized value
+#         """
+#         Compute partial derivative of original value wrt reparameterized value
 
-        Returns
-        -------
-        dx : float
-            Partial derivative of original value wrt reparameterized value
+#         Returns
+#         -------
+#         dx : float
+#             Partial derivative of original value wrt reparameterized value
         
-        Parameter
-        ---------
-        x : float
-            Original value
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
             
-        """
+#         """
         
-        return 1-x**2
+#         return x
 
 
 
-# pl_index class
-#---------------
-class pl_index(param):
+# # tanh_param class
+# #-----------------
+# class tanh_param(param):
   
-    """
-    Sub-class of the param class for for spectral indices of power-law noise,
-    which are internally reparameterized as xr = -log(exp(3-x)-1)
+#     """
+#     Sub-class of the param class for parameters in ]-1,1[ (e.g., MA(1) coefficients)
+#     whose inverse hyperbolic tangents are internally estimated
 
-    A pl_index instance is initialized by:
+#     A tanh_param instance is initialized by:
     
-        p = pl_index()
+#         p = tanh_param()
 
-    A pl_index instance inherits the attributes from a param instance.
+#     A tanh_param instance inherits the attributes from a param instance.
         
-    Each pl_index instance additionally has the following methods:
+#     Each tanh_param instance additionally has the following methods:
 
-        x2xr()   : Compute reparameterized value (xr = -log(exp(3-x)-1)) from original value
-        xr2x()   : Compute original value (x = 3-log(1+exp(-xr))) from reparameterized value
-        dx_dxr() : Compute partial derivative of original value wrt reparameterized value
+#         x2xr()   : Compute reparameterized value (xr=atanh(x)) from original value
+#         xr2x()   : Compute original value (x=tanh(xr)) from reparameterized value
+#         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
         
-    """
+#     """
 
-    # Initialize a pl_index instance
-    #-------------------------------
-    def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
+#     # Initialize a tanh_param instance
+#     #---------------------------------
+#     def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
       
-        """
-        Initialize a pl_index instance
+#         """
+#         Initialize an tanh_param instance
 
-        Returns
-        -------
-        p : pl_index instance
+#         Returns
+#         -------
+#         p : tanh_param instance
         
-        Parameters
-        ----------
-        type : str
-            Parameter type
-        t : date instance, optional
-            Start of validity
-        end : date instance, optional
-            End of validity
-        x : float, optional
-            Parameter value
-        fixed : bool, optional
-            Fixed or estimated parameter?
-        unit : str, optional
-            Parameter unit. Default is ''.
-        xc : float, optional
-            Reference value of constraint
-        sigc : float, optional
-            Sigma of constraint
+#         Parameters
+#         ----------
+#         type : str
+#             Parameter type
+#         t : date instance, optional
+#             Start of validity
+#         x : float, optional
+#             Parameter value
+#         fixed : bool, optional
+#             Fixed or estimated parameter?
+#         unit : str, optional
+#             Parameter unit. Default is ''.
+#         xc : float, optional
+#             Reference value of constraint
+#         sigc : float, optional
+#             Sigma of constraint
             
-        """
+#         """
 
-        super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
+#         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
-    # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
-    #------------------------------------------------------------------------
-    def x2xr(p, x):
+#     # Compute reparameterized value (xr=atanh(x)) from original value
+#     #----------------------------------------------------------------
+#     def x2xr(p, x):
         
-        """
-        Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+#         """
+#         Compute reparameterized value (xr=atanh(x)) from original value
 
-        Returns
-        -------
-        xr : float
-            Reparameterized value (xr=-log(exp(3-x)-1))
+#         Returns
+#         -------
+#         xr : float
+#             Reparameterized value (xr=atanh(x))
         
-        Parameter
-        ---------
-        x : float
-            Original value
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
             
-        """
+#         """
         
-        return -log(exp(3-x)-1)
+#         return atanh(x)
 
-    # Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
-    #------------------------------------------------------------------------
-    def xr2x(p, xr):
+#     # Compute original value (x=tanh(xr)) from reparameterized value
+#     #---------------------------------------------------------------
+#     def xr2x(p, xr):
         
-        """
-        Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+#         """
+#         Compute original value (x=tanh(xr)) from reparameterized value
 
-        Returns
-        -------
-        x : float
-            Original value (x=3-log(1+exp(-xr)))
+#         Returns
+#         -------
+#         x : float
+#             Original value (x=tanh(xr))
         
-        Parameter
-        ---------
-        xr : float
-            Reparameterized value
+#         Parameter
+#         ---------
+#         xr : float
+#             Reparameterized value
             
-        """
+#         """
         
-        return 3-log(1+exp(-xr))
+#         return tanh(xr)
     
-    # Compute partial derivative of original value wrt reparameterized value
-    #-----------------------------------------------------------------------
-    def dx_dxr(p, x):
+#     # Compute partial derivative of original value wrt reparameterized value
+#     #-----------------------------------------------------------------------
+#     def dx_dxr(p, x):
         
-        """
-        Compute partial derivative of original value wrt reparameterized value
+#         """
+#         Compute partial derivative of original value wrt reparameterized value
 
-        Returns
-        -------
-        dx : float
-            Partial derivative of original value wrt reparameterized value
+#         Returns
+#         -------
+#         dx : float
+#             Partial derivative of original value wrt reparameterized value
         
-        Parameter
-        ---------
-        x : float
-            Original value
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
             
-        """
+#         """
         
-        return 1-exp(x-3)
+#         return 1-x**2
+
+
+
+# # pl_index class
+# #---------------
+# class pl_index(param):
+  
+#     """
+#     Sub-class of the param class for for spectral indices of power-law noise,
+#     which are internally reparameterized as xr = -log(exp(3-x)-1)
+
+#     A pl_index instance is initialized by:
+    
+#         p = pl_index()
+
+#     A pl_index instance inherits the attributes from a param instance.
+        
+#     Each pl_index instance additionally has the following methods:
+
+#         x2xr()   : Compute reparameterized value (xr = -log(exp(3-x)-1)) from original value
+#         xr2x()   : Compute original value (x = 3-log(1+exp(-xr))) from reparameterized value
+#         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
+        
+#     """
+
+#     # Initialize a pl_index instance
+#     #-------------------------------
+#     def __init__(p, type, t=-np.inf, x=None, fixed=False, unit='', xc=None, sigc=None):
+      
+#         """
+#         Initialize a pl_index instance
+
+#         Returns
+#         -------
+#         p : pl_index instance
+        
+#         Parameters
+#         ----------
+#         type : str
+#             Parameter type
+#         t : date instance, optional
+#             Start of validity
+#         end : date instance, optional
+#             End of validity
+#         x : float, optional
+#             Parameter value
+#         fixed : bool, optional
+#             Fixed or estimated parameter?
+#         unit : str, optional
+#             Parameter unit. Default is ''.
+#         xc : float, optional
+#             Reference value of constraint
+#         sigc : float, optional
+#             Sigma of constraint
+            
+#         """
+
+#         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
+        
+#     # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+#     #------------------------------------------------------------------------
+#     def x2xr(p, x):
+        
+#         """
+#         Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+
+#         Returns
+#         -------
+#         xr : float
+#             Reparameterized value (xr=-log(exp(3-x)-1))
+        
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
+            
+#         """
+        
+#         return -log(exp(3-x)-1)
+
+#     # Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+#     #------------------------------------------------------------------------
+#     def xr2x(p, xr):
+        
+#         """
+#         Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+
+#         Returns
+#         -------
+#         x : float
+#             Original value (x=3-log(1+exp(-xr)))
+        
+#         Parameter
+#         ---------
+#         xr : float
+#             Reparameterized value
+            
+#         """
+        
+#         return 3-log(1+exp(-xr))
+    
+#     # Compute partial derivative of original value wrt reparameterized value
+#     #-----------------------------------------------------------------------
+#     def dx_dxr(p, x):
+        
+#         """
+#         Compute partial derivative of original value wrt reparameterized value
+
+#         Returns
+#         -------
+#         dx : float
+#             Partial derivative of original value wrt reparameterized value
+        
+#         Parameter
+#         ---------
+#         x : float
+#             Original value
+            
+#         """
+        
+#         return 1-exp(x-3)
 
 
 
@@ -1780,7 +1862,7 @@ class fexp(function):
         f.t0 = t0
 
         f.par.append(param(type='exp amplitude', t=t0, x=amp, fixed=fix_amp, unit=yunit))
-        f.par.append(scale_param(type='exp relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit))
+        f.par.append(param(type='exp relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit, reparam="positive"))
             
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -1823,9 +1905,12 @@ class fexp(function):
                 
                 # Set a priori relaxation time of current function
                 if (len(tau) == 0):
+                    print("test",f.par[1].x)
                     f.par[1].x = 100
                 else:
                     f.par[1].x = np.min(tau) / 10
+                    
+                print("test2",f.par[1].x)
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -1920,7 +2005,7 @@ class flog(function):
         f.t0 = t0
 
         f.par.append(param(type='log amplitude', t=t0, x=amp, fixed=fix_amp, unit=yunit))
-        f.par.append(scale_param(type='log relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit))
+        f.par.append(param(type='log relaxation time', t=t0, x=tau, fixed=fix_tau, unit=tunit, reparam="positive"))
             
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -2554,7 +2639,7 @@ class wn(noise):
         """
         
         super().__init__(dt=dt)
-        n.par.append(scale_param(type='WN variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
+        n.par.append(param(type='WN variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2', reparam="positive"))
 
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -2708,7 +2793,7 @@ class vw(noise):
         """
         
         super().__init__()
-        n.par.append(scale_param(type='VW variance factor', x=s2, fixed=fix_s2))
+        n.par.append(param(type='VW variance factor', x=s2, fixed=fix_s2, reparam="positive"))
 
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -2870,8 +2955,8 @@ class ar1(noise):
         """
         
         super().__init__(dt=dt, per=per, flow=flow)
-        n.par.append(scale_param(type='AR(1) variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(scale_param(type='AR(1) correlation time', x=tau, fixed=fix_tau, unit=tunit))
+        n.par.append(param(type='AR(1) variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2', reparam="positive"))
+        n.par.append(param(type='AR(1) correlation time', x=tau, fixed=fix_tau, unit=tunit, reparam="positive"))
         
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -3269,8 +3354,8 @@ class pl(noise):
         """
         
         super().__init__(dt=dt, per=per, flow=flow, tn=tn)
-        n.par.append(scale_param(type='PL variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(pl_index(type='PL spectral index', x=a, fixed=fix_a))
+        n.par.append(param(type='PL variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2', reparam="positive"))
+        n.par.append(param(type='PL spectral index', x=a, fixed=fix_a, reparam="spectral-index"))
         
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -3427,9 +3512,9 @@ class ggm(noise):
         """
         
         super().__init__(dt=dt, per=per, flow=flow, tn=tn)
-        n.par.append(scale_param(type='GGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(pl_index(type='GGM spectral index', x=a, fixed=fix_a))
-        n.par.append(scale_param(type='GGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
+        n.par.append(param(type='GGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2', reparam="positive"))
+        n.par.append(param(type='GGM spectral index', x=a, fixed=fix_a, reparam="spectral-index"))
+        n.par.append(param(type='GGM correlation time', x=tau, fixed=fix_tau, unit=tunit, reparam="positive"))
         
     # Set default a priori values for unknown parameters
     #---------------------------------------------------
@@ -4531,7 +4616,7 @@ class model:
             for p in f.par:
                 if not(p.fixed):
                     i += 1
-                    if hasattr(p, 'xr2x'):
+                    if p.fx2xr is not None :
                         p.x = p.xr2x(xr[i])
                     else:
                         p.x = xr[i]
@@ -4558,7 +4643,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    if hasattr(p, 'x2xr'):
+                    if p.fx2xr is not None :
                         xr.append(p.x2xr(p.x))
                     else:
                         xr.append(p.x)
@@ -4609,7 +4694,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    if hasattr(p, 'dx_dxr'):
+                    if p.fx2xr is not None :
                         dx.append(p.dx_dxr(p.x))
                     else:
                         dx.append(1)
@@ -4731,7 +4816,7 @@ class model:
             for p in n.par:
                 if not(p.fixed):
                     i += 1
-                    if hasattr(p, 'xr2x'):
+                    if p.fx2xr is not None :
                         p.x = p.xr2x(xr[i])
                     else:
                         p.x = xr[i]
@@ -4758,7 +4843,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    if hasattr(p, 'x2xr'):
+                    if p.fx2xr is not None :
                         xr.append(p.x2xr(p.x))
                     else:
                         xr.append(p.x)
@@ -4809,7 +4894,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    if hasattr(p, 'dx_dxr'):
+                    if p.fx2xr is not None :
                         dx.append(p.dx_dxr(p.x))
                     else:
                         dx.append(1)
@@ -5180,7 +5265,7 @@ class model:
                     if not(p.fixed):
                         i += 1
                     if (p.sigc is not None):
-                        if hasattr(p, 'x2xr'):
+                        if p.fx2xr is not None :
                             x0 = p.x2xr(p.x)
                             xc = p.x2xr(p.xc)
                             sc = p.sigc / p.dx_dxr(p.xc)
@@ -5224,7 +5309,7 @@ class model:
                         if not(p.fixed):
                             i += 1
                         if (p.sigc is not None):
-                            if hasattr(p, 'x2xr'):
+                            if p.fx2xr is not None :
                                 x0 = p.x2xr(p.x)
                                 xc = p.x2xr(p.xc)
                                 sc = p.sigc / p.dx_dxr(p.xc)
@@ -5281,7 +5366,7 @@ class model:
                 if not(p.fixed):
                     i += 1
                 if (p.sigc is not None):
-                    if hasattr(p, 'x2xr'):
+                    if p.fx2xr is not None :
                         x = p.x2xr(p.x)
                         xc = p.x2xr(p.xc)
                         sc = p.sigc / p.dx_dxr(p.xc)
