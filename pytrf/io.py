@@ -51,7 +51,7 @@ def read_yaml(inp, sed=False, t=None):
   
     # y = yaml.load(open(inp), Loader=yaml.FullLoader)
 
-    y = load_yaml_and_substitute(inp)
+    y = load_yaml_and_substitute(inp,t)
     
     # If y is a dictionary,
     if (isinstance(y, dict)):
@@ -1197,7 +1197,7 @@ def parse_real_type(value):
     return value
             
 
-def substitute_env_variables(data):
+def substitute_env_variables(data,t=None):
 
     def contains_cmd_substitution(value):
         # Define regular expressions to match command substitution patterns
@@ -1214,11 +1214,12 @@ def substitute_env_variables(data):
 
             # original    
             if contains_cmd_substitution(data[key_or_id]):
+                data[key_or_id] = sed_keywords(data[key_or_id],t)
                 cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip()
                 data[key_or_id] = parse_real_type(cmd_stdout_as_str)
 
         if isinstance(value, (dict, list)): # nested
-            substitute_env_variables(value)
+            substitute_env_variables(value,t)
 
     if isinstance(data, dict):
         for key, value in data.items():
@@ -1229,11 +1230,11 @@ def substitute_env_variables(data):
             check_elt_type(index,item)
 
 
-def load_yaml_and_substitute(filename):
+def load_yaml_and_substitute(filename,t=None):
     try:
         with open(filename, 'r') as file:
             yaml_content = yaml.safe_load(file)
-            substitute_env_variables(yaml_content)
+            substitute_env_variables(yaml_content,t)
             return yaml_content
     except FileNotFoundError as e:
         print(f"File {filename} not found or cannot be opened:", str(e))
