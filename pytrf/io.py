@@ -1189,11 +1189,11 @@ def parse_real_type(value):
     """
     try:
         value = int(value)
-        print("INT: " + value)
+        print("INT: " + str(value))
     except ValueError:
         try:
             value = float(value)
-            print("FLOAT: " + value)
+            print("FLOAT: " + float(value))
 
         except:
             print("STR: " + value)
