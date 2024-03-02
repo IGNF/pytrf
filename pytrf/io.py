@@ -1247,6 +1247,6 @@ def load_yaml_and_substitute(filename,t=None):
     except FileNotFoundError as e:
         print(f"File {filename} not found or cannot be opened:", str(e))
         sys.exit(1)
-    except Exception as e:
-        print(f"An unexpected error occured while trying to read {filename}:", str(e))
-        sys.exit(1)
+    # except Exception as e:
+    #     print(f"An unexpected error occured while trying to read {filename}:", str(e))
+    #     sys.exit(1)
