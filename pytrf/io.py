@@ -1189,10 +1189,14 @@ def parse_real_type(value):
     """
     try:
         value = int(value)
+        print("INT: " + value)
     except ValueError:
         try:
             value = float(value)
+            print("FLOAT: " + value)
+
         except:
+            print("STR: " + value)
             pass
     return value
             
@@ -1217,7 +1221,7 @@ def substitute_env_variables(data,t=None):
             if contains_cmd_substitution(data[key_or_id]):
                 if t:
                     data[key_or_id] = sed_keywords(data[key_or_id],t)
-                cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip()
+                cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip() # ADD A WARNING WHEN EMPTY
                 print("3"+cmd_stdout_as_str)
                 data[key_or_id] = parse_real_type(cmd_stdout_as_str)
                 print("4"+data[key_or_id])
