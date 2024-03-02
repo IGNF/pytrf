@@ -1214,7 +1214,8 @@ def substitute_env_variables(data,t=None):
 
             # original    
             if contains_cmd_substitution(data[key_or_id]):
-                data[key_or_id] = sed_keywords(data[key_or_id],t)
+                if t:
+                    data[key_or_id] = sed_keywords(data[key_or_id],t)
                 cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip()
                 data[key_or_id] = parse_real_type(cmd_stdout_as_str)
 
