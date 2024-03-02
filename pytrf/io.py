@@ -1215,16 +1215,16 @@ def substitute_env_variables(data,t=None):
 
         if isinstance(value, str):
             data[key_or_id] = os.path.expandvars(value) # env var substitution
-            print("2"+data[key_or_id])
+            # print("2"+data[key_or_id])
 
             # original    
             if contains_cmd_substitution(data[key_or_id]):
                 if t:
                     data[key_or_id] = sed_keywords(data[key_or_id],t)
                 cmd_stdout_as_str = subprocess.check_output(f'echo {data[key_or_id]}' ,shell=True).decode().rstrip() # ADD A WARNING WHEN EMPTY
-                print("3"+cmd_stdout_as_str)
+                # print("3"+cmd_stdout_as_str)
                 data[key_or_id] = parse_real_type(cmd_stdout_as_str)
-                print("4"+data[key_or_id])
+                # print("4"+data[key_or_id])
 
         if isinstance(value, (dict, list)): # nested
             substitute_env_variables(value,t)
