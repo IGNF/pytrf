@@ -825,17 +825,19 @@ class param:
         p.xc = xc
         p.sigc = sigc
         
-        if reparam is None :
+        p.reparam = reparam
+        
+        if p.reparam is None :
             p.fx2xr = None
             p.fxr2x = None
             p.dfxr2x = None
             
-        if reparam == "positive" :
+        if p.reparam == "positive" :
             p.fx2xr = log
             p.fxr2x = exp
             p.dfxr2x = identity
             
-        if reparam == "spectral-index" :
+        if p.reparam == "spectral-index" :
             p.fx2xr = a2ar
             p.fxr2x = ar2a
             p.dfxr2x = dar2a
@@ -859,7 +861,7 @@ class param:
             Original value
             
         """
-        if p.fx2xr is not None :
+        if p.reparam is not None :
             return p.fx2xr(x)
         else :
             pass # Should raise warning
@@ -882,7 +884,7 @@ class param:
             Reparameterized value
             
         """
-        if p.fx2xr is not None :
+        if p.reparam is not None :
             return p.fxr2x(xr)
         else :
             pass
@@ -904,7 +906,7 @@ class param:
         x : float
             Original value
         """
-        if p.fx2xr is not None :
+        if p.reparam is not None :
             return p.dfxr2x(x)
         else :
             pass
@@ -1910,12 +1912,9 @@ class fexp(function):
                 
                 # Set a priori relaxation time of current function
                 if (len(tau) == 0):
-                    print("test",f.par[1].x)
                     f.par[1].x = 100
                 else:
                     f.par[1].x = np.min(tau) / 10
-                    
-                print("test2",f.par[1].x)
 
     # Compute predicted observations and design matrix
     #-------------------------------------------------
@@ -4621,7 +4620,7 @@ class model:
             for p in f.par:
                 if not(p.fixed):
                     i += 1
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         p.x = p.xr2x(xr[i])
                     else:
                         p.x = xr[i]
@@ -4648,7 +4647,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         xr.append(p.x2xr(p.x))
                     else:
                         xr.append(p.x)
@@ -4699,7 +4698,7 @@ class model:
         for f in m.f:
             for p in f.par:
                 if not(p.fixed):
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         dx.append(p.dx_dxr(p.x))
                     else:
                         dx.append(1)
@@ -4821,7 +4820,7 @@ class model:
             for p in n.par:
                 if not(p.fixed):
                     i += 1
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         p.x = p.xr2x(xr[i])
                     else:
                         p.x = xr[i]
@@ -4848,7 +4847,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         xr.append(p.x2xr(p.x))
                     else:
                         xr.append(p.x)
@@ -4899,7 +4898,7 @@ class model:
         for n in m.n:
             for p in n.par:
                 if not(p.fixed):
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         dx.append(p.dx_dxr(p.x))
                     else:
                         dx.append(1)
@@ -5270,7 +5269,7 @@ class model:
                     if not(p.fixed):
                         i += 1
                     if (p.sigc is not None):
-                        if p.fx2xr is not None :
+                        if p.reparam is not None :
                             x0 = p.x2xr(p.x)
                             xc = p.x2xr(p.xc)
                             sc = p.sigc / p.dx_dxr(p.xc)
@@ -5314,7 +5313,7 @@ class model:
                         if not(p.fixed):
                             i += 1
                         if (p.sigc is not None):
-                            if p.fx2xr is not None :
+                            if p.reparam is not None :
                                 x0 = p.x2xr(p.x)
                                 xc = p.x2xr(p.xc)
                                 sc = p.sigc / p.dx_dxr(p.xc)
@@ -5371,7 +5370,7 @@ class model:
                 if not(p.fixed):
                     i += 1
                 if (p.sigc is not None):
-                    if p.fx2xr is not None :
+                    if p.reparam is not None :
                         x = p.x2xr(p.x)
                         xc = p.x2xr(p.xc)
                         sc = p.sigc / p.dx_dxr(p.xc)
@@ -5406,7 +5405,7 @@ class model:
     
     # Fit deterministic + noise model
     #--------------------------------
-    def fit(m, estimator='reml', method='BFGS', prefit_x=True, prefit_b=False, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit(m, estimator='reml', method='BFGS', prefit_x=True, prefit_b=False, hessian='expected', fr=None, var_positivity=True, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model
@@ -5458,6 +5457,10 @@ class model:
         fr : array, optional
             Frequency range used to compute PSD of noise model and residuals.
             Default is None (automatically set).
+        var_positivity : bool, optional
+            If True, noise variance factors will be constrained to positivity through
+            an internal reparametrization (var_r = log(var)) of the variance parameters.
+            Default if True.
         finalize : bool, optional
             If False, then fit() will stop right after the optimal noise parameters
             are found and set, but most other attributes of the model will not be set.
@@ -5508,6 +5511,14 @@ class model:
                         print('    '+dim, file=out)
                         print('    '+'-'*len(dim), file=out)
                         print('', file=out)
+                        
+                # Cancel default noise amplitude reparametrization, if needed
+                if var_positivity == False :
+                    for k in range(len(m[d].n)):                    
+                        m[d].n[k].par[0].reparam = None
+                else :
+                    for k in range(len(m[d].n)):
+                        m[d].n[k].par[0].reparam = "positive"
 
                 # First fit with white noise only to get good a priori deterministic parameters
                 if (prefit_x):
