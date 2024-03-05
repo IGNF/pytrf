@@ -2483,7 +2483,7 @@ class noise:
                     for k in range(len(n.dh)):
                         dq.append(signal.convolve(n.dh[k], np.arange(1, nf+1)*n.h[::-1])[nf-1::-1] + signal.convolve(n.h, np.arange(1, nf+1)*n.dh[k][::-1])[nf-1::-1])
             
-            q[1:] = 2*q[1:]
+            q[1:] *= 2
             if (set_dpsd):
                 for k in range(len(dq)):
                     dq[k][1:] *= 2

@@ -1318,21 +1318,17 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
         # Get weight matrix of solution isol
         if (snx.N is not None) and (snx.Nc is not None):
-            P = snx.N + snx.Nc
+            P = (snx.N + snx.Nc) / sol.sf**2
         elif (snx.N is not None):
-            P = snx.N
+            P = snx.N / sol.sf**2
         else:
-            P = invspd(snx.Q)
+            P = invspd(snx.Q) / sol.sf**2
 
         # Project weight matrix if transformation parameters are reduced
         if (reduce_trans):
             HtP = np.dot(H.T, P)
             HtPHi = invspd(np.dot(HtP, H))
             P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
-
-        # Divide weight matrix by a priori variance factor
-        if (sol.sf != 1):
-            P /= sol.sf**2
 
         # Update normal equation
         AtP = A[isol][:,ind].T.dot(P)
@@ -1510,19 +1506,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         sol.v = dy[isol] - A[isol].dot(dx)
         
         # Get covariance matrix of input solution
-        Q = snx.Q
-        if (sol.sf != 1):
-            Q *= sol.sf**2
+        Q = snx.Q * sol.sf**2
         
         # Get weight matrix of input solution
         if (snx.N is not None) and (snx.Nc is not None):
-            P = snx.N + snx.Nc
-            if (sol.sf != 1):
-                P /= sol.sf**2
+            P = (snx.N + snx.Nc) / sol.sf**2
         elif (snx.N is not None):
-            P = snx.N
-            if (sol.sf != 1):
-                P /= sol.sf**2
+            P = snx.N / sol.sf**2
         else:
             P = invspd(Q)
             
