@@ -21,7 +21,75 @@ from math import pi, cos, sin, tan, atan, atan2, sqrt, log, log10, exp, ceil
 #-----------------
 from pytrf.const import ae, ee, fe
 
+# Cholesky factorization of a symmetric positive definite matrix
+#---------------------------------------------------------------
+def identity(x):
+    """
+    Identity function used in some reparametrization cases.
 
+    Returns
+    -------
+    x : float
+        Parameter.
+
+    Parameters
+    ----------
+    x : float
+        Parameter.
+    """
+    return x
+
+def a2ar(a) :
+    """
+    Reparametrization function for the spectral index "a" into a reparametrized "ar"
+    so that a cannot reach 3.0.
+
+    Returns
+    -------
+    ar : float
+        Reparametrized spectral index.
+
+    Parameters
+    ----------
+    a : float
+        Spectral index.
+    """
+    
+    return -log(exp(3-a)-1)
+
+def ar2a(ar) :
+    """
+    Inverse reparametrization function for the spectral index.
+
+    Returns
+    ----------
+    a : float
+        Spectral index.
+        
+    Parameters
+    -------
+    ar : float
+        Reparametrized spectral index.
+    """
+    
+    return 3-log(1+exp(-ar))
+
+def dar2a(ar) :
+    """
+    Derivative of the inverse reparametrization function for the spectral index.
+
+    Returns
+    ----------
+    dar2a : float
+        Derivative of the inverse reparametrization function.
+        
+    Parameters
+    -------
+    ar : float
+        Reparametrized spectral index.
+    """
+    
+    return 1-exp(ar-3)
 
 # Cholesky factorization of a symmetric positive definite matrix
 #---------------------------------------------------------------
