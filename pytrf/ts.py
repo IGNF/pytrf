@@ -6212,10 +6212,8 @@ class model:
                 if not(finalize):
                     for d in range(m.nd):
                         m[d].sv = np.sqrt(m[d].s2*m[d].Q)
-                        var_mask = m[d].sv > 0
-                        m[d].vn = np.zeros_like(m[d].v)
-                        m[d].vn[var_mask] = m[d].v[var_mask] / m[d].sv[var_mask]
-                        m[d].wrms = sqrt(np.sum((m[d].v[var_mask]/m[d].sv[var_mask])**2) / np.sum(1/m[d].sv[var_mask]**2))
+                        m[d].vn = m[d].v / m[d].sv
+                        m[d].wrms = sqrt(np.sum((m[d].v/m[d].sv)**2) / np.sum(1/m[d].sv**2))
                         m[d].bic = m[d].logl - (m[d].nx+m[d].nb)/2*log(m.r.n)
 
                 # If necessary, compute running median and MAD of residuals
