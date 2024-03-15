@@ -187,12 +187,9 @@ class sinex:
         map_res()          : Draw station position residual map
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
-<<<<<<< HEAD
         status3()          : Print and write status3.out table (catref equivalent), with a summary of transformation parameters
-=======
         split()            : Split sinex instance into station-specific instances
         
->>>>>>> main
     """
 
     # Initialize a sinex instance

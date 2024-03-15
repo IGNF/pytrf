@@ -515,14 +515,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm.tqdm(range(len(inputs)), desc="Processing input solutions", file=out):
         #isol use as id of solution
         
         sol = inputs[isol]
 
         # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        # if not(quiet):
+        #     print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
@@ -1234,12 +1234,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm.tqdm(range(len(inputs)), desc="Processing input solutions", file=out):
         sol = inputs[isol]
         
         # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        # if not(quiet):
+        #     print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
             
         # Re-read input solution if needed
         if not(store_inputs):
@@ -1475,12 +1475,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm.tqdm(range(len(inputs)), desc="Processing input solutions", file=out):
         sol = inputs[isol]
         
         # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        # if not(quiet):
+        #     print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Re-read input solution if needed
         if not(store_inputs):
