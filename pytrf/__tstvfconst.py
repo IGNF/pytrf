@@ -86,7 +86,7 @@ def minimum_linked(graph):
             site = df_staId.loc[list(subgraph.nodes)[0], "domes"][:5]
             
             if site in dict_graph_final_min_link.keys(): #case of subsites
-                logging.info(f"Sub-site: {site}")
+                #logging.info(f"Sub-site: {site}")
                 num_subsite = len([s for s in dict_graph_final_min_link.keys() if site in s]) + 1
                 site = f"{site}_{num_subsite}"
             
@@ -154,7 +154,7 @@ with open('output/fcontr.dat', 'w') as file:
             
             
 
-logging.info("END vcontr.dat generation..")
+logging.info("END vcontr.dat & fcontr.dat generation.")
         
         
 

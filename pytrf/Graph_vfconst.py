@@ -1,9 +1,5 @@
-"""
-pytrf miscellaneous utilities
-
-This subpackage contains miscalleanous low-level routines.
-
-"""
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 
 # External imports
 #-----------------
@@ -36,7 +32,7 @@ class Graph_vfconst():
     
     Vocabulary & graph modeling
     ---------------------------
-    A station: a node
+    A station: a node (station ID -> staId = code(4chr) + pt(1chr) + solnP(1+chr))
     A constrain btw 2 stations: an edge btw 2 nodes
     
     A site: based on DOMES 5chr
@@ -336,12 +332,15 @@ class Graph_vfconst():
            -node: segment solnV
            -edge: constraints
         
-        There are 3 possibilites on each DOMES site (default: add segment solnV (node) without constraints (edges))
-            -> same V solns -> same discontinuities (default: add nodes but not edges btw solnV segments)
+        Firstly, add all segment solnV (nodes) in graph, without constraints (edges)
+        
+        Secondly, about constraints (edges), there are several possibilites on each DOMES site:
+            -> same V solns = same discontinuities (do nothing, not edges btw solnV segments)
             - no same solnV segment:
-                -> 2 solnV segment of a station included in 1 solnV segment of another station: CONFLIT -> get station(s) name(s) to user (pbm_names) -> (default: add nodes but not edges btw solnV segments)
+                -> 2 solnV segment of a station included in 1 solnV segment of another station: CONFLIT -> get station(s) name(s) to user (pbm_names) -> (default: do nothing, not edges btw solnV segments)
                 -> 1 solnV segment of a station included in 1 solnV segment of another station: same V -> ADD CONSTRAINTS (edge) btw these 2 nodes.
-
+                -> no inclusion/ time segment solnV intersection : no possible association btw solnV nodes (do nothing, not edges btw solnV segments)
+                
         2. Builds a graph with stationsId (code/pt/solnP from self.df_staId) linked to their solnV node (1 station necessary linked to 1 node solnV <> 1 node solnV may be linked to 0--n stations)
 
 
