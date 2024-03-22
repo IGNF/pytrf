@@ -2314,9 +2314,19 @@ class sinex:
         """
         # Keys and holes : init on 1st period (assumed that all stations have same periods, in the same order...)
         per = percode[0]
+        
         if per not in snx.iper_dict.keys(): # unknown period
             logging.warning(f"period '{per}' not in sinex. Possible periods: {list(snx.iper_dict.keys())}")
             return np.array([])
+        
+        if type(pt) == list: #pt=[None] -> pt=None
+            if None in pt:
+                pt=None
+                
+        if type(soln) == list: #soln=[None] -> soln=None
+            if None in soln:
+                soln=None
+            
         
         if (pt) and (soln):
             keys = [code[i]+pt[i]+soln[i] for i in range(len(code))]
@@ -5701,33 +5711,35 @@ class sinex:
         mjd = date.from_tsnx(t).mjd
         
         # Set snx.codeptsoln if needed
-        if not(hasattr(snx, 'codeptsoln')):
-            snx.codeptsoln = np.array([snx.param[i].code + snx.param[i].pt + snx.param[i].soln for i in snx.iper])
-        
-        # Indices of seasonal parameters of specified station
-        ind = np.nonzero(snx.codeptsoln == code+pt+soln)[0]
-        
+        ind = []
+        for percode in snx.iper_dict.keys():
+            if percode[0] == 'A': #'annual', i.e. seasonnal period (v.s. 'D' draconitic or 'P' other period)
+                ind += list(snx.get_per_ind(percode=[percode], code=[code], pt=[pt], soln=[soln]).reshape(-1))
+                   
         # Loop over relevant parameters
         for i in ind:
-            p = snx.param[snx.iper[i]]
-            
-            # Component
-            j = 'XYZ'.index(p.type[5])
-                        
-            # Given date - reference date
-            dt = mjd - date.from_tsnx(p.tref).mjd
-            
+            p = snx.param[i]
             # Add seasonal term
             if snx.is_period(p.type): #it is a periodic param
+            
                 #built period object (compatible old and new syntax A1COSX & A001CX)
                 per = Period.from_snx_param(p.type)
-                #period assumed to be type 'A' (annual) or 'D' (draconitic) -> per.value exists (no type 'P')
-                if (per.cs == 'COS') and (per.value!=0):
-                    c = cos(2*pi*dt/per.value)
-                elif (per.cs == 'SIN') and (per.value!=0):
-                    c = sin(2*pi*dt/per.value)
-                dx[j] += c*snx.x[i]
-                s2x[j] += (c*snx.sig[i])**2
+                
+                if per.type =='A': #be sure Annual period
+            
+                    # Component
+                    j = 'XYZ'.index(per.dim)# XYZ
+                                                 
+                    # Given date - reference date
+                    dt = mjd - date.from_tsnx(p.tref).mjd
+        
+                    #period assumed to be type 'A' (annual) or 'D' (draconitic) -> per.value exists (no type 'P')
+                    if (per.cs == 'COS') and (per.value!=0):
+                        c = cos(2*pi*dt/per.value)
+                    elif (per.cs == 'SIN') and (per.value!=0):
+                        c = sin(2*pi*dt/per.value)
+                    dx[j] += c*snx.x[i]
+                    s2x[j] += (c*snx.sig[i])**2
 
         return (dx, np.sqrt(s2x))
     
