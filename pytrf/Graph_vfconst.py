@@ -84,7 +84,7 @@ class Graph_vfconst():
 
         if type(solns) != type(None):
             self.solns = solns
-            self.df_solns, self.df_v_disc = self.generate_staId_from_solns()
+            self.df_solns, self.df_v_disc = self.generate_df_solns_vdisc()
             
         if type(df_sta) != type(None):
             self.df_sta = df_sta
@@ -119,9 +119,12 @@ class Graph_vfconst():
                 self.df_staId["_staId_pytrf"] = self.df_staId["code"] + self.df_staId["pt"] + self.df_staId["soln"]
                 self.df_staId["staId"] = self.df_staId.apply(lambda row: (row["code"]+ row["pt"]+ row["soln"]).replace(" ",""), axis=1) #no space
                 self.df_staId = self.df_staId.set_index("staId")
- 
+                
+            #create sub selection of solnV based on data in staId -> datastart & dataend date based on data observation (self.df_staId)
+            self.df_v_disc_fit_dataObs = self.generate_v_disc_fit_dataObs()
         
-        self.df_sites = self.generate_sites_domes(self.df_staId)    
+        self.df_sites = self.generate_sites_domes(self.df_staId)
+        
               
     def generate_staId_from_snx(self):
         """ DataFrame summarizing stations in self.snx file
@@ -139,7 +142,7 @@ class Graph_vfconst():
         return df_domes_snx
     
     
-    def generate_staId_from_solns(self):
+    def generate_df_solns_vdisc(self):
         """ DataFrame summarizing stations in self.soln file
             Columns : ['code', 'pt', 'soln', 'solnV 'datastart', 'dataend', '_staId_pytrf']
         """
@@ -216,7 +219,9 @@ class Graph_vfconst():
                     df_v_disc.loc[numV, 'mjd_dataend'] = 999999 #+inf
                 else:
                     df_v_disc.loc[numV, 'mjd_dataend'] = date.from_tsnx(solV.end).mjd
-        
+                    
+                df_v_disc.loc[numV,"segment"] = LineString([(df_v_disc.loc[numV, 'mjd_datastart'], 0), (df_v_disc.loc[numV, 'mjd_dataend'], 0)])
+                
                 numV+=1
                 
                 
@@ -224,8 +229,42 @@ class Graph_vfconst():
         df_solns['staId'] = df_solns.apply(lambda row: (row["_staId_pytrf"].replace(" ","")), axis=1)
         
         df_solns = df_solns.set_index("staId")
-                
+        
         return df_solns, df_v_disc
+    
+    
+    
+    def generate_v_disc_fit_dataObs(self):
+        """
+        Provides dataframe of v discontinuities from soln, fit on data in self.df_staId
+        Add 'datastart_obs' & 'dataend_obs': soln segmentV based on data observation (fit on obs)
+        
+        """
+        df_obs = self.df_staId[['code', 'pt', 'soln', 'solnV', 'datastart', 'dataend']]
+        df_obs = df_obs.rename(columns={'datastart':'datastart_obs', 'dataend':'dataend_obs'})
+        
+        df_v_disc_fit_dataObs = self.df_v_disc.merge(df_obs, on=['code', 'pt', 'solnV'], how='inner')
+        
+        # Define custom aggregation function
+        def custom_agg(group):
+            min_soln = group.loc[group['soln'].astype(int).idxmin(),'soln']
+            max_soln = group.loc[group['soln'].astype(int).idxmax(),'soln']
+            
+            segment = group.loc[:, 'segment'].iloc[0]
+            datastart = group.loc[group['soln'] == min_soln, 'datastart_obs'].iloc[0]
+            dataend = group.loc[group['soln'] == max_soln, 'dataend_obs'].iloc[0]
+            
+            return pd.Series({'segment':segment, 'datastart_obs': datastart, 'dataend_obs': dataend})
+        
+        df_v_disc_fit_dataObs = df_v_disc_fit_dataObs.groupby(['code', 'pt', 'datastart', 'dataend', 'solnV', 'mjd_datastart', 'mjd_dataend']).apply(custom_agg).reset_index()
+        
+        #### compute segment_observation
+        mjd_datastart_obs = [date.from_tsnx(da).mjd for da in df_v_disc_fit_dataObs['datastart_obs']]
+        mjd_dataend_obs = [date.from_tsnx(da).mjd for da in df_v_disc_fit_dataObs['dataend_obs']]
+        
+        df_v_disc_fit_dataObs['segment_obs'] = [LineString([(mjd_datastart_obs[num], 0), (mjd_dataend_obs[num], 0)]) for num in range(len(mjd_datastart_obs))]
+        
+        return df_v_disc_fit_dataObs
     
     
     def generate_sites_domes(self, df_domes_snx):
@@ -332,7 +371,7 @@ class Graph_vfconst():
 
             
     
-    def build_time_soln_graph(self):
+    def build_time_soln_graph(self, fit_on_dataObs=False):
         """
         Builds graph based on TIME relations btw stations SOLNS.
         
@@ -347,7 +386,7 @@ class Graph_vfconst():
         Secondly, about constraints (edges), there are several possibilites on each DOMES site:
             -> same V solns = same discontinuities (do nothing, not edges btw solnV segments)
             - no same solnV segment:
-                -> 2 solnV segment of a station included in 1 solnV segment of another station: CONFLIT -> get station(s) name(s) to user (pbm_names) -> (default: do nothing, not edges btw solnV segments)
+                -> 2 solnV segment of a station included in 1 solnV segment of another station: CONFLICT -> get station(s) name(s) to user (pbm_names) -> (default: do nothing, not edges btw solnV segments)
                 -> 1 solnV segment of a station included in 1 solnV segment of another station: same V -> ADD CONSTRAINTS (edge) btw these 2 nodes.
                 -> no inclusion/ time segment solnV intersection : no possible association btw solnV nodes (do nothing, not edges btw solnV segments)
                 
@@ -355,19 +394,84 @@ class Graph_vfconst():
 
 
         ==> Final G_all graph: nodes (staId + solnV), edges (constraints btw staId, neighbouring thanks to solnV nodes)
+        
+        Parameters:
+        ----------
+        - self.df_sites: pandas.dataframe of sites: 2 columns: "siteId" (str) + "staId" (list of str).
+                        You can update BEFORE this attr.
+                        Default __init__: sites based on DOMES
+                        Ex: can be generated with graph G_dist after 'build_snx_graph()' -> sites based on dist proxmity
+        
+        - fit_on_dataObs: bool (Default: False) 
+                    If False: Use all solnV segments in self.soln -> 'fit on soln'
+                    
+                    If True: Use only solnV segments occuring/usefull in current dataset (self.df_staId).
+                            For example, in case of a stations & time range selections. Not considered all SOLN
+                            WARNING: can hide CONFLICTS in solnV [2 solnV segment of a station described by soln included in 1 solnV segment of another station]
+                                     -> here 1 solnV can be not represented in dataset      
         """
         
-        self.df_v_disc["segment"] = self.df_v_disc.apply(lambda row: LineString([(row['mjd_datastart'], 0), (row['mjd_dataend'], 0)]), axis=1)
+        def get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput):
+            """ Return list of versus pbm --> log"""
+       
+            indexes_of_duplicates = np.array([dict_included_idinput[sta][index] for index, item in enumerate(multiline) if multiline.count(item) > 1])
+            LineString_pbm1 = np.array(list_multilinestrings[sta].geoms)[indexes_of_duplicates]
+            multline_pbm1 = np.array(list_multilinestrings[sta])
+            
+            id_ml_pbms2 = np.array(list(set([ml2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
+            id_li_pbms2 = np.array(list(set([l2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
+            multline_pbm2 = np.array(list_multilinestrings)[np.array(id_ml_pbms2)][0]
+            
+            LineString_pbm2 = np.array(multline_pbm2.geoms)[id_li_pbms2]
+            
+            list_staId_pbm1 = list(sub.loc[sub['segment_multi']==multline_pbm1].index)
+            list_staId_pbm1 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm1]
+            c1, pt1 = zip(*list_staId_pbm1)
+            df_v_disc1 = df_v_disc[(df_v_disc['code'].isin(c1)) & (df_v_disc['pt'].isin(pt1))]
+            list_staId_pbm2 = list(sub.loc[sub['segment_multi']==multline_pbm2].index)
+            list_staId_pbm2 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm2]
+            c2, pt2 = zip(*list_staId_pbm2)
+            
+            df_v_disc2 = df_v_disc[(df_v_disc['code'].isin(c2)) & (df_v_disc['pt'].isin(pt2))]
+            
+            # solns of "df_v_disc1" > refers to soln V (Velocity!) 
+            v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','solnV']].values.tolist()
+            v_disc2 = df_v_disc2.loc[df_v_disc2['segment'].isin(LineString_pbm2)][['code','pt','solnV']].values.tolist()
+            
+            logging.warning(f" >>>{v_disc1} VS {v_disc2}")
+            
+            pbm =[[v_disc1, v_disc2],
+                  [[self.get_node_sitename_linestring(site['siteId'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['siteId'], lpb2) for lpb2 in  LineString_pbm2]]]
+
+            return pbm
         
-        df = pd.merge(self.df_staId.reset_index(), self.df_v_disc[['code', 'pt','segment']], on=['code', 'pt'], how='left').set_index("staId")
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+        #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         
-        self.df_grouped = df.groupby('staId')['segment'].agg(list).to_frame()
-        self.df_grouped["segment_multi"] = self.df_grouped["segment"].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
+        if fit_on_dataObs: #use solnV info only from observed data
+            df_v_disc = self.df_v_disc_fit_dataObs
+            
+            ##### for each staId, associate all solnV of this station (no solnP consideration) --> considered segment_obs too
+            df = pd.merge(self.df_staId.reset_index(), df_v_disc[['code', 'pt','segment', 'segment_obs']], on=['code', 'pt'], how='left').set_index("staId")
+            self.df_grouped = df.groupby('staId')['segment'].agg(list).to_frame()
+            self.df_grouped['segment_multi'] = self.df_grouped['segment'].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
+            self.df_grouped['segment_multi_obs'] = df.groupby('staId')['segment_obs'].agg(list).to_frame()['segment_obs'].apply(lambda x: MultiLineString(x))
+            
+            
+            
+        else: # 'fit on soln'
+            df_v_disc = self.df_v_disc
+            
+            ##### for each staId, associate all solnV of this station (no solnP consideration) --> considered segment_obs too
+            df = pd.merge(self.df_staId.reset_index(), df_v_disc[['code', 'pt','segment']], on=['code', 'pt'], how='left').set_index("staId")
+            self.df_grouped = df.groupby('staId')['segment'].agg(list).to_frame()
+            self.df_grouped['segment_multi'] = self.df_grouped['segment'].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
+        
+        
         
         num_pbm = 0
         list_pbm = []
         pbm_names = []
-        
         # Create a graph using networkx
         G_time_seg = nx.Graph()
         for num_site, site in tqdm.tqdm(self.df_sites.iterrows(), desc='Building time graph...', total=len(self.df_sites)):
@@ -375,7 +479,7 @@ class Graph_vfconst():
             sub = self.df_grouped.loc[site['staId']] #on site, all V discontinuities time segment
             nodes_seg_names = pd.unique([f'site_{site["siteId"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
             
-            #add all temporal segments as nodes
+            #add all temporal solnV segments as nodes
             G_time_seg.add_nodes_from(nodes_seg_names, color='red') 
             
             ### add links btw nodes_seg_names?
@@ -385,54 +489,61 @@ class Graph_vfconst():
        
             else:
                 #logging.warning(f"No consistent V discontinuities on site {num} >> {self.df_sites.loc[num, ['siteId', 'staId']].values}")
-                list_multilinestrings_pbm = list(pd.unique(sub["segment_multi"]))
+                list_multilinestrings = list(pd.unique(sub["segment_multi"]))
+                dict_included, dict_equal, dict_included_idinput = self.check_inclusionML(list_multilinestrings)
                 
-                dict_included, dict_equal, dict_included_idinput = self.check_inclusionML(list_multilinestrings_pbm)
+                if fit_on_dataObs:
+                    list_multilinestrings_obs = list(pd.unique(sub["segment_multi_obs"])) #study based on datastart & dataend of observations
+                    dict_included_obs, dict_equal_obs, dict_included_idinput_obs = self.check_inclusionML(list_multilinestrings_obs)
+                
                 
                 for sta, multiline in dict_included.items():
                     
                     #### inclusion trouble: 2 or + inclusion from station1 to station2 >>>> no more V discontinuities !!  flag but do nothing on links
                     if len(set(multiline)) != len(multiline):
-                        #logging.warning("-----------------------")
-                        # logging.warning(f"PBM {num_site} >> {self.df_sites.loc[num_site, ['siteId', 'staId']].values}")
-                        # logging.warning(f" >>> {list_multilinestrings_pbm}, {sta}, {multiline}")
-                        list_pbm.append(num_site)
-                        num_pbm +=1
                         
-                        indexes_of_duplicates = np.array([dict_included_idinput[sta][index] for index, item in enumerate(multiline) if multiline.count(item) > 1])
-                        LineString_pbm1 = np.array(list_multilinestrings_pbm[sta].geoms)[indexes_of_duplicates]
-                        multline_pbm1 = np.array(list_multilinestrings_pbm[sta])
-                        
-                        id_ml_pbms2 = np.array(list(set([ml2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
-                        id_li_pbms2 = np.array(list(set([l2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
-                        multline_pbm2 = np.array(list_multilinestrings_pbm)[np.array(id_ml_pbms2)][0]
-                        
-                        LineString_pbm2 = np.array(multline_pbm2.geoms)[id_li_pbms2]
-                        
-                        
-                        list_staId_pbm1 = list(sub.loc[sub['segment_multi']==multline_pbm1].index)
-                        list_staId_pbm1 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm1]
-                        c1, pt1 = zip(*list_staId_pbm1)
-                        df_v_disc1 = self.df_v_disc[(self.df_v_disc['code'].isin(c1)) & (self.df_v_disc['pt'].isin(pt1))]
-                        list_staId_pbm2 = list(sub.loc[sub['segment_multi']==multline_pbm2].index)
-                        list_staId_pbm2 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm2]
-                        c2, pt2 = zip(*list_staId_pbm2)
-                        
-                        df_v_disc2 = self.df_v_disc[(self.df_v_disc['code'].isin(c2)) & (self.df_v_disc['pt'].isin(pt2))]
-                        
-                        #logging.warning(f" >>>{multline_pbm1}  {multline_pbm2}")
-                        #logging.warning(f" >>>{list(sub.loc[sub['segment_multi']==multline_pbm1].index)} VS {list(sub.loc[sub['segment_multi']==multline_pbm2].index)}")
-                        #logging.warning(f" >>>{LineString_pbm1} VS {LineString_pbm2}")
-                        
-                        # solns of "df_v_disc1" > refers to soln V (Velocity!) 
-                        v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','solnV']].values.tolist()
-                        v_disc2 = df_v_disc2.loc[df_v_disc2['segment'].isin(LineString_pbm2)][['code','pt','solnV']].values.tolist()
-                        
-                        logging.warning(f" >>>{v_disc1} VS {v_disc2}")
-                        
-        
-                        pbm_names.append([[v_disc1, v_disc2],
-                                          [[self.get_node_sitename_linestring(site['siteId'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['siteId'], lpb2) for lpb2 in  LineString_pbm2]]])
+                        ### if based on data date obs, check 'segment_obs'
+                        if fit_on_dataObs:
+                            
+                            multiline = dict_included_obs[sta]
+                            
+                            if len(set(multiline)) != len(multiline): #same problem with Obs date... CONFLICT
+                                list_pbm.append(num_site)
+                                num_pbm +=1
+                                
+                                #generate pbm list LOG
+                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput)                  
+                                pbm_names.append(pbm)
+                                continue # -> go to NEXT iterr. (test next multiline)
+                            
+                            else: # valid with 
+                            
+                                logging.warning(" --- !! [Segment conflict solved using Obs solnV dates] !!--")
+                                #only plot the warning message
+                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings_obs, dict_equal_obs, dict_included_idinput_obs)
+                                for iml, il in multiline:
+                                    
+                                    il1 = dict_included_idinput_obs[sta][multiline.index((iml, il))]
+                                    line_obj1 = np.array(list_multilinestrings_obs[sta].geoms)[il1]
+                                    node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
+                                    
+                                    line_obj2 = np.array(list_multilinestrings_obs[iml].geoms)[il]
+                                    node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
+                                    
+                                    if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):
+                                        logging.warning("[Add included time segment] Unknown node {node1} & {node2}")
+                                    
+                                    G_time_seg.add_edge(node1, node2)
+                                
+                            
+                        else:
+                            list_pbm.append(num_site)
+                            num_pbm +=1
+                            
+                            #generate pbm list LOG
+                            pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput)                  
+                            pbm_names.append(pbm)
+                            continue # -> go to NEXT iterr. (test next multiline)
                     
                     ### 1 segment included in another sta segment -> link -> V constraints possible
                     elif len(multiline)!=0: 
@@ -442,10 +553,10 @@ class Graph_vfconst():
                         for iml, il in multiline:
                             
                             il1 = dict_included_idinput[sta][multiline.index((iml, il))]
-                            line_obj1 = np.array(list_multilinestrings_pbm[sta].geoms)[il1]
+                            line_obj1 = np.array(list_multilinestrings[sta].geoms)[il1]
                             node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
                             
-                            line_obj2 = np.array(list_multilinestrings_pbm[iml].geoms)[il]
+                            line_obj2 = np.array(list_multilinestrings[iml].geoms)[il]
                             node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
                             
                             if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):

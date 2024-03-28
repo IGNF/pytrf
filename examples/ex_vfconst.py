@@ -26,6 +26,7 @@ df['dataend'] += ':00000'
 grB = Graph_vfconst(solns=solns, df_sta=df)
 df_staId = grB.df_staId
 df_sites = grB.df_sites
+df_v_disc = grB.df_v_disc
 
 
 ## 1. graph
@@ -41,24 +42,29 @@ for numsite, site in enumerate(dict_sites_Gdist.keys()):
 
 #update default df_dites attribute by=uild with domes name
 grB.df_sites = df_sites_dist
+
 ## 2.time graph
-G_time, G_time_seg, pbm_names = grB.build_time_soln_graph()
+G_time, G_time_seg, pbm_names = grB.build_time_soln_graph(fit_on_dataObs=True)
 pbmv = [p[0] for p in pbm_names]
 list_pbm = []
 
 with open("list_pbm_solnV.txt", "w") as fpbm: #overwrite potential existing file
-    fpbm.write("# code pt solnV  datastart_solnV  dataend_solnV #\n")
-    
+    fpbm.write("## code pt solnV  datastart_solnV  dataend_solnV   -----actual time range in input data ---->  datastart_solnV_obs  dataend_solnV_obs ##\n")
     for sta in pbmv:
         right = []
         left = []
-        fpbm.write("\n-------------------- PROBLEM ----------------------\n")
+        fpbm.write("\n---------------------------------- SITE PROBLEM ------------------------------------\n")
         for line in sta[0]:
             code=line[0]
             pt=line[1]
             solnV=line[2]
             dates = grB.df_v_disc.loc[(grB.df_v_disc['code']==code) & (grB.df_v_disc['pt']==pt) & (grB.df_v_disc['solnV']==solnV),['datastart','dataend']].values.reshape(-1)
-            fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}\n")
+            dates_obs = grB.df_v_disc_fit_dataObs.loc[(grB.df_v_disc_fit_dataObs['code']==code) & (grB.df_v_disc_fit_dataObs['pt']==pt) & (grB.df_v_disc_fit_dataObs['solnV']==solnV),['datastart_obs','dataend_obs']].values.reshape(-1)
+        
+            if len(dates_obs) == 0: #no obs for this solnV time segment
+                dates_obs = [12*'*', 12*'*']
+            
+            fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}   -->   {dates_obs[0]}  {dates_obs[1]}\n")
             right.append(''.join(line))
             
         fpbm.write("VS. \n")
@@ -67,15 +73,15 @@ with open("list_pbm_solnV.txt", "w") as fpbm: #overwrite potential existing file
             pt=line[1]
             solnV=line[2]
             dates = grB.df_v_disc.loc[(grB.df_v_disc['code']==code) & (grB.df_v_disc['pt']==pt) & (grB.df_v_disc['solnV']==solnV),['datastart','dataend']].values.reshape(-1)
-            fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}\n")
-            left.append(''.join(line))
-        fpbm.write("---------------------------------------------------\n")
+            dates_obs = grB.df_v_disc_fit_dataObs.loc[(grB.df_v_disc_fit_dataObs['code']==code) & (grB.df_v_disc_fit_dataObs['pt']==pt) & (grB.df_v_disc_fit_dataObs['solnV']==solnV),['datastart_obs','dataend_obs']].values.reshape(-1)
             
-        
+            if len(dates_obs) == 0: #no obs for this solnV time segment
+                dates_obs = [12*'*', 12*'*']
+            fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}   -->   {dates_obs[0]}  {dates_obs[1]}\n")
+            left.append(''.join(line))
+        fpbm.write("-----------------------------------------------------------------------------------\n")        
         list_pbm.append([right, left])
     
-
-
 ##3. manual correction(s) on G_time: add edges after check 'pbm_names' list
 #0 PEN2 A vs PENC?
 ####G_time.add_edge('site_13407_50636.5_60364.5','site_13407_52941.0_60364.5') #1 MADR A > linked to MAD2 after 2003
@@ -90,13 +96,10 @@ g_time, list_g_time = grB.sub_complete_graph(G_time)
 intersection_graph = nx.intersection(G_dist, g_time)
 
 ##6. absolute constraints
-sta_const_abs = grB.build_absolute_const(const_time=1, const_nobs=20, G_relative_const=intersection_graph)
-#check if G_abs node already linked to another station in a site
+sta_const_abs = grB.build_absolute_const(const_time=1, const_nobs=20, G_relative_const=intersection_graph)# get 'intersection_graph': check if stations keept already linked to another station in a site
 
 
-##6. minimum link in each clusters of 'intersection_graph'
-      
-
+##7. minimum link in each clusters of 'intersection_graph' & export
 ##### VCONTR.dat
 graph_final_vcontr, dict_graph_final_vcontr = grB.minimum_linked(intersection_graph)        
 #### write & export vcontr CATREF
@@ -164,6 +167,3 @@ with open('output/fcontr.dat', 'w') as file:
             
 
 logging.info("END vcontr.dat & fcontr.dat generation.")
-        
-        
-
