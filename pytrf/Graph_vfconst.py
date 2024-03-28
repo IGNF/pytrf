@@ -88,10 +88,20 @@ class Graph_vfconst():
             
         if type(df_sta) != type(None):
             self.df_sta = df_sta
+            if "pt" in self.df_sta.columns:
+                self.df_sta["pt"] = self.df_sta["pt"].astype(str).str.rjust(2) #reformat pt as 2 chr (' A')
+            if "soln" in self.df_sta.columns:
+                self.df_sta["soln"] = self.df_sta["soln"].astype(str).str.rjust(4) #reformat soln as 4 chr ('   1')
          
         if type(self.df_sta) != type(None) and type(self.solns) != type(None): ###init df_staId & df_sites
             #build StaId using in priority station in 'df_sta'
-            self.df_staId = pd.merge(self.df_solns.reset_index(), self.df_sta[['code', 'pt', 'X', 'Y', 'Z', 'domes']], on=['code', 'pt'], how='right').set_index('staId')
+            #print(("datastart" not in self.df_sta.columns) or ("dataend" not in self.df_sta.columns) or ("soln" not in self.df_sta.columns))
+            if ("datastart" not in self.df_sta.columns) or ("dataend" not in self.df_sta.columns) or ("soln" not in self.df_sta.columns): #take datastart & dataend from soln
+                self.df_staId = pd.merge(self.df_solns.reset_index(), self.df_sta[['code', 'pt', 'X', 'Y', 'Z', 'domes', 'nobs']], on=['code', 'pt'], how='right').set_index('staId')
+            else: #prefer to take dates from df_sta -> join also on SOLN
+                self.df_staId = pd.merge(self.df_solns.reset_index().loc[:, self.df_solns.reset_index().columns.difference(['datastart', 'dataend'])], self.df_sta, on=['code', 'pt','soln'], how='right').set_index('staId') #retrive 'datastart' & 'dataend' from soln
+            
+ 
             #set node name according to segment_v + site (domes[:5])
             self.df_staId['node_v_name'] = self.df_staId.apply(lambda row: self.get_node_sitename_linestring(row['domes'][:5], row['segment_v']), axis=1)
             #reorder according domes name
@@ -117,7 +127,7 @@ class Graph_vfconst():
         """ DataFrame summarizing stations in self.snx file
             Columns : ['domes', 'code', 'pt', 'soln', 'datastart', 'dataend', '_staId_pytrf', 'X', 'Y', 'Z']
         """
-        df_domes_snx = pd.DataFrame([(sta.domes, sta.code, sta.pt, soln.soln, soln.datastart, soln.dataend) for sta in self.snx.sta for soln in sta.soln], columns=["domes", "code", "pt", "soln", "datastart", "dataend"])
+        df_domes_snx = pd.DataFrame([(sta.domes, sta.code, sta.pt, soln.soln, soln.datastart, soln.dataend, soln.nobs) for sta in self.snx.sta for soln in sta.soln], columns=["domes", "code", "pt", "soln", "datastart", "dataend", "nobs"])
         df_domes_snx["_staId_pytrf"] = df_domes_snx["code"]+ df_domes_snx["pt"]+ df_domes_snx["soln"]
         df_domes_snx["staId"] = df_domes_snx.apply(lambda row: (row["code"]+ row["pt"]+ row["soln"]).replace(" ",""), axis=1) #no space
         df_domes_snx = df_domes_snx.set_index("staId")
@@ -194,7 +204,7 @@ class Graph_vfconst():
                 #depend of soln
                 df_v_disc.loc[numV, 'datastart'] = solV.start
                 df_v_disc.loc[numV, 'dataend'] = solV.end
-                df_v_disc.loc[numV, 'soln'] = solV.soln
+                df_v_disc.loc[numV, 'solnV'] = solV.soln
                 
                 ### mjd date
                 if solV.start == '00:000:00000':
@@ -228,13 +238,13 @@ class Graph_vfconst():
         df_domes_snx = df_domes_snx.copy()
         ### Sites according 5 domes character
         # Select the first 5 characters of the "domes" column
-        df_domes_snx['group_key'] = df_domes_snx['domes'].str[:5]
+        df_domes_snx['siteId'] = df_domes_snx['domes'].str[:5]
         
         # Group by the first 5 characters and aggregate into a list with respective index values
-        df_sites = df_domes_snx.groupby('group_key').agg(staId=('domes', lambda x: x.index.tolist())).reset_index()
+        df_sites = df_domes_snx.groupby('siteId').agg(staId=('domes', lambda x: x.index.tolist())).reset_index()
         
         #### remove site without domes: '-----'
-        df_sites = df_sites[df_sites['group_key'] != '-----'].reset_index(drop=True)
+        df_sites = df_sites[df_sites['siteId'] != '-----'].reset_index(drop=True)
               
         return df_sites
         
@@ -313,12 +323,12 @@ class Graph_vfconst():
         subgraphs = [G.subgraph(cluster) for cluster in clusters]
         
         # Create sub complete graphs for each cluster
-        sub_complete_graphs = [nx.complete_graph(subgraph.nodes) for subgraph in subgraphs] #list of graphes
+        sub_compl_graphs = [nx.complete_graph(subgraph.nodes) for subgraph in subgraphs] #list of graphes
         
         # Accumulate all subgraphs into a single graph
-        single_graph = nx.union_all(sub_complete_graphs)
+        single_graph = nx.union_all(sub_compl_graphs)
         
-        return single_graph, sub_complete_graphs
+        return single_graph, sub_compl_graphs
 
             
     
@@ -363,18 +373,18 @@ class Graph_vfconst():
         for num_site, site in tqdm.tqdm(self.df_sites.iterrows(), desc='Building time graph...', total=len(self.df_sites)):
             
             sub = self.df_grouped.loc[site['staId']] #on site, all V discontinuities time segment
-            nodes_seg_names = pd.unique([f'site_{site["group_key"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
+            nodes_seg_names = pd.unique([f'site_{site["siteId"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
             
             #add all temporal segments as nodes
             G_time_seg.add_nodes_from(nodes_seg_names, color='red') 
             
             ### add links btw nodes_seg_names?
             if sub["segment_multi"].nunique() == 1: #All values in V 'segment' are identical >>> same discontinuities, all right, no needs to link 'node_seg_names'
-                #logging.info(f"Site {site['group_key']} OK.")
+                #logging.info(f"Site {site['siteId']} OK.")
                 pass
        
             else:
-                #logging.warning(f"No consistent V discontinuities on site {num} >> {self.df_sites.loc[num, ['group_key', 'staId']].values}")
+                #logging.warning(f"No consistent V discontinuities on site {num} >> {self.df_sites.loc[num, ['siteId', 'staId']].values}")
                 list_multilinestrings_pbm = list(pd.unique(sub["segment_multi"]))
                 
                 dict_included, dict_equal, dict_included_idinput = self.check_inclusionML(list_multilinestrings_pbm)
@@ -384,7 +394,7 @@ class Graph_vfconst():
                     #### inclusion trouble: 2 or + inclusion from station1 to station2 >>>> no more V discontinuities !!  flag but do nothing on links
                     if len(set(multiline)) != len(multiline):
                         #logging.warning("-----------------------")
-                        # logging.warning(f"PBM {num_site} >> {self.df_sites.loc[num_site, ['group_key', 'staId']].values}")
+                        # logging.warning(f"PBM {num_site} >> {self.df_sites.loc[num_site, ['siteId', 'staId']].values}")
                         # logging.warning(f" >>> {list_multilinestrings_pbm}, {sta}, {multiline}")
                         list_pbm.append(num_site)
                         num_pbm +=1
@@ -415,14 +425,14 @@ class Graph_vfconst():
                         #logging.warning(f" >>>{LineString_pbm1} VS {LineString_pbm2}")
                         
                         # solns of "df_v_disc1" > refers to soln V (Velocity!) 
-                        v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','soln']].values.tolist()
-                        v_disc2 = df_v_disc2.loc[df_v_disc2['segment'].isin(LineString_pbm2)][['code','pt','soln']].values.tolist()
+                        v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','solnV']].values.tolist()
+                        v_disc2 = df_v_disc2.loc[df_v_disc2['segment'].isin(LineString_pbm2)][['code','pt','solnV']].values.tolist()
                         
                         logging.warning(f" >>>{v_disc1} VS {v_disc2}")
                         
         
                         pbm_names.append([[v_disc1, v_disc2],
-                                          [[self.get_node_sitename_linestring(site['group_key'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['group_key'], lpb2) for lpb2 in  LineString_pbm2]]])
+                                          [[self.get_node_sitename_linestring(site['siteId'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['siteId'], lpb2) for lpb2 in  LineString_pbm2]]])
                     
                     ### 1 segment included in another sta segment -> link -> V constraints possible
                     elif len(multiline)!=0: 
@@ -433,10 +443,10 @@ class Graph_vfconst():
                             
                             il1 = dict_included_idinput[sta][multiline.index((iml, il))]
                             line_obj1 = np.array(list_multilinestrings_pbm[sta].geoms)[il1]
-                            node1 = self.get_node_sitename_linestring(site['group_key'], line_obj1)
+                            node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
                             
                             line_obj2 = np.array(list_multilinestrings_pbm[iml].geoms)[il]
-                            node2 = self.get_node_sitename_linestring(site['group_key'], line_obj2)
+                            node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
                             
                             if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):
                                 logging.warning("[Add included time segment] Unknown node {node1} & {node2}")
@@ -451,6 +461,50 @@ class Graph_vfconst():
         G_all.add_edges_from(list(zip(list(self.df_staId['node_v_name']), list(self.df_staId.index))))
         
         return G_all, G_time_seg, pbm_names #WARNING: pbm names: code/pt/soln V (not P!)
+    
+    
+    def build_absolute_const(self, const_time=1, const_nobs=20, G_relative_const=None):
+        """
+        Build Graph of Absolute constraints: all stations with:
+            - nobs < const_nobs 
+            - time length < const time
+
+        Parameters
+        ----------
+        const_time : float, optional
+            year minimum time length. The default is 1 (1 year)
+        const_nobs : int, optional
+            minimal number of observation. The default is 20.
+        G_relative_const: networkx.Graph
+            Graph with all relative constraints btw different stations (build from dist (build_snx_graph) & time (build_time_soln_graph))
+            Allows to filter stations already linked with other on sites
+        Returns
+        -------
+        None.
+
+        """
+        # compute years of measurments
+        df_years = self.df_staId.copy()
+        df_years["ydatastart"] = df_years["datastart"].apply(lambda row: date.from_tsnx(row).ydec())
+        df_years["ydataend"] = df_years["dataend"].apply(lambda row: date.from_tsnx(row).ydec())
+        
+        
+        #min & max dates
+        df_cumul_y = df_years.groupby(['code', 'pt']).agg({'ydatastart': 'min', 'ydataend': 'max', 'nobs':'sum'}).reset_index()
+        df_cumul_y["nyear_total"] = df_cumul_y["ydataend"] - df_cumul_y["ydatastart"]
+        df_cumul_y = df_cumul_y.rename(columns={"nobs":"nobs_total"})
+        #merge 
+        df_years = pd.merge(df_years.reset_index()[['staId', 'code', 'pt']], df_cumul_y[['code', 'pt', 'nyear_total', 'nobs_total']], on=['code','pt'], how='left').set_index('staId')
+        
+        self.df_staId["nyear_total"] = df_years["nyear_total"]
+        self.df_staId["nobs_total"] = df_years["nobs_total"]
+        
+        staId_absconst = list(df_years.loc[(df_years["nyear_total"]<const_time) & (df_years["nobs_total"]<const_nobs)].index)
+        
+        if type(G_relative_const) != type(None): #filter station already linked with other on site
+            staId_absconst = [st for st in staId_absconst if st not in G_relative_const]
+        
+        return staId_absconst
         
 
     def check_inclusionML(self, multilinestrings):
@@ -538,6 +592,40 @@ class Graph_vfconst():
             gr_snx_soln.add_edges_from(gr_vfconst.edges)
                 
         return gr_snx_soln
+    
+    
+    def minimum_linked(self, graph):
+        clusters = list(nx.connected_components(graph))
+
+        # Create a new graph to store the minimum spanning trees
+        graph_final_min_link = nx.Graph()
+        dict_graph_final_min_link = {}
+
+        # Create minimum spanning tree for each cluster and add edges to graph_final_min_link
+        for cluster in clusters:
+            if len(cluster) > 1: #at least 1 connected component  ---> if 1 sta, no link, we remove
+                        
+                # Create a subgraph for the current cluster
+                subgraph = graph.subgraph(cluster)
+                
+                site = self.df_staId.loc[list(subgraph.nodes)[0], "domes"][:5]
+                
+                if site in dict_graph_final_min_link.keys(): #case of subsites
+                    #logging.info(f"Sub-site: {site}")
+                    num_subsite = len([s for s in dict_graph_final_min_link.keys() if site in s]) + 1
+                    site = f"{site}_{num_subsite}"
+                
+                # Calculate minimum spanning tree for the subgraph
+                mst = nx.minimum_spanning_tree(subgraph)
+                # Add edges of the minimum spanning tree to mst_graph
+                graph_final_min_link.add_edges_from(mst.edges)
+                
+                dict_graph_final_min_link[site] = mst
+                
+                # if 'PIN2A1' in list(cluster):
+                #     print(cluster, subgraph.edges, mst.edges,site)
+            
+        return graph_final_min_link, dict_graph_final_min_link
     
     def plot_graph(self, G, with_labels=True):
         pp.figure()
