@@ -411,39 +411,76 @@ class Graph_vfconst():
                                      -> here 1 solnV can be not represented in dataset      
         """
         
-        def get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput):
+        def get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings):
             """ Return list of versus pbm --> log"""
-       
-            indexes_of_duplicates = np.array([dict_included_idinput[sta][index] for index, item in enumerate(multiline) if multiline.count(item) > 1])
-            LineString_pbm1 = np.array(list_multilinestrings[sta].geoms)[indexes_of_duplicates]
+            
+            dict_pbms = find_common_values_ml(multiline)
+            
             multline_pbm1 = np.array(list_multilinestrings[sta])
             
-            id_ml_pbms2 = np.array(list(set([ml2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
-            id_li_pbms2 = np.array(list(set([l2 for (ml2, l2) in multiline if multiline.count((ml2, l2)) > 1])))
-            multline_pbm2 = np.array(list_multilinestrings)[np.array(id_ml_pbms2)][0]
+            pbms = {}
             
-            LineString_pbm2 = np.array(multline_pbm2.geoms)[id_li_pbms2]
+            if (len(dict_pbms))>1:
+                logging.warning(f"Multiple problems {site['siteId']} {site['staId']}")
             
-            list_staId_pbm1 = list(sub.loc[sub['segment_multi']==multline_pbm1].index)
-            list_staId_pbm1 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm1]
-            c1, pt1 = zip(*list_staId_pbm1)
-            df_v_disc1 = df_v_disc[(df_v_disc['code'].isin(c1)) & (df_v_disc['pt'].isin(pt1))]
-            list_staId_pbm2 = list(sub.loc[sub['segment_multi']==multline_pbm2].index)
-            list_staId_pbm2 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm2]
-            c2, pt2 = zip(*list_staId_pbm2)
-            
-            df_v_disc2 = df_v_disc[(df_v_disc['code'].isin(c2)) & (df_v_disc['pt'].isin(pt2))]
-            
-            # solns of "df_v_disc1" > refers to soln V (Velocity!) 
-            v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','solnV']].values.tolist()
-            v_disc2 = df_v_disc2.loc[df_v_disc2['segment'].isin(LineString_pbm2)][['code','pt','solnV']].values.tolist()
-            
-            logging.warning(f" >>>{v_disc1} VS {v_disc2}")
-            
-            pbm =[[v_disc1, v_disc2],
-                  [[self.get_node_sitename_linestring(site['siteId'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['siteId'], lpb2) for lpb2 in  LineString_pbm2]]]
-
-            return pbm
+            num_site_pbm = 0
+            for value_pbm, list_linestring in dict_pbms.items():
+                
+                ml2, l2 = value_pbm
+                LineString_pbm1 = np.array(list_multilinestrings[sta].geoms)[list_linestring]
+                         
+                multline_pbm2 = np.array(list_multilinestrings)[ml2]
+                LineString_pbm2 = np.array(multline_pbm2.geoms)[l2]
+                
+                
+                
+                list_staId_pbm1 = list(sub.loc[sub['segment_multi']==multline_pbm1].index)
+                list_staId_pbm1 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm1]
+                c1, pt1 = zip(*list_staId_pbm1)
+                df_v_disc1 = df_v_disc[(df_v_disc['code'].isin(c1)) & (df_v_disc['pt'].isin(pt1))]
+                
+                list_staId_pbm2 = list(sub.loc[sub['segment_multi']==multline_pbm2].index)
+                list_staId_pbm2 = [(sta[:4], f" {sta[4]}") for sta in list_staId_pbm2]
+                c2, pt2 = zip(*list_staId_pbm2)
+                
+                df_v_disc2 = df_v_disc[(df_v_disc['code'].isin(c2)) & (df_v_disc['pt'].isin(pt2))]
+                
+                # solns of "df_v_disc1" > refers to soln V (Velocity!)
+                #print(LineString_pbm1, df_v_disc1, LineString_pbm2)
+                v_disc1 = df_v_disc1.loc[df_v_disc1['segment'].isin(LineString_pbm1)][['code','pt','solnV']].values.tolist()
+                v_disc2 = df_v_disc2.loc[df_v_disc2['segment']==LineString_pbm2][['code','pt','solnV']].values.tolist()
+                
+                logging.warning(f" >>>{v_disc1} VS {v_disc2}")
+                
+                pbm = {}
+                
+                pbm["code"] = [v_disc1, v_disc2]
+                      #[[self.get_node_sitename_linestring(site['siteId'], lpb1) for lpb1 in  LineString_pbm1], [self.get_node_sitename_linestring(site['siteId'], lpb2) for lpb2 in  LineString_pbm2]]]
+                pbm["segment_v"] = [[self.df_staId.loc[(self.df_staId["code"]==code) & (self.df_staId["pt"]==pt) & (self.df_staId["solnV"]==solnV), 'node_v_name'].values for code, pt, solnV in v_disc1], [self.df_staId.loc[(self.df_staId["code"]==code) & (self.df_staId["pt"]==pt) & (self.df_staId["solnV"]==solnV), 'node_v_name'].values for code, pt, solnV in v_disc2]]
+               
+                #no segment value -> reformat to ''
+                pbm["segment_v"][0] = [name_id[0] if len(name_id)>0 else '' for name_id in pbm["segment_v"][0]] #left
+                pbm["segment_v"][1] = [name_id[0] if len(name_id)>0 else '' for name_id in pbm["segment_v"][1]] #right
+                
+                pbms[num_site_pbm] = pbm
+                
+                num_site_pbm += 1
+                
+            return pbms
+        
+        # Function to find common values between keys in a multiline
+        def find_common_values_ml(dictionary):
+            common_values = {}  # Dictionary to store common values and their corresponding keys
+            for key, lst in dictionary.items():
+                for value in lst:
+                    if value not in common_values:
+                        common_values[value] = [key]
+                    else:
+                        common_values[value].append(key)
+            # Filter out values that are common to multiple keys
+            common_values = {value: keys for value, keys in common_values.items() if len(keys) > 1}
+            return common_values
+   
         
         #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
         #----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -457,8 +494,7 @@ class Graph_vfconst():
             self.df_grouped['segment_multi'] = self.df_grouped['segment'].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
             self.df_grouped['segment_multi_obs'] = df.groupby('staId')['segment_obs'].agg(list).to_frame()['segment_obs'].apply(lambda x: MultiLineString(x))
             
-            
-            
+        
         else: # 'fit on soln'
             df_v_disc = self.df_v_disc
             
@@ -467,8 +503,7 @@ class Graph_vfconst():
             self.df_grouped = df.groupby('staId')['segment'].agg(list).to_frame()
             self.df_grouped['segment_multi'] = self.df_grouped['segment'].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
         
-        
-        
+            
         num_pbm = 0
         list_pbm = []
         pbm_names = []
@@ -477,7 +512,8 @@ class Graph_vfconst():
         for num_site, site in tqdm.tqdm(self.df_sites.iterrows(), desc='Building time graph...', total=len(self.df_sites)):
             
             sub = self.df_grouped.loc[site['staId']] #on site, all V discontinuities time segment
-            nodes_seg_names = pd.unique([f'site_{site["siteId"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
+            #nodes_seg_names = pd.unique([f'site_{site["siteId"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
+            nodes_seg_names = pd.unique([self.get_node_sitename_linestring(site['siteId'], line) for line in sub['segment'].explode()])
             
             #add all temporal solnV segments as nodes
             G_time_seg.add_nodes_from(nodes_seg_names, color='red') 
@@ -498,21 +534,22 @@ class Graph_vfconst():
                 
                 
                 for sta, multiline in dict_included.items():
-                    
+                    #multiline: list of dict -> simple list {0:[(1,2)], 1:[2,7]}
                     #### inclusion trouble: 2 or + inclusion from station1 to station2 >>>> no more V discontinuities !!  flag but do nothing on links
-                    if len(set(multiline)) != len(multiline):
+                    if len(find_common_values_ml(multiline))>0:
                         
                         ### if based on data date obs, check 'segment_obs'
                         if fit_on_dataObs:
                             
-                            multiline = dict_included_obs[sta]
+                            multiline = dict_included_obs[sta] 
+                            multiline_1list = [ids for list_ml in multiline.values() for ids in list_ml]
                             
-                            if len(set(multiline)) != len(multiline): #same problem with Obs date... CONFLICT
+                            if len(set(multiline_1list)) != len(multiline_1list): #same problem with Obs date... CONFLICT
                                 list_pbm.append(num_site)
                                 num_pbm +=1
                                 
                                 #generate pbm list LOG
-                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput)                  
+                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings)                  
                                 pbm_names.append(pbm)
                                 continue # -> go to NEXT iterr. (test next multiline)
                             
@@ -520,7 +557,7 @@ class Graph_vfconst():
                             
                                 logging.warning(" --- !! [Segment conflict solved using Obs solnV dates] !!--")
                                 #only plot the warning message
-                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings_obs, dict_equal_obs, dict_included_idinput_obs)
+                                pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings_obs)
                                 for iml, il in multiline:
                                     
                                     il1 = dict_included_idinput_obs[sta][multiline.index((iml, il))]
@@ -541,7 +578,7 @@ class Graph_vfconst():
                             num_pbm +=1
                             
                             #generate pbm list LOG
-                            pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings, dict_equal, dict_included_idinput)                  
+                            pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings)                  
                             pbm_names.append(pbm)
                             continue # -> go to NEXT iterr. (test next multiline)
                     
@@ -550,20 +587,22 @@ class Graph_vfconst():
                         # print(">>> possible inclusion") #possible to have several included segment for this current multline, but on different segments.
                         # print(f"site:{num_site}", sta, multiline)
                         
-                        for iml, il in multiline:
+                        for il1 in multiline.keys():
                             
-                            il1 = dict_included_idinput[sta][multiline.index((iml, il))]
-                            line_obj1 = np.array(list_multilinestrings[sta].geoms)[il1]
-                            node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
+                            for iml, il in multiline[il1]:
                             
-                            line_obj2 = np.array(list_multilinestrings[iml].geoms)[il]
-                            node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
-                            
-                            if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):
-                                logging.warning("[Add included time segment] Unknown node {node1} & {node2}")
-                            
-                            G_time_seg.add_edge(node1, node2)
-                           
+                                #il1 = dict_included_idinput[sta][multiline.index((iml, il))]
+                                line_obj1 = np.array(list_multilinestrings[sta].geoms)[il1]
+                                node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
+                                
+                                line_obj2 = np.array(list_multilinestrings[iml].geoms)[il]
+                                node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
+                                
+                                if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):
+                                    logging.warning("[Add included time segment] Unknown node {node1} & {node2}")
+                                
+                                G_time_seg.add_edge(node1, node2)
+                               
 
         print(f"Num sites: {len(self.df_sites)} ->num_pbm={num_pbm} {list_pbm}")
         
@@ -650,12 +689,10 @@ class Graph_vfconst():
         for i, mls1 in enumerate(multilinestrings):
             ##print(f"\nMultiLineString {i}:")
             # Iterate over each LineString within the MultiLineString
-            dict_included[i] = [] #list of tuple MultilineString, Linstring
-            dict_included_idinput[i] = []
+            dict_included[i] = {} #list of tuple MultilineString, Linstring
             dict_equal[i] = []
             for j, ls1 in enumerate(mls1.geoms):
                 # Convert the LineString to a shapely LineString object
-                inclusion_found = False
                 # Check against other MultiLineStrings
                 for k, mls2 in enumerate(multilinestrings):
                     if k != i:  # Skip self-comparison
@@ -665,20 +702,16 @@ class Graph_vfconst():
                             if ls1 == ls2:
                                 ##print(f"LineString {j} of MultiLineString {i} is EQUAL LineString {j2} of MultiLineString {k}.")
                                 dict_equal[i].append((j2,k))
-                                inclusion_found = True
-                                break
                                 
                             # Check if ls1 is completely included in ls2
                             elif ls1.within(ls2):
                                 ##print(f"LineString {j} of MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.")
-                                dict_included[i].append((k, j2)) #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
-                                dict_included_idinput[i].append(j)
-                                
-                                inclusion_found = True
-                                break
-                        if inclusion_found:
-                            break
-                        
+                                #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
+                                if j not in dict_included[i]:
+                                    dict_included[i][j] =  []
+                                    
+                                dict_included[i][j].append((k, j2)) #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
+                                    
         return dict_included, dict_equal, dict_included_idinput
 
     def get_node_sitename_linestring(self, site_name, linestring):
