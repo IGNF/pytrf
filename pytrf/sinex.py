@@ -3460,7 +3460,8 @@ class sinex:
 
         # Indices, keys and holes
         ixv = snx.ix+snx.iv
-        par = [snx.param[i] for i in ixv]
+        iper = snx.iper
+        par = [snx.param[i] for i in ixv + iper]
         if (pt is not None) and (soln is not None):
             keys = [p.code+p.pt+p.soln for p in par]
             holes = [code[i]+pt[i]+soln[i] for i in range(len(code))]
@@ -3476,9 +3477,15 @@ class sinex:
 
         # Get indices of parameters to delete
         ind = []
+        #ix + iv
         for i in range(len(ixv)):
             if not(keys[i] in holes):
                 ind.extend(range(ixv[i], ixv[i]+3))
+                
+        #iper
+        for i in range(len(iper)):
+            if not(keys[i] in holes):
+                ind.extend(range(iper[i], iper[i]+6))
 
         # And delete them
         snx.del_ind(ind, keep_const=keep_const)
@@ -5037,10 +5044,10 @@ class sinex:
             if (nper>0):
                 for per in snx.wrmsp.keys():
                     print('    WRMS {1} cos E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][0], per), file=out)
-                    print('    WRMS {1} sin N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][1], per), file=out)
-                    print('    WRMS {1} cos U   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
-                    print('    WRMS {1} sin E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][3], per), file=out)
-                    print('    WRMS {1} cos N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][4], per), file=out)
+                    print('    WRMS {1} cos N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][2], per), file=out)
+                    print('    WRMS {1} cos U   : {0:8.3f} mm/y'.format(snx.wrmsp[per][4], per), file=out)
+                    print('    WRMS {1} sin E   : {0:8.3f} mm/y'.format(snx.wrmsp[per][1], per), file=out)
+                    print('    WRMS {1} sin N   : {0:8.3f} mm/y'.format(snx.wrmsp[per][3], per), file=out)
                     print('    WRMS {1} sin U   : {0:8.3f} mm/y'.format(snx.wrmsp[per][5], per), file=out)
             print('', file=out)
 
