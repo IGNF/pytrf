@@ -29,70 +29,33 @@ df_sites = grB.df_sites
 df_v_disc = grB.df_v_disc
 
 
-## 1. graph
+# ## 1. graph
 G_dist = grB.build_snx_graph(limit_dist=10000)
 
 _, dict_sites_Gdist = grB.minimum_linked(G_dist)
 df_sites_dist = pd.DataFrame(columns=["siteId", "staId"])
 
-#build new df_sites from sites & subsites defines by G_dist
+# #build new df_sites from sites & subsites defines by G_dist
 for numsite, site in enumerate(dict_sites_Gdist.keys()):
     df_sites_dist.loc[numsite,"siteId"] = site
     df_sites_dist.loc[numsite,"staId"] = list(dict_sites_Gdist[site].nodes)
 
-#update default df_dites attribute by=uild with domes name
+#update default df_dites attribute build with domes name
 grB.df_sites = df_sites_dist
+grB.set_df_sites(df_sites_dist)
 
 ## 2.time graph
-G_time, G_time_seg, pbm_names = grB.build_time_soln_graph(fit_on_dataObs=True)
+G_time, G_time_seg, [pbm_names, pbm_solved] = grB.build_time_soln_graph()
 
-with open("list_pbm_solnV.txt", "w") as fpbm: #overwrite potential existing file
-    fpbm.write("## code pt solnV  datastart_solnV  dataend_solnV   -----actual time range in input data ---->  datastart_solnV_obs  dataend_solnV_obs     'id solnV segment' ##\n")
-    for nums, site in enumerate(pbm_names):
-     
-        #fpbm.write("\n--------------------------------- SITE PROBLEM -----------------------------------\n")
-        fpbm.write(f"\n{34*'>'} SITE PROBLEM {34*'>'}\n")
-        for num_pbm in site.keys(): 
-            if num_pbm > 0:
-                fpbm.write(f"{75*'.'}\n")
-                
-            for numl, line in enumerate(site[num_pbm]["code"][0]):
-                code=line[0]
-                pt=line[1]
-                solnV=line[2]
-                
-                dates = grB.df_v_disc.loc[(grB.df_v_disc['code']==code) & (grB.df_v_disc['pt']==pt) & (grB.df_v_disc['solnV']==solnV),['datastart','dataend']].values.reshape(-1)
-                dates_obs = grB.df_v_disc_fit_dataObs.loc[(grB.df_v_disc_fit_dataObs['code']==code) & (grB.df_v_disc_fit_dataObs['pt']==pt) & (grB.df_v_disc_fit_dataObs['solnV']==solnV),['datastart_obs','dataend_obs']].values.reshape(-1)
-                
-                id_solnV = site[num_pbm]["segment_v"][0][numl]
-             
-                if len(dates_obs) == 0: #no obs for this solnV time segment
-                    dates_obs = [12*'*', 12*'*']
-                
-                fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}   -->   {dates_obs[0]}  {dates_obs[1]}       {id_solnV}\n")
-             
-            fpbm.write("VS. \n")
-            for numl, line in enumerate(site[num_pbm]["code"][1]):
-                code=line[0]
-                pt=line[1]
-                solnV=line[2]
-                
-                dates = grB.df_v_disc.loc[(grB.df_v_disc['code']==code) & (grB.df_v_disc['pt']==pt) & (grB.df_v_disc['solnV']==solnV),['datastart','dataend']].values.reshape(-1)
-                dates_obs = grB.df_v_disc_fit_dataObs.loc[(grB.df_v_disc_fit_dataObs['code']==code) & (grB.df_v_disc_fit_dataObs['pt']==pt) & (grB.df_v_disc_fit_dataObs['solnV']==solnV),['datastart_obs','dataend_obs']].values.reshape(-1)
-                
-                id_solnV = site[num_pbm]["segment_v"][1][numl]
-                
-                if len(dates_obs) == 0: #no obs for this solnV time segment
-                    dates_obs = [12*'*', 12*'*']
-                fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}   -->   {dates_obs[0]}  {dates_obs[1]}       {id_solnV}\n")      
-        #fpbm.write("---------------------------------------------------------------------------------\n")
-        fpbm.write(f"{82*'<'}\n")        
+grB.write_pbm_file(pbm_names, no_site=False)    
+grB.write_pbm_file(pbm_solved, "list_solved_pbm.txt", no_site=False)    
 
     
 ##3. manual correction(s) on G_time: add edges after check 'pbm_names' list
 #0 CIT1 A vs JPLM?
-# G_time.add_edge('site_40400_58670.13880787037_999999.0','site_40400_53269.0_999999.0') ### CIT1 A 6 <> JPLM A 3 (last segment)
-# G_time.add_edge('site_49886_58144.0_999999.0', 'site_49886_55290.94494212963_999999.0') ### PLO5 A 3 <> P475 A 2 & PLO6 A 3 <> P475 A 2
+#G_time.add_edge('site_21602_56603.0_999999.0','site_21602_-1.0_999999.0') #2 last WUH2 with WUHN
+G_time.add_edge('site_40400_58670.13880787037_999999.0','site_40400_53269.0_999999.0') ### CIT1 A 6 <> JPLM A 3 (last segment)
+G_time.add_edge('site_49886_58144.0_999999.0', 'site_49886_55290.94494212963_999999.0') ### PLO5 A 3 <> P475 A 2 & PLO6 A 3 <> P475 A 2
 
 ##4. sub-complete graphes (linked btw them all neighbouring nodes)
 #g_dist, list_g_dist = grB.sub_complete_graph(G_dist) #  >>>> no complete graph for dist, because loop over complete all pairs on site, normaly same result..
