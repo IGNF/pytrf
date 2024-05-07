@@ -1189,14 +1189,10 @@ def parse_real_type(value):
     """
     try:
         value = int(value)
-        print("INT: " + str(value))
     except ValueError:
         try:
             value = float(value)
-            print("FLOAT: " + float(value))
-
         except:
-            print("STR: " + value)
             pass
     return value
             
@@ -1239,9 +1235,17 @@ def substitute_env_variables(data,t=None):
 
 
 def load_yaml_and_substitute(filename,t=None):
+    ## define custom tag handler : https://community.home-assistant.io/t/add-string-concatenation-to-yaml-via-user-defined-tag-join/671989
+    def join1(loader, node):
+        seq = loader.construct_sequence(node)
+        return ''.join([str(i) for i in seq])
+
+    ## register the tag handler
+    yaml.add_constructor('!JOIN', join1)
+
     try:
         with open(filename, 'r') as file:
-            yaml_content = yaml.safe_load(file)
+            yaml_content = yaml.load(file,Loader=yaml.Loader) # since SafeLoader doesn't support tags
             substitute_env_variables(yaml_content,t)
             return yaml_content
     except FileNotFoundError as e:
