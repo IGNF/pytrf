@@ -3950,7 +3950,7 @@ class sinex:
         
         # Rotate station position residuals to ENH frames and convert them into mm
         indx = np.nonzero(snx.v[snx.ix])[0]
-        ix = np.array([snx.ix[i] for i in indx])
+        ix = np.array([snx.ix[i] for i in indx], dtype=int)
         for i in ix:
             R = xyz2enh(snx.x[i:i+3])
             snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
