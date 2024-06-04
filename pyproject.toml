@@ -1,0 +1,26 @@
+[project]
+name = 'pytrf'
+version = '0.1'
+description = 'Python utilities for the analysis and combination of Terrestrial Reference Frames'
+readme = 'README.md'
+authors = [
+  { name = 'Paul Rebischung', email = 'paul.rebischung@ign.fr' },
+  { name = 'Julien Barneoud', email = 'julien.barneoud@ign.fr' },
+  { name = 'Kevin Gobron', email = 'gobron@ipgp.fr' },
+  { name = 'Maylis de La Serve', email = 'maylis.teyssendierdelaserve@ign.fr' },
+]
+dependencies = [
+  'pyyaml',
+  'numpy',
+  'scipy',
+  'astropy',
+  'matplotlib',
+  'cartopy'
+]
+
+[project.urls]
+homepage = 'https://github.com/prebischung/pytrf'
+
+[build-system]
+requires = ['setuptools>=64']
+build-backend = 'setuptools.build_meta'

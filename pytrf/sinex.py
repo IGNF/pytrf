@@ -3875,260 +3875,275 @@ class sinex:
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
         
-        # Design matrix
-        A = snx.helmert_partials(helmerts, 'STA')[isnx]
-        if (len(np.intersect1d(isnx, snx.iv)) > 0):
-            A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+        # If both solutions are identical,
+        if np.array_equal(snx.x[isnx], ref.x[iref]):
 
-        # Right-hand side
-        y = snx.x[isnx] - ref.x[iref]
-        
-        # Least-squares adjustment of Helmert parameters
-        if (weighting == 'identity'):
-            AtP = A.T
-        elif (weighting == 'diagonal'):
-            P = 1 / snx.sig[isnx]**2
-            AtP = A.T * P
-        elif (weighting == 'full'):
-            L = cholesky(snx.Q[isnx2])
-            AtP = (cholsolve(L, A)).T
-        N = np.dot(AtP, A)
-        b = np.dot(AtP, y)
-        Qt = invspd(N)
-        t = np.dot(Qt, b)
+            # Print message
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+                print('', file=out)
+                print('Both solutions are identical!', file=out)
 
-        # Residuals
-        v = y - np.dot(A, t)
-        
-        # Compute unit variance factor if needed
-        if (apply_vf):
+            return (None, None)
+
+        # Else,
+        else:
+
+            # Design matrix
+            A = snx.helmert_partials(helmerts, 'STA')[isnx]
+            if (len(np.intersect1d(isnx, snx.iv)) > 0):
+                A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+
+            # Right-hand side
+            y = snx.x[isnx] - ref.x[iref]
+
+            # Least-squares adjustment of Helmert parameters
             if (weighting == 'identity'):
-                vPv = np.sum(v**2)
+                AtP = A.T
             elif (weighting == 'diagonal'):
-                vPv = np.sum(v**2*P)
+                P = 1 / snx.sig[isnx]**2
+                AtP = A.T * P
             elif (weighting == 'full'):
-                vPv = np.sum(v*cholsolve(L, v))
-            sig02 = vPv / (A.shape[0]-A.shape[1])
-            
-        # "Full" array of residuals
-        snx.v = np.zeros(snx.npar)
-        snx.v[isnx] = v        
-        
-        # Covariance matrix of observations
-        Q = np.zeros((snx.npar, snx.npar))
-        if (weighting == 'identity'):
-            Q[isnx2] = np.eye(len(isnx))
-        elif (weighting == 'diagonal'):
-            Q[isnx2] = np.diag(snx.sig[isnx]**2)
-        else:
-            Q[isnx2] = snx.Q[isnx2]
-            
-        # Compute covariance matrix of residuals if needed
-        if (norm_res == 'correct'):
-            Qv = np.zeros((snx.npar, snx.npar))
-            Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T))
-            
-        # Scale covariance matrices with unit variance factor if needed
-        if (apply_vf):
-            Q *= sig02
-            Qt *= sig02
-            if (norm_res == 'correct'):
-                Qv *= sig02
-                
-        # Variances of observations
-        s2 = np.diag(Q).copy()
-        
-        # Standard deviations of residuals
-        if (norm_res == 'correct'):
-            snx.sv = np.sqrt(np.diag(Qv))
-        else:
-            snx.sv = np.sqrt(np.diag(Q))
-        
-        # Normalized residuals
-        snx.vn = np.zeros(snx.npar)
-        snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
-        
-        # Rotate station position residuals to ENH frames and convert them into mm
-        indx = np.nonzero(snx.v[snx.ix])[0]
-        ix = np.array([snx.ix[i] for i in indx])
-        for i in ix:
-            R = xyz2enh(snx.x[i:i+3])
-            snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
-            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
-            if (norm_res == 'correct'):
-                snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                L = cholesky(snx.Q[isnx2])
+                AtP = (cholsolve(L, A)).T
+            N = np.dot(AtP, A)
+            b = np.dot(AtP, y)
+            Qt = invspd(N)
+            t = np.dot(Qt, b)
+
+            # Residuals
+            v = y - np.dot(A, t)
+
+            # Compute unit variance factor if needed
+            if (apply_vf):
+                if (weighting == 'identity'):
+                    vPv = np.sum(v**2)
+                elif (weighting == 'diagonal'):
+                    vPv = np.sum(v**2*P)
+                elif (weighting == 'full'):
+                    vPv = np.sum(v*cholsolve(L, v))
+                sig02 = vPv / (A.shape[0]-A.shape[1])
+
+            # "Full" array of residuals
+            snx.v = np.zeros(snx.npar)
+            snx.v[isnx] = v
+
+            # Covariance matrix of observations
+            Q = np.zeros((snx.npar, snx.npar))
+            if (weighting == 'identity'):
+                Q[isnx2] = np.eye(len(isnx))
+            elif (weighting == 'diagonal'):
+                Q[isnx2] = np.diag(snx.sig[isnx]**2)
             else:
-                snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
-            snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
+                Q[isnx2] = snx.Q[isnx2]
 
-        # Compute WRMS of ENH station position residuals
-        snx.wrmsx = np.zeros(3)
-        for i in range(3):
-            snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
-            
-        # Rotate station velocity residuals to ENH frames and convert them into mm
-        indv = np.nonzero(snx.v[snx.iv])[0]
-        iv = np.array([snx.iv[i] for i in indv])
-        for i in iv:
-            R = xyz2enh(snx.x[i-3:i])
-            snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
-            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+            # Compute covariance matrix of residuals if needed
             if (norm_res == 'correct'):
-                snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                Qv = np.zeros((snx.npar, snx.npar))
+                Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T))
+
+            # Scale covariance matrices with unit variance factor if needed
+            if (apply_vf):
+                Q *= sig02
+                Qt *= sig02
+                if (norm_res == 'correct'):
+                    Qv *= sig02
+
+            # Variances of observations
+            s2 = np.diag(Q).copy()
+
+            # Standard deviations of residuals
+            if (norm_res == 'correct'):
+                snx.sv = np.sqrt(np.diag(Qv))
             else:
-                snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
-            snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
-        
-        # Compute WRMS of ENH station velocity residuals
-        if (len(iv) > 0):
-            snx.wrmsv = np.zeros(3)
-            for i in range(3):
-                snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
-                
-        # Convert geocenter residuals into mm
-        igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
-        snx.v[igc] *= 1000
-        snx.sv[igc] *= 1000
-        
-        # Indices of radiosource coordinate residuals
-        indrs = np.nonzero(snx.v[snx.irs])[0]
-        irs = np.array([snx.irs[i] for i in indrs])
-        
-        # Indices of ERP / GC / SC residuals
-        ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
-        ig = np.setdiff1d(isnx, ic)
+                snx.sv = np.sqrt(np.diag(Q))
 
-        # Reshape array of transformation parameters and their covariance matrix
-        ind = []
-        if ('T' in helmerts):
-            ind.extend(range(0, 3))
-        if ('S' in helmerts):
-            ind.append(3)
-        if ('R' in helmerts):
-            ind.extend(range(4, 7))
-        if (len(iv) > 0):
-            if ('T' in helmerts):
-                ind.extend(range(7, 10))
-            if ('S' in helmerts):
-                ind.append(10)
-            if ('R' in helmerts):
-                ind.extend(range(11, 14))
-        T = np.zeros(14)
-        T[ind] = t
-        QT = np.zeros((14, 14))
-        QT[np.ix_(ind, ind)] = Qt
-        sT = np.sqrt(np.diag(QT))
+            # Normalized residuals
+            snx.vn = np.zeros(snx.npar)
+            snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
 
-        # Print output
-        if not(quiet):
-            print('sinex.compare', file=out)
-            print('-------------', file=out)
-
-            # Print main options and statistics
-            print('', file=out)
-            print('    Main statistics', file=out)
-            print('    ---------------', file=out)
-            print('', file=out)
-            print('    # observations      : {0}'.format(len(isnx)), file=out)
-            print('    (station positions  : {0})'.format(3*len(indx)), file=out)
-            print('    (station velocities : {0})'.format(3*len(indv)), file=out)
-            print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
-            print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
-            print('    # parameters        : {0}'.format(A.shape[1]), file=out)
-            print('    Weighting           : {0}'.format(weighting), file=out)
-            print('    WRMS East           : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
-            print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
-            print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
-            if (len(iv) > 0):
-                print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
-                print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
-                print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
-            print('', file=out)
-
-            # Print estimated parameters and formal errors
-            print('    Estimated Helmert parameters', file=out)
-            print('    ----------------------------', file=out)
-            print('', file=out)
-            if ('T' in helmerts):
-                print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[0], sT[0]), file=out)
-                print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[1], sT[1]), file=out)
-                print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[2], sT[2]), file=out)
-            if ('S' in helmerts):
-                print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[3], sT[3]), file=out)
-            if ('R' in helmerts):
-                print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
-                print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
-                print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
-            if (len(indv) > 0):
-                if ('T' in helmerts):
-                    print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
-                    print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
-                    print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[9], sT[9]), file=out)
-                if ('S' in helmerts):
-                    print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(T[10], sT[10]), file=out)
-                if ('R' in helmerts):
-                    print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
-                    print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
-                    print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
-            print('', file=out)
-            
-            # Print station position residuals
-            print('    Station position residuals', file=out)
-            print('    --------------------------', file=out)
-            print('', file=out)
-            print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
-            print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
+            # Rotate station position residuals to ENH frames and convert them into mm
+            indx = np.nonzero(snx.v[snx.ix])[0]
+            ix = np.array([snx.ix[i] for i in indx])
             for i in ix:
-                print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
-            print('', file=out)
+                R = xyz2enh(snx.x[i:i+3])
+                snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
+                s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+                if (norm_res == 'correct'):
+                    snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                else:
+                    snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
+                snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
 
-            # Print station velocity residuals
+            # Compute WRMS of ENH station position residuals
+            snx.wrmsx = np.zeros(3)
+            for i in range(3):
+                snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
+
+            # Rotate station velocity residuals to ENH frames and convert them into mm
+            indv = np.nonzero(snx.v[snx.iv])[0]
+            iv = np.array([snx.iv[i] for i in indv])
+            for i in iv:
+                R = xyz2enh(snx.x[i-3:i])
+                snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
+                s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+                if (norm_res == 'correct'):
+                    snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                else:
+                    snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
+                snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
+
+            # Compute WRMS of ENH station velocity residuals
             if (len(iv) > 0):
-                print('    Station velocity residuals', file=out)
+                snx.wrmsv = np.zeros(3)
+                for i in range(3):
+                    snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
+
+            # Convert geocenter residuals into mm
+            igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
+            snx.v[igc] *= 1000
+            snx.sv[igc] *= 1000
+
+            # Indices of radiosource coordinate residuals
+            indrs = np.nonzero(snx.v[snx.irs])[0]
+            irs = np.array([snx.irs[i] for i in indrs])
+
+            # Indices of ERP / GC / SC residuals
+            ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
+            ig = np.setdiff1d(isnx, ic)
+
+            # Reshape array of transformation parameters and their covariance matrix
+            ind = []
+            if ('T' in helmerts):
+                ind.extend(range(0, 3))
+            if ('S' in helmerts):
+                ind.append(3)
+            if ('R' in helmerts):
+                ind.extend(range(4, 7))
+            if (len(iv) > 0):
+                if ('T' in helmerts):
+                    ind.extend(range(7, 10))
+                if ('S' in helmerts):
+                    ind.append(10)
+                if ('R' in helmerts):
+                    ind.extend(range(11, 14))
+            T = np.zeros(14)
+            T[ind] = t
+            QT = np.zeros((14, 14))
+            QT[np.ix_(ind, ind)] = Qt
+            sT = np.sqrt(np.diag(QT))
+
+            # Print output
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+
+                # Print main options and statistics
+                print('', file=out)
+                print('    Main statistics', file=out)
+                print('    ---------------', file=out)
+                print('', file=out)
+                print('    # observations      : {0}'.format(len(isnx)), file=out)
+                print('    (station positions  : {0})'.format(3*len(indx)), file=out)
+                print('    (station velocities : {0})'.format(3*len(indv)), file=out)
+                print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
+                print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
+                print('    # parameters        : {0}'.format(A.shape[1]), file=out)
+                print('    Weighting           : {0}'.format(weighting), file=out)
+                print('    WRMS East           : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
+                print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
+                print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
+                if (len(iv) > 0):
+                    print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
+                    print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
+                    print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                print('', file=out)
+
+                # Print estimated parameters and formal errors
+                print('    Estimated Helmert parameters', file=out)
+                print('    ----------------------------', file=out)
+                print('', file=out)
+                if ('T' in helmerts):
+                    print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[0], sT[0]), file=out)
+                    print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[1], sT[1]), file=out)
+                    print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[2], sT[2]), file=out)
+                if ('S' in helmerts):
+                    print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[3], sT[3]), file=out)
+                if ('R' in helmerts):
+                    print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
+                    print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
+                    print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
+                if (len(indv) > 0):
+                    if ('T' in helmerts):
+                        print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
+                        print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
+                        print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[9], sT[9]), file=out)
+                    if ('S' in helmerts):
+                        print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(T[10], sT[10]), file=out)
+                    if ('R' in helmerts):
+                        print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
+                        print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
+                        print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
+                print('', file=out)
+
+                # Print station position residuals
+                print('    Station position residuals', file=out)
                 print('    --------------------------', file=out)
                 print('', file=out)
-                print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
+                print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
-                print('     code pt soln |     E        N        H    |     E        N        H    |', file=out)
+                print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
-                for i in iv:
+                for i in ix:
                     print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
                 print('', file=out)
-                
-            # Print radiosource coordinate residuals
-            if (len(irs) > 0):
-                print('    Radiosource coordinate residuals', file=out)
-                print('    --------------------------------', file=out)
-                print('', file=out)
-                print('                   |   Raw res. [mas]  |  Normalized res.  |', file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                print('     code IERSname |    RA       DE    |    RA       DE    |', file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                for i in irs:
-                    print('     {0.code} {0.iers} | {1[0]:8.3f} {1[1]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} |'.format(snx.param[i], snx.v[i:i+2], snx.vn[i:i+2]), file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                print('', file=out)
 
-            # ERP/GC residuals
-            if (len(ig) > 0):
-                print('    ERP / geocenter / scale residuals', file=out)
-                print('    ---------------------------------', file=out)
-                print('', file=out)
-                print('                         |      Raw      |   Norm   |', file=out)
-                print('    ---------------------|---------------|----------|', file=out)
-                for i in ig:
-                    if (snx.param[i].type[1:3] == 'GC'):
-                        print('     {0.type} {0.tref} | {1:8.3f} mm   | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
-                    else:
-                        print('     {0.type} {0.tref} | {1:8.3f} {0.unit} | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
-                print('    ---------------------|---------------|----------|', file=out)
-                print('', file=out)
+                # Print station velocity residuals
+                if (len(iv) > 0):
+                    print('    Station velocity residuals', file=out)
+                    print('    --------------------------', file=out)
+                    print('', file=out)
+                    print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    print('     code pt soln |     E        N        H    |     E        N        H    |', file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    for i in iv:
+                        print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    print('', file=out)
 
-        return (T, QT)
+                # Print radiosource coordinate residuals
+                if (len(irs) > 0):
+                    print('    Radiosource coordinate residuals', file=out)
+                    print('    --------------------------------', file=out)
+                    print('', file=out)
+                    print('                   |   Raw res. [mas]  |  Normalized res.  |', file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    print('     code IERSname |    RA       DE    |    RA       DE    |', file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    for i in irs:
+                        print('     {0.code} {0.iers} | {1[0]:8.3f} {1[1]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} |'.format(snx.param[i], snx.v[i:i+2], snx.vn[i:i+2]), file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    print('', file=out)
+
+                # ERP/GC residuals
+                if (len(ig) > 0):
+                    print('    ERP / geocenter / scale residuals', file=out)
+                    print('    ---------------------------------', file=out)
+                    print('', file=out)
+                    print('                         |      Raw      |   Norm   |', file=out)
+                    print('    ---------------------|---------------|----------|', file=out)
+                    for i in ig:
+                        if (snx.param[i].type[1:3] == 'GC'):
+                            print('     {0.type} {0.tref} | {1:8.3f} mm   | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
+                        else:
+                            print('     {0.type} {0.tref} | {1:8.3f} {0.unit} | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
+                    print('    ---------------------|---------------|----------|', file=out)
+                    print('', file=out)
+
+            return (T, QT)
     
     # Get list of outliers from Helmert comparison or combination
     #------------------------------------------------------------
