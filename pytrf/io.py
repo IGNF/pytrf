@@ -146,8 +146,8 @@ def read_domes(file, coord=True):
                 tab = line.strip().split()
                 r.lon = float(tab[-2])
                 r.lat = float(tab[-1])
-                #r.lon = int(r.lon) + (r.lon-int(r.lon))/0.6
-                #r.lat = int(r.lat) + (r.lat-int(r.lat))/0.6
+                r.lon = int(r.lon) + (r.lon-int(r.lon))/0.6
+                r.lat = int(r.lat) + (r.lat-int(r.lat))/0.6
 
             domes.append(r)
             line = f.readline()

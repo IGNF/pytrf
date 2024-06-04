@@ -14,6 +14,10 @@ import pickle
 from math import pi, sqrt, exp, log, ceil, factorial, tanh, atanh
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
+try:
+    from scipy.signal import gaussian
+except:
+    from scipy.signal.windows import gaussian
 from scipy.stats import median_abs_deviation as mad
 import matplotlib.pyplot as pp
 pp.rcParams['font.family'] = 'monospace'
@@ -2186,7 +2190,7 @@ class noise:
         if np.isscalar(T) and (T/dt).is_integer():
             
             # Dates of averaged noise
-            td = np.arange(n.tn[0], n.tn[-1]+T, T)
+            td = np.arange(n.tn[0], n.tn[-1]+T/2, T)
             nd = len(td)
 
             # Averaging factor
@@ -2298,7 +2302,8 @@ class noise:
                 ind = []
                 j = 0
                 for i in range(len(t)):
-                    while (td[j] < t[i]):
+                    #while (td[j] < t[i]):
+                    while not(np.isclose(td[j], t[i])):
                         j += 1
                     ind.append(j)
 
@@ -6415,7 +6420,7 @@ class model:
             # Smoothed PSD of residuals
             pv = m[d].pv
             if (smooth is not None):
-                w = signal.gaussian(2*ceil(3*smooth)+1, smooth)
+                w = gaussian(2*ceil(3*smooth)+1, smooth)
                 pv = signal.convolve(pv, w/np.sum(w), mode='same')
 
             # Useful things
