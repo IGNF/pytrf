@@ -3350,7 +3350,8 @@ class sinex:
 
             # Indices, keys and holes
             ixv = snx.ix+snx.iv
-            par = [snx.param[i] for i in ixv]
+            iper = snx.iper
+            par = [snx.param[i] for i in ixv + iper]
             if (pt is not None) and (soln is not None):
                 keys = [p.code+p.pt+p.soln for p in par]
                 holes = [code[i]+pt[i]+soln[i] for i in range(len(code))]
@@ -3369,6 +3370,12 @@ class sinex:
             for i in range(len(ixv)):
                 if (keys[i] in holes):
                     ind.extend(range(ixv[i], ixv[i]+3))
+                    
+            #iper
+            for i in range(len(iper)):
+                if not(keys[i] in holes):
+                    ind.extend(range(iper[i], iper[i]+6))
+          
             
             # And delete them
             snx.del_ind(ind, keep_const=keep_const)
@@ -4905,7 +4912,10 @@ class sinex:
         # Compute WRMS of ENH station position residuals
         snx.wrmsx = np.zeros(3)
         for i in range(3):
-            snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
+            if len(ix)!=0:
+                snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
+            else: #no residues
+                snx.wrmsx[i] = 0
             
         # Rotate station velocity residuals to ENH frames and convert them into mm
         indv = np.nonzero(snx.v[snx.iv])[0]
@@ -5007,9 +5017,9 @@ class sinex:
                         ind.extend(startid + 7*(2*num+cs) + np.arange(4, 7))
                 
         T = np.zeros(14 + 14*nper) #1 per: 7 cos + 7 sin
-        T[ind] = t
+        T[ind] = t#[ind]
         QT = np.zeros((T.shape[0], T.shape[0]))
-        QT[np.ix_(ind, ind)] = Qt
+        QT[np.ix_(ind, ind)] = Qt#[np.ix_(ind, ind)]
         sT = np.sqrt(np.diag(QT))
         
         # Print output
@@ -5027,7 +5037,7 @@ class sinex:
             print('    (station velocities : {0})'.format(3*len(indv)), file=out)
             if (nper>0):
                 for per in dict_all_iper.keys():
-                    print('    ({0} periods : {1})'.format(per, 6*len(indv)), file=out)
+                    print('    ({0} periods : {1})'.format(per, 6*len(dict_all_iper[per])), file=out)
                     
             print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
             print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
