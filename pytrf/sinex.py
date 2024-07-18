@@ -5088,19 +5088,19 @@ class sinex:
                     print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
                     
             if (nper>0): #periods
-                for per in dict_all_iper.keys():
+                for num, per in enumerate(dict_all_iper.keys()):
                     for cs, val in enumerate(['COS', 'SIN']):
                         print('    -- {0} {1} --'.format(per, val), file=out)
                         if ('T' in helmerts):     
-                            print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid+(2*num+cs)], sT[startid+(2*num+cs)+0]), file=out)
-                            print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid+(2*num+cs)+1], sT[startid+(2*num+cs)+1]), file=out)
-                            print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid+(2*num+cs)+2], sT[startid+(2*num+cs)+2]), file=out)
+                            print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid +7*(2*num+cs)], sT[startid +7*(2*num+cs)]), file=out)
+                            print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid +7*(2*num+cs)+1], sT[startid +7*(2*num+cs)+1]), file=out)
+                            print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[startid +7*(2*num+cs)+2], sT[startid +7*(2*num+cs)+2]), file=out)
                         if ('S' in helmerts):
-                            print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[startid+(2*num+cs)+3], sT[startid+(2*num+cs)+3]), file=out)
+                            print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[startid +7*(2*num+cs)+3], sT[startid +7*(2*num+cs)+3]), file=out)
                         if ('R' in helmerts):
-                            print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid+(2*num+cs)+4], sT[startid+(2*num+cs)+4]), file=out)
-                            print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid+(2*num+cs)+5], sT[startid+(2*num+cs)+5]), file=out)
-                            print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid+(2*num+cs)+6], sT[startid+(2*num+cs)+6]), file=out)
+                            print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid +7*(2*num+cs)+4], sT[startid +7*(2*num+cs)+4]), file=out)
+                            print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid +7*(2*num+cs)+5], sT[startid +7*(2*num+cs)+5]), file=out)
+                            print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[startid +7*(2*num+cs)+6], sT[startid +7*(2*num+cs)+6]), file=out)
                         
                     
             print('', file=out)
