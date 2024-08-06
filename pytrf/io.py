@@ -127,7 +127,7 @@ def read_domes(file, coord=True):
     domes = []
 
     # Open input file
-    with open(file) as f:
+    with open(file, encoding='latin-1') as f:
 
         # Read file
         line = f.readline()
@@ -579,6 +579,8 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
         End date (in SINEX date format). Default is None.
         
     """
+
+    try:
   
     # Initializations
     rec = []
@@ -879,7 +881,10 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
             else:
                 ecc.pop(i)
 
-    return (rec, ant, ecc)
+        return (rec, ant, ecc)
+
+    except:
+        return ([], [], [])
 
 # Convert date from site log into SINEX date format
 #--------------------------------------------------
