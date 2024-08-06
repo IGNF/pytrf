@@ -233,8 +233,10 @@ class sinex:
         snx.isatax = []
         snx.isatay = []
         snx.isataz = []
-        snx.itrans = []
-        
+        snx.iR = []
+        snx.iS = []
+        snx.iT = []
+
     # Create sinex instance from SINEX file
     #--------------------------------------
     @classmethod
@@ -1131,8 +1133,10 @@ class sinex:
             snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
             
             # Transformation parameters
-            snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
-            
+            snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
+            snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+
         else:
             
             snx.ix = []
@@ -1153,7 +1157,9 @@ class sinex:
             snx.isatax = []
             snx.isatay = []
             snx.isataz = []
-            snx.itrans = []
+            snx.iR = []
+            snx.iS = []
+            snx.iT = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------
@@ -1439,7 +1445,9 @@ class sinex:
         pkl.isatax = snx.isatax
         pkl.isatay = snx.isatay
         pkl.isataz = snx.isataz
-        pkl.itrans = snx.itrans
+        pkl.iR = snx.iR
+        pkl.iS = snx.iS
+        pkl.iT = snx.iT
 
         # Write 1st pickle file
         pickle.dump(pkl, open(file, 'wb'))
@@ -1542,8 +1550,10 @@ class sinex:
         snx2.isatax = snx.isatax.copy()
         snx2.isatay = snx.isatay.copy()
         snx2.isataz = snx.isataz.copy()
-        snx2.itrans = snx.itrans.copy()
-        
+        snx2.iR = snx.iR.copy()
+        snx2.iS = snx.iS.copy()
+        snx2.iT = snx.iT.copy()
+
         return snx2
     
     # Check station PT codes and DOMES numbers
@@ -1990,7 +2000,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS'; 'GC'; 'SC ;
+            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         
         """
 
@@ -2047,9 +2058,16 @@ class sinex:
 
         if ('SC' in types):
             ind.extend(snx.isc)
-            
+
         if ('TRANS' in types):
-            ind.extend(snx.itrans)
+            ind.extend(snx.iR+snx.iS+snx.iT)
+        else:
+            if ('R' in types):
+                ind.extend(snx.iR)
+            if ('S' in types):
+                ind.extend(snx.iS)
+            if ('T' in types):
+                ind.extend(snx.iT)
             
         return ind
             
@@ -2910,7 +2928,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS'; 'GC'; 'SC';
+            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         keep_const : bool, optional
             Whether not to remove constraints before reducing parameters from a solution.
             Default is False.
@@ -3427,7 +3446,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS', 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS', 'GC'; 'SC';
+            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         
         """
         
