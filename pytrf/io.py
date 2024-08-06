@@ -582,304 +582,304 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
 
     try:
   
-    # Initializations
-    rec = []
-    ant = []
-    ecc = []
-    receiver = False
-    antenna = False
-    
-    # Open input file
-    with open(file, encoding='ISO-8859-1') as f:
-    
-        # Read input file
-        line = f.readline()
-        while (line):
+        # Initializations
+        rec = []
+        ant = []
+        ecc = []
+        receiver = False
+        antenna = False
 
-            # New receiver
-            if (re.match('3\.\d+\s+Receiver Type', line, re.I)):
-                receiver = True
-                antenna = False
-                r = record()
-                i = line.index(':')
-                r.type = line[i+2:].strip()[0:20].upper()
-                while (len(r.type) < 20):
-                    r.type = r.type + ' '
-                r.system = 'GPS'
-                r.serie = '-----'
-                r.firmware = '-----------'
-                r.cutoff = 'n/a'
-                r.start = '00:000:00000'
-                r.end = '00:000:00000'
-                rec.append(r)
+        # Open input file
+        with open(file, encoding='ISO-8859-1') as f:
 
-            # New antenna
-            elif (re.match('4\.\d+\s+Antenna Type', line, re.I)):
-                receiver = False
-                antenna = True
-                r = record()
-                i = line.index(':')
-                r.type = line[i+2:].strip().split()[0][0:16].upper()
-                while (len(r.type) < 16):
-                    r.type = r.type + ' '
-                r.type = r.type + 'NONE'
-                r.serie = '-----'
-                r.start = '00:000:00000'
-                r.end = '00:000:00000'
-                r.system = 'UNE'
-                r.dx = ['  0.0000']*3
-                r.daz = '   0'
-                ant.append(r)
-
-            # Satellite systems
-            elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
-                i = line.index(':')
-                if (line[i+2:].strip()):
-                    rec[-1].system = line[i+2:].strip()
-
-            # Serial number
-            elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
-                i = line.index(':')
-                if (line[i+2:].strip()):
-                    if not(line[i+2:].strip().split()[0] in ['(A20,', '(A20)']):
-                        if (receiver):
-                            rec[-1].serie = line[i+2:].strip()
-                        elif (antenna):
-                            ant[-1].serie = line[i+2:].strip()
-
-            # Firmware version
-            elif (re.match('\s*Firmware Version.*:', line, re.I) and receiver):
-                i = line.index(':')
-                if (line[i+2:].strip()):
-                    if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
-                        rec[-1].firmware = line[i+2:].strip()
-
-            # Cutoff angle
-            elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
-                i = line.index(':')
-                if (line[i+2:].strip()):
-                    tab = line[i+2:].strip().split()
-                    if (isfloat(tab[0])):
-                        rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
-
-            # Date installed
-            elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
-                i = line.index(':')
-                if (receiver):
-                    rec[-1].start = sitelog_date(line[i+2:].strip())
-                elif (antenna):
-                    ant[-1].start = sitelog_date(line[i+2:].strip())
-
-            # Date removed
-            elif (re.match('\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
-                i = line.index(':')
-                if (receiver):
-                    rec[-1].end = sitelog_date(line[i+2:].strip())
-                elif (antenna):
-                    ant[-1].end = sitelog_date(line[i+2:].strip())
-
-            # Up eccentricity
-            elif ((re.match('\s*Antenna Height.*:', line, re.I) or re.match('\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
-                i = line.index(':')
-                tab = line[i+2:].strip().split()
-                if (len(tab) > 0):
-                    tab[0] = re.subn('m', '', tab[0])[0]
-                    if (isfloat(tab[0])):
-                        ant[-1].dx[0] = '{0:8.4f}'.format(float(tab[0]))
-
-            # North eccentricity
-            elif (re.match('\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
-                i = line.index(':')
-                tab = line[i+2:].strip().split()
-                if (len(tab) > 0):
-                    tab[0] = re.subn('m', '', tab[0])[0]
-                    if (isfloat(tab[0])):
-                        ant[-1].dx[1] = '{0:8.4f}'.format(float(tab[0]))
-
-            # East eccentricity
-            elif (re.match('\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
-                i = line.index(':')
-                tab = line[i+2:].strip().split()
-                if (len(tab) > 0):
-                    tab[0] = re.subn('m', '', tab[0])[0]
-                    if (isfloat(tab[0])):
-                        ant[-1].dx[2] = '{0:8.4f}'.format(float(tab[0]))
-
-            # Radome type
-            elif (re.match('\s*Antenna Radome Type.*:', line, re.I) and antenna):
-                i = line.index(':')
-                rad = line[i+2:].strip()[0:4].strip().upper()
-                if (len(rad) == 4):
-                    ant[-1].type = ant[-1].type[0:16] + rad
-
-            # Alignment from true North
-            elif (re.match('\s*Alignment from True N.*:', line, re.I) or re.match('\s*Degree Offset from North.*:', line, re.I)) and (antenna):
-                i = line.index(':')
-                tab = line[i+2:].strip().split()
-                if (len(tab) > 0):
-                    tab[0] = re.subn('deg', '', tab[0])[0]
-                    if (isfloat(tab[0])):
-                        ant[-1].daz = '{0:4d}'.format(round(float(tab[0])))
-
-            # Default receiver or default antenna or new section
-            elif ((line[0:3] == '3.x') or (line[0:3] == '4.x') or (line[0:2] == '5.')):
-                receiver = False
-                antenna = False
-
+            # Read input file
             line = f.readline()
-    
-    # Remove receivers with undefined dates
-    i = 0
-    while (i < len(rec)):
-        if ((rec[i].start == '00:000:00000') and (rec[i].end == '00:000:00000')):
-            rec.pop(i)
-        else:
-            i = i+1
+            while (line):
 
-    # Remove antennas with undefined dates
-    i = 0
-    while (i < len(ant)):
-        if ((ant[i].start == '00:000:00000') and (ant[i].end == '00:000:00000')):
-            ant.pop(i)
-        else:
-            i = i+1
-    
-    # Change receiver removal dates if needed
-    for i in range(len(rec)-1):
-        if (rec[i].end == '00:000:00000'):
-            rec[i].end = rec[i+1].start
-    for i in range(1, len(rec)):
-        if (rec[i].start == '00:000:00000'):
-            rec[i].start = rec[i-1].end
-    for i in range(len(rec)-1):
-        if (earlier(rec[i+1].start, rec[i].end)):
-            rec[i].end = rec[i+1].start      
+                # New receiver
+                if (re.match('3\.\d+\s+Receiver Type', line, re.I)):
+                    receiver = True
+                    antenna = False
+                    r = record()
+                    i = line.index(':')
+                    r.type = line[i+2:].strip()[0:20].upper()
+                    while (len(r.type) < 20):
+                        r.type = r.type + ' '
+                    r.system = 'GPS'
+                    r.serie = '-----'
+                    r.firmware = '-----------'
+                    r.cutoff = 'n/a'
+                    r.start = '00:000:00000'
+                    r.end = '00:000:00000'
+                    rec.append(r)
 
-    # Change antenna removal dates if needed
-    for i in range(len(ant)-1):
-        if (ant[i].end == '00:000:00000'):
-            ant[i].end = ant[i+1].start
-    for i in range(1, len(ant)):
-        if (ant[i].start == '00:000:00000'):
-            ant[i].start = ant[i-1].end
-    for i in range(len(ant)-1):
-        if (earlier(ant[i+1].start, ant[i].end)):
-            ant[i].end = ant[i+1].start      
-        
-    # Some more work to do if outputs should be SINEX formatted
-    if (sinex_formatted):
-        
-        # Copy antenna list into eccentricty list
-        ecc = copy.deepcopy(ant)
-        
-        # Merge successive receivers if needed
-        i = 0
-        while (i < len(rec)-1):
-            if ((rec[i].type == rec[i+1].type) and (rec[i].serie == rec[i+1].serie) and (rec[i].firmware == rec[i+1].firmware)):
-                rec[i].end = rec[i+1].end
-                rec.pop(i+1)
-            else:
-                i = i+1
-            
-        # Merge successive antennas if needed
-        i = 0
-        while (i < len(ant)-1):
-            if ((ant[i].type == ant[i+1].type) and (ant[i].serie == ant[i+1].serie) and (ant[i].daz == ant[i+1].daz)):
-                ant[i].end = ant[i+1].end
-                ant.pop(i+1)
-            else:
-              i = i+1
-            
-        # Merge successive eccentricities if needed
-        i = 0
-        while (i < len(ecc)-1):
-            if ((ecc[i].dx[0] == ecc[i+1].dx[0]) and (ecc[i].dx[1] == ecc[i+1].dx[1]) and (ecc[i].dx[2] == ecc[i+1].dx[2])):
-                ecc[i].end = ecc[i+1].end
-                ecc.pop(i+1)
-            else:
-                i = i+1
-            
-        # Format receiver serial numbers
-        for r in rec:
-            r.serie = r.serie[0:5]
-            while (len(r.serie) < 5):
-                r.serie = r.serie + ' '
-            
-        # Format receiver firmware versions
-        for r in rec:
-            r.firmware = r.firmware[0:11]
-            while (len(r.firmware) < 11):
-                r.firmware = r.firmware + ' '
-            
-        # Format antenna serial numbers
-        for r in ant:
-            r.serie = r.serie[0:5]
-            while (len(r.serie) < 5):
-                r.serie = r.serie + ' '
-            
-        # Change some antenna types
-        for r in ant:
-            if (r.type[0:16] == 'DORNE           '):
-                r.type = 'AOAD/M_T        '+r.type[16:20]
-            elif ((r.type[0:16] == 'ASHTECH         ') or (r.type[0:16] == 'ASH             ')):
-                r.type = 'ASH700936A_M    '+r.type[16:20]
-            elif (r.type[0:16] == 'TR              '):
-                r.type = 'TRM22020.00+GP  '+r.type[16:20]
-            elif (r.type[0:16] == '4000ST          '):
-                r.type = 'TRM14532.00     '+r.type[16:20]
-            elif (r.type[0:16] == 'TRIMBLE         '):
-                r.type = 'TRM29659.00     '+r.type[16:20]
-    
-    # Finally remove records that do not fall within period of interest
-    if (start):
+                # New antenna
+                elif (re.match('4\.\d+\s+Antenna Type', line, re.I)):
+                    receiver = False
+                    antenna = True
+                    r = record()
+                    i = line.index(':')
+                    r.type = line[i+2:].strip().split()[0][0:16].upper()
+                    while (len(r.type) < 16):
+                        r.type = r.type + ' '
+                    r.type = r.type + 'NONE'
+                    r.serie = '-----'
+                    r.start = '00:000:00000'
+                    r.end = '00:000:00000'
+                    r.system = 'UNE'
+                    r.dx = ['  0.0000']*3
+                    r.daz = '   0'
+                    ant.append(r)
+
+                # Satellite systems
+                elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
+                    i = line.index(':')
+                    if (line[i+2:].strip()):
+                        rec[-1].system = line[i+2:].strip()
+
+                # Serial number
+                elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
+                    i = line.index(':')
+                    if (line[i+2:].strip()):
+                        if not(line[i+2:].strip().split()[0] in ['(A20,', '(A20)']):
+                            if (receiver):
+                                rec[-1].serie = line[i+2:].strip()
+                            elif (antenna):
+                                ant[-1].serie = line[i+2:].strip()
+
+                # Firmware version
+                elif (re.match('\s*Firmware Version.*:', line, re.I) and receiver):
+                    i = line.index(':')
+                    if (line[i+2:].strip()):
+                        if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
+                            rec[-1].firmware = line[i+2:].strip()
+
+                # Cutoff angle
+                elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
+                    i = line.index(':')
+                    if (line[i+2:].strip()):
+                        tab = line[i+2:].strip().split()
+                        if (isfloat(tab[0])):
+                            rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
+
+                # Date installed
+                elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
+                    i = line.index(':')
+                    if (receiver):
+                        rec[-1].start = sitelog_date(line[i+2:].strip())
+                    elif (antenna):
+                        ant[-1].start = sitelog_date(line[i+2:].strip())
+
+                # Date removed
+                elif (re.match('\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
+                    i = line.index(':')
+                    if (receiver):
+                        rec[-1].end = sitelog_date(line[i+2:].strip())
+                    elif (antenna):
+                        ant[-1].end = sitelog_date(line[i+2:].strip())
+
+                # Up eccentricity
+                elif ((re.match('\s*Antenna Height.*:', line, re.I) or re.match('\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
+                    i = line.index(':')
+                    tab = line[i+2:].strip().split()
+                    if (len(tab) > 0):
+                        tab[0] = re.subn('m', '', tab[0])[0]
+                        if (isfloat(tab[0])):
+                            ant[-1].dx[0] = '{0:8.4f}'.format(float(tab[0]))
+
+                # North eccentricity
+                elif (re.match('\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
+                    i = line.index(':')
+                    tab = line[i+2:].strip().split()
+                    if (len(tab) > 0):
+                        tab[0] = re.subn('m', '', tab[0])[0]
+                        if (isfloat(tab[0])):
+                            ant[-1].dx[1] = '{0:8.4f}'.format(float(tab[0]))
+
+                # East eccentricity
+                elif (re.match('\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
+                    i = line.index(':')
+                    tab = line[i+2:].strip().split()
+                    if (len(tab) > 0):
+                        tab[0] = re.subn('m', '', tab[0])[0]
+                        if (isfloat(tab[0])):
+                            ant[-1].dx[2] = '{0:8.4f}'.format(float(tab[0]))
+
+                # Radome type
+                elif (re.match('\s*Antenna Radome Type.*:', line, re.I) and antenna):
+                    i = line.index(':')
+                    rad = line[i+2:].strip()[0:4].strip().upper()
+                    if (len(rad) == 4):
+                        ant[-1].type = ant[-1].type[0:16] + rad
+
+                # Alignment from true North
+                elif (re.match('\s*Alignment from True N.*:', line, re.I) or re.match('\s*Degree Offset from North.*:', line, re.I)) and (antenna):
+                    i = line.index(':')
+                    tab = line[i+2:].strip().split()
+                    if (len(tab) > 0):
+                        tab[0] = re.subn('deg', '', tab[0])[0]
+                        if (isfloat(tab[0])):
+                            ant[-1].daz = '{0:4d}'.format(round(float(tab[0])))
+
+                # Default receiver or default antenna or new section
+                elif ((line[0:3] == '3.x') or (line[0:3] == '4.x') or (line[0:2] == '5.')):
+                    receiver = False
+                    antenna = False
+
+                line = f.readline()
+
+        # Remove receivers with undefined dates
         i = 0
         while (i < len(rec)):
-            r = rec[i]
-            if earlier(start, r.end) or (r.end == '00:000:00000'):
-                i = i+1
-            else:
+            if ((rec[i].start == '00:000:00000') and (rec[i].end == '00:000:00000')):
                 rec.pop(i)
+            else:
+                i = i+1
 
+        # Remove antennas with undefined dates
         i = 0
         while (i < len(ant)):
-            r = ant[i]
-            if earlier(start, r.end) or (r.end == '00:000:00000'):
-                i = i+1
-            else:
+            if ((ant[i].start == '00:000:00000') and (ant[i].end == '00:000:00000')):
                 ant.pop(i)
-
-        i = 0
-        while (i < len(ecc)):
-            r = ecc[i]
-            if earlier(start, r.end) or (r.end == '00:000:00000'):
-                i = i+1
             else:
-                ecc.pop(i)
-
-    if (end):
-        i = 0
-        while (i < len(rec)):
-            r = rec[i]
-            if earlier(r.start, end) or (r.start == '00:000:00000'):
                 i = i+1
-            else:
-                rec.pop(i)
 
-        i = 0
-        while (i < len(ant)):
-            r = ant[i]
-            if earlier(r.start, end) or (r.start == '00:000:00000'):
-                i = i+1
-            else:
-                ant.pop(i)
+        # Change receiver removal dates if needed
+        for i in range(len(rec)-1):
+            if (rec[i].end == '00:000:00000'):
+                rec[i].end = rec[i+1].start
+        for i in range(1, len(rec)):
+            if (rec[i].start == '00:000:00000'):
+                rec[i].start = rec[i-1].end
+        for i in range(len(rec)-1):
+            if (earlier(rec[i+1].start, rec[i].end)):
+                rec[i].end = rec[i+1].start
 
-        i = 0
-        while (i < len(ecc)):
-            r = ecc[i]
-            if earlier(r.start, end) or (r.start == '00:000:00000'):
-                i = i+1
-            else:
-                ecc.pop(i)
+        # Change antenna removal dates if needed
+        for i in range(len(ant)-1):
+            if (ant[i].end == '00:000:00000'):
+                ant[i].end = ant[i+1].start
+        for i in range(1, len(ant)):
+            if (ant[i].start == '00:000:00000'):
+                ant[i].start = ant[i-1].end
+        for i in range(len(ant)-1):
+            if (earlier(ant[i+1].start, ant[i].end)):
+                ant[i].end = ant[i+1].start
+
+        # Some more work to do if outputs should be SINEX formatted
+        if (sinex_formatted):
+
+            # Copy antenna list into eccentricty list
+            ecc = copy.deepcopy(ant)
+
+            # Merge successive receivers if needed
+            i = 0
+            while (i < len(rec)-1):
+                if ((rec[i].type == rec[i+1].type) and (rec[i].serie == rec[i+1].serie) and (rec[i].firmware == rec[i+1].firmware)):
+                    rec[i].end = rec[i+1].end
+                    rec.pop(i+1)
+                else:
+                    i = i+1
+
+            # Merge successive antennas if needed
+            i = 0
+            while (i < len(ant)-1):
+                if ((ant[i].type == ant[i+1].type) and (ant[i].serie == ant[i+1].serie) and (ant[i].daz == ant[i+1].daz)):
+                    ant[i].end = ant[i+1].end
+                    ant.pop(i+1)
+                else:
+                    i = i+1
+
+            # Merge successive eccentricities if needed
+            i = 0
+            while (i < len(ecc)-1):
+                if ((ecc[i].dx[0] == ecc[i+1].dx[0]) and (ecc[i].dx[1] == ecc[i+1].dx[1]) and (ecc[i].dx[2] == ecc[i+1].dx[2])):
+                    ecc[i].end = ecc[i+1].end
+                    ecc.pop(i+1)
+                else:
+                    i = i+1
+
+            # Format receiver serial numbers
+            for r in rec:
+                r.serie = r.serie[0:5]
+                while (len(r.serie) < 5):
+                    r.serie = r.serie + ' '
+
+            # Format receiver firmware versions
+            for r in rec:
+                r.firmware = r.firmware[0:11]
+                while (len(r.firmware) < 11):
+                    r.firmware = r.firmware + ' '
+
+            # Format antenna serial numbers
+            for r in ant:
+                r.serie = r.serie[0:5]
+                while (len(r.serie) < 5):
+                    r.serie = r.serie + ' '
+
+            # Change some antenna types
+            for r in ant:
+                if (r.type[0:16] == 'DORNE           '):
+                    r.type = 'AOAD/M_T        '+r.type[16:20]
+                elif ((r.type[0:16] == 'ASHTECH         ') or (r.type[0:16] == 'ASH             ')):
+                    r.type = 'ASH700936A_M    '+r.type[16:20]
+                elif (r.type[0:16] == 'TR              '):
+                    r.type = 'TRM22020.00+GP  '+r.type[16:20]
+                elif (r.type[0:16] == '4000ST          '):
+                    r.type = 'TRM14532.00     '+r.type[16:20]
+                elif (r.type[0:16] == 'TRIMBLE         '):
+                    r.type = 'TRM29659.00     '+r.type[16:20]
+
+        # Finally remove records that do not fall within period of interest
+        if (start):
+            i = 0
+            while (i < len(rec)):
+                r = rec[i]
+                if earlier(start, r.end) or (r.end == '00:000:00000'):
+                    i = i+1
+                else:
+                    rec.pop(i)
+
+            i = 0
+            while (i < len(ant)):
+                r = ant[i]
+                if earlier(start, r.end) or (r.end == '00:000:00000'):
+                    i = i+1
+                else:
+                    ant.pop(i)
+
+            i = 0
+            while (i < len(ecc)):
+                r = ecc[i]
+                if earlier(start, r.end) or (r.end == '00:000:00000'):
+                    i = i+1
+                else:
+                    ecc.pop(i)
+
+        if (end):
+            i = 0
+            while (i < len(rec)):
+                r = rec[i]
+                if earlier(r.start, end) or (r.start == '00:000:00000'):
+                    i = i+1
+                else:
+                    rec.pop(i)
+
+            i = 0
+            while (i < len(ant)):
+                r = ant[i]
+                if earlier(r.start, end) or (r.start == '00:000:00000'):
+                    i = i+1
+                else:
+                    ant.pop(i)
+
+            i = 0
+            while (i < len(ecc)):
+                r = ecc[i]
+                if earlier(r.start, end) or (r.start == '00:000:00000'):
+                    i = i+1
+                else:
+                    ecc.pop(i)
 
         return (rec, ant, ecc)
 
