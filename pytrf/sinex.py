@@ -252,6 +252,8 @@ class sinex:
         snx.isatay = []
         snx.isataz = []
         snx.itrans = []
+        snx.idtrans = []
+        
         
     # Create sinex instance from SINEX file
     #--------------------------------------
@@ -821,7 +823,6 @@ class sinex:
             Whether to load matrices. Default is True.
         
         """
-        
         # Load everything but matrices
         snx = pickle.load(open(file, 'rb'))
         
@@ -1259,7 +1260,17 @@ class sinex:
             snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
             
             # Transformation parameters
-            snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
+            snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+            snx.itrans = snx.iT+snx.iS+snx.iR
+
+            # Transformation parameter rates
+            snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
+            snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
+            snx.idT = np.nonzero(np.in1d(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
+            snx.idtrans = snx.idT+snx.idS+snx.idR
+
             
         else:
             
@@ -1282,7 +1293,14 @@ class sinex:
             snx.isatax = []
             snx.isatay = []
             snx.isataz = []
+            snx.iR = []
+            snx.iS = []
+            snx.iT = []
             snx.itrans = []
+            snx.idR = []
+            snx.idS = []
+            snx.idT = []
+            snx.idtrans = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------

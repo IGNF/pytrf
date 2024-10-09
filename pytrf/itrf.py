@@ -16,7 +16,7 @@ from pytrf.ts import ts, model
 from pytrf.io import read_solns
 from pytrf.const import ae
 
-# Write residuals from daily IGS combination
+# Write residuals from ITRF combination
 #-------------------------------------------
 def write_res(snx, acs, fres, fyml):
     
@@ -386,3 +386,115 @@ def plot_coord_res_1_sta(code, pt, solns, psd, detrend=True, res_folder="res"):
             
     pp.show()
     
+    
+def write_tie_baseline(list_snxtie):
+    """
+    Write table with tie baselines, extracted from snx tie (= CATREF contie.dat)
+    Star radiation strategy
+
+    Parameters
+    ----------
+    list_snxtie : list of pytrf.snx
+        DESCRIPTION.
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"])
+    
+    idx = 0
+    for tiesnx in list_snxtie:
+        #1st sta as reference (star configuration (radiation) -> baseline )
+        sta_ref=tiesnx.sta[0]
+        # get tie time
+        t_snx = tiesnx.param[tiesnx.get_sta_ind(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])[0,0]].tref
+        t_mjd = date.from_tsnx(t_snx).mjd
+        
+        
+        ref_coords = tiesnx.get_xyz(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])
+       
+        for sta in tiesnx.sta[1:]:
+            sta_coords = tiesnx.get_xyz(code=[sta.code], pt=[sta.pt], soln=[sta.soln[0].soln])
+            baseline = ref_coords - sta_coords
+            
+            df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta.code}_{sta.pt.strip()}_{sta.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd]
+            
+            idx+=1
+           
+    df.sort_values(by=["t_mjd","station1"]).reset_index(drop=True)
+            
+    
+    with open("contie.txt","w") as fi:
+        fi.write("{:<7} {:15} {:15} {:15} {:15} {:15} {:15} {:15}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"))
+    
+        for idx in df.index:
+            fi.write("{:<7} {:15} {:15} {:<15.3f} {:<15.3f} {:<15.3f} {:15} {:15}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"]))
+       
+            
+       
+def write_tie_baseline_btw2tech(list_snxtie, list_sta_tech1, list_sta_tech2, title_baseline):
+    """
+    Write baseline btw 2 specific technics: GNSS - VLBI, GNSS - SLR, etc.,  extracted from snx tie (= CATREF contie.dat)
+    List of stations of interest must be set as a parameter.
+
+    Parameters
+    ----------
+    list_snxtie : list of pytrf.snx
+        DESCRIPTION.
+    list_sta_tech1: list of station belonging to technic 
+        List of 2D list: [[sta1.code, sta1.pt], [sta2.code, sta2.pt]] WARNING 'ALBH' + '1' #pt on 4chr
+        
+
+    Returns
+    -------
+    None.
+
+    """
+    
+    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"])
+    
+    idx = 0
+    for tiesnx in list_snxtie:
+        #1st sta as reference (star configuration (radiation) -> baseline )
+        
+        for num1, sta in enumerate(tiesnx.sta): #stations of list tech1
+            
+            if [sta.code.strip(), sta.pt.strip()] in list_sta_tech1: #this sta belongs to "tech1" list of station of interest
+                sta_ref=tiesnx.sta[num1]
+                # get tie time
+                t_snx = tiesnx.param[tiesnx.get_sta_ind(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])[0,0]].tref
+                t_mjd = date.from_tsnx(t_snx).mjd
+                
+                
+                sta1_coords = tiesnx.get_xyz(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])
+                
+                # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
+                #     print("sta1 2021 GRACE", sta1_coords, sta.code, [st.code for st in tiesnx.sta])
+                #     print("listSTA: ")
+               
+                for num2, sta2 in enumerate(tiesnx.sta): #stations of list tech2
+                    # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
+                    #     print("2e sta", [sta2.code.strip(), sta2.pt.strip()], list_sta_tech2)
+                    if ([sta2.code.strip(), sta2.pt.strip()] in list_sta_tech2): #num2==0: same station1 & station2
+                        sta2_coords = tiesnx.get_xyz(code=[sta2.code], pt=[sta2.pt], soln=[sta2.soln[0].soln])
+                        baseline = sta1_coords - sta2_coords
+                        
+                        df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta2.code}_{sta2.pt.strip()}_{sta2.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd]
+                        
+                        idx+=1
+                        
+                        # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
+                        #     print("sta2 2021 GRACE", sta2_coords, [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta.code}_{sta.pt.strip()}_{sta.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd])
+           
+    df.sort_values(by=["t_mjd","station1"]).reset_index(drop=True)
+    #print("df:", df)
+            
+    
+    with open(f"contie_{title_baseline}.txt","w") as fi:
+        fi.write("{:<7} {:15} {:15} {:15} {:15} {:15} {:15} {:15}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"))
+    
+        for idx in df.index:
+            fi.write("{:<7} {:15} {:15} {:<15.3f} {:<15.3f} {:<15.3f} {:15} {:15}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"]))

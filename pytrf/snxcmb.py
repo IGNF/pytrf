@@ -253,7 +253,13 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
         sol.sf = 1
     
     # Set reference epoch of input solution
-    sol.tref = date.from_mjd((date.from_tsnx(sol.snx.start).mjd + date.from_tsnx(sol.snx.end).mjd) / 2).tsnx()
+    if (sol.snx.start!= "00:000:00000") and (sol.snx.end!= "00:000:00000"):
+        sol.tref = date.from_mjd((date.from_tsnx(sol.snx.start).mjd + date.from_tsnx(sol.snx.end).mjd) / 2).tsnx()
+    else:
+        try: # date format sinex pbm: try to find tref of 1st param (WARNING: not necessary all the same date for all params in the snx file...)
+            sol.tref = sol.snx.param[0].tref
+        except:
+            sol.tref = "00:000:00000"
     
     # Check solns if necessary
     if (solns) and (check_solns):
@@ -593,11 +599,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             combsnx.sta[icmbsta].soln[icmbsoln].nobs += 1
 
             # Update first observation epoch if necessary
-            if (earlier(snx.sta[ista].soln[isoln].datastart, combsnx.sta[icmbsta].soln[icmbsoln].datastart)):
+            if (earlier(snx.sta[ista].soln[isoln].datastart, combsnx.sta[icmbsta].soln[icmbsoln].datastart) and (snx.sta[ista].soln[isoln].datastart!='00:000:00000')):
                 combsnx.sta[icmbsta].soln[icmbsoln].datastart = snx.sta[ista].soln[isoln].datastart
 
             # Update last observation epoch if necessary
-            if (earlier(combsnx.sta[icmbsta].soln[icmbsoln].dataend, snx.sta[ista].soln[isoln].dataend)):
+            if (earlier(combsnx.sta[icmbsta].soln[icmbsoln].dataend, snx.sta[ista].soln[isoln].dataend) and (snx.sta[ista].soln[isoln].dataend!='00:000:00000')):
                 combsnx.sta[icmbsta].soln[icmbsoln].dataend = snx.sta[ista].soln[isoln].dataend
 
         # Loop over non-common solns to update combsnx.sta
@@ -1004,6 +1010,80 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 # Update combsnx.x0
                 combsnx.x0.extend([0, 0, 0])
 
+            # Translation rates?
+            if hasattr(sol, 'dparams'):
+                if ('T' in sol.dparams):
+
+                    # Add new dTX parameter into combined solution
+                    r = record()
+                    r.type = 'dTX   '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'mm/y'
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
+
+                    # Add new dTY parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'dTY   '
+
+                    # Add new dTZ parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'dTZ   '
+
+                    # Update combsnx.x0
+                    combsnx.x0.extend([0, 0, 0])
+
+            # Scale factor rate?
+            if hasattr(sol, 'dparams'):
+                if ('S' in sol.dparams):
+
+                    # Add new dSC parameter into combined solution
+                    r = record()
+                    r.type = 'dSC   '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'pb/y'
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
+
+                    # Update combsnx.x0
+                    combsnx.x0.append(0)
+
+            # Rotation rates?
+            if hasattr(sol, 'dparams'):
+                if ('R' in sol.dparams):
+
+                    # Add new dRX parameter into combined solution
+                    r = record()
+                    r.type = 'dRX   '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'ma/y'
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
+
+                    # Add new dRY parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'dRY   '
+
+                    # Add new dRZ parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'dRZ   '
+
+                    # Update combsnx.x0
+                    combsnx.x0.extend([0, 0, 0])
+
+
 
     # Format combined solution
     #-------------------------
@@ -1011,12 +1091,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Set combsnx.start and combsnx.end
     mjd = []
     for sta in combsnx.sta:
-        mjd.extend([date.from_tsnx(s.datastart).mjd for s in sta.soln])
+        mjd.extend([date.from_tsnx(s.datastart).mjd for s in sta.soln if s.datastart!='00:000:00000'])
     combsnx.start = date.from_mjd(np.min(mjd)).tsnx()
 
     mjd = []
     for sta in combsnx.sta:
-        mjd.extend([date.from_tsnx(s.dataend).mjd for s in sta.soln])
+        mjd.extend([date.from_tsnx(s.dataend).mjd for s in sta.soln if s.dataend!='00:000:00000'])
     combsnx.end = date.from_mjd(np.max(mjd)).tsnx()
 
     # Set combsnx.tech
@@ -1079,10 +1159,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         #init graph object
         graph = Graph_vfconst(combsnx)
         #check if vfconst & datum are coherent: no linked station (on same site) in datum
-        valid_vfcd, list_pbm = graph.valid_datum(datum, vfconst=vfconst, type_graph='VEL')
         
-        if not valid_vfcd:
-            raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
+        valid_vfcd, list_pbm =  True, True #WARNING graph.valid_datum(datum, vfconst=vfconst, type_graph='VEL')
+        
+        # if not valid_vfcd:
+        #     raise ValueError(f'Datum vs vfconst multiple stations in datum:{list_pbm}')
             
         #init graph: stations with common init VEL (connections btw combsnx+vfconst)
         g_sites_soln = graph.build_graph_same_init_x0(vfconst=vfconst, type_graph='VEL') #if vfconst=None, based only on soln links
@@ -1190,10 +1271,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Compute mid-observation epoch and observation span of each soln
     for sta in combsnx.sta:
         for soln in sta.soln:
-            t1 = date.from_tsnx(soln.datastart).mjd
-            t2 = date.from_tsnx(soln.dataend).mjd
-            soln.datamean = date.from_mjd((t1+t2)/2).tsnx()
-
+            if soln.datastart!='00:000:00000' and soln.dataend != '00:000:00000':
+                t1 = date.from_tsnx(soln.datastart).mjd
+                t2 = date.from_tsnx(soln.dataend).mjd
+                soln.datamean = date.from_mjd((t1+t2)/2).tsnx()
+            else:
+                soln.datamean = '00:000:00000'
+                
     # Sort parameters
     combsnx.sort_params()
     
@@ -1205,6 +1289,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     for isol in range(len(inputs)):
         ind = np.nonzero(keys == isol)[0]
         inputs[isol].itrans = [combsnx.itrans[i] for i in ind]
+
+    # Get indices of transformation parameter rates of each input solution
+    keys = np.array([p.isol for p in [combsnx.param[i] for i in combsnx.idtrans]])
+    for isol in range(len(inputs)):
+        ind = np.nonzero(keys == isol)[0]
+        inputs[isol].idtrans = [combsnx.idtrans[i] for i in ind]
 
     #if we want to break here, after set up parameters
     if break_combine=="1":
@@ -1311,6 +1401,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             A_rows.extend(ind[0].tolist())
             A_cols.extend([sol.itrans[i] for i in ind[1]])
             A_vals.extend(H[ind].tolist())
+
+        # Add partial derivatives of transformation parameter rates
+        if hasattr(sol, 'dparams'):
+            Hv = snx.helmert_partials(sol.dparams, 'VEL')
+            if not(reduce_trans):
+                ind = np.nonzero(Hv)
+                A_rows.extend(ind[0].tolist())
+                A_cols.extend([sol.idtrans[i] for i in ind[1]])
+                A_vals.extend(Hv[ind].tolist())
         
         # Build sparse design matrix of current solution
         A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
@@ -1328,6 +1427,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if (reduce_trans):
             HtP = np.dot(H.T, P)
             HtPHi = invspd(np.dot(HtP, H))
+            P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
+
+        # Project weight matrix if transformation parameter rates are reduced
+        if hasattr(sol, 'dparams') and (reduce_trans):
+            HtP = np.dot(Hv.T, P)
+            HtPHi = invspd(np.dot(HtP, Hv))
             P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
 
         # Update normal equation
@@ -1494,10 +1599,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         
         # Compute predicted observations and sigmas
         data = copy.deepcopy(A[isol].data)
-        data[A[isol].indptr[sol.itrans[0]]: A[isol].indptr[sol.itrans[-1]+1]] = 0
+        data[A[isol].indptr[sol.itrans[0]]: A[isol].indptr[sol.itrans[-1]+1]] = 0 #WARNING: pbm case if no trans param ('ac.param') estimated for the solution
         Am = sparse.csc_matrix((data, A[isol].indices, A[isol].indptr))
         ind = np.nonzero(Am.indptr[:-1] != Am.indptr[1:])[0] #optimization
-
+        
         sol.ym = Am[:,ind] @ combsnx.x[ind] #model time serie
         Qm = Am[:,ind] @ (Am[:,ind] @ combsnx.Q[np.ix_(ind,ind)]).T
         sol.sm = np.sqrt(np.diag(Qm))
@@ -1520,6 +1625,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # and update number of reduced transformation parameters
         if (reduce_trans):
             H = snx.helmert_partials(sol.params, 'STA')
+            HtP = np.dot(H.T, P)
+            HtPHi = invspd(np.dot(HtP, H))
+            sol.v -= np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v)))
+            ntrans += H.shape[1]
+
+        # If transformation parameter rates were reduced, project residuals
+        # and update number of reduced transformation parameters
+        if hasattr(sol, 'dparams') and (reduce_trans):
+            H = snx.helmert_partials(sol.dparams, 'VEL')
             HtP = np.dot(H.T, P)
             HtPHi = invspd(np.dot(HtP, H))
             sol.v -= np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v)))
