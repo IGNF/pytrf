@@ -5054,9 +5054,9 @@ class model:
             
             # Initialize time series values with deterministic model
             if (m.nd > 1):
-                m.r.y[:,d] = m[d].yc
+                m.r.y[:,d] = m[d].yc.copy()
             else:
-                m.r.y = m[d].yc
+                m.r.y = m[d].yc.copy()
             
             # Loop over noise components
             for n in m[d].n:

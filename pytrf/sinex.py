@@ -270,11 +270,11 @@ class sinex:
 
         # Open input SINEX file
         if (file[-3:] == '.gz'):
-            f = gzip.open(file, 'rt')
+            f = gzip.open(file, 'rt', encoding='latin-1')
         elif (file[-2:] == '.Z'):
             f = StringIO(unlzw3.unlzw(Path(file)).decode())
         else:
-            f = open(file)
+            f = open(file, encoding='latin-1')
 
         with f:
 
@@ -1136,6 +1136,13 @@ class sinex:
             snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
             snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
             snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+            snx.itrans = snx.iT+snx.iS+snx.iR
+
+            # Transformation parameter rates
+            snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
+            snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
+            snx.idT = np.nonzero(np.in1d(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
+            snx.idtrans = snx.idT+snx.idS+snx.idR
 
         else:
             
@@ -1160,6 +1167,11 @@ class sinex:
             snx.iR = []
             snx.iS = []
             snx.iT = []
+            snx.itrans = []
+            snx.idR = []
+            snx.idS = []
+            snx.idT = []
+            snx.idtrans = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------
