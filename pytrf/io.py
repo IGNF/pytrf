@@ -329,7 +329,7 @@ def atx2snx(file, t):
         while (line):
 
             # New GPS, GLONASS or Galileo satellite
-            if (line[60:76] == 'TYPE / SERIAL NO') and ((line[0:5] == 'BLOCK') or (line[0:7] in ['GLONASS', 'GALILEO'])):
+            if (line[60:76] == 'TYPE / SERIAL NO') and ((line[0:5] == 'BLOCK') or (line[0:7] in ['GLONASS', 'GALILEO']) or (line[0:6] == 'BEIDOU') or (line[0:4] == 'QZSS')):
                 svn = line[40:44]
                 pco = []
                 frq = []
@@ -353,7 +353,8 @@ def atx2snx(file, t):
                         pco.append(np.array([float(line[1:10]), float(line[11:20]), float(line[21:30])]) / 1000)
                     line = f.readline()
 
-                # Compute iono-free PCO
+                # Compute iono-free (L1/L2 for GPS and GLONASS; L1/L5 for Galileo, BeiDou, QZSS) PCO, if possible
+                ok = True
                 if (svn[0] == 'G'):
                     f1 = 1575.42
                     f2 = 1227.60
@@ -364,13 +365,18 @@ def atx2snx(file, t):
                     f2 = 1246
                     i1 = frq.index('L1')
                     i2 = frq.index('L2')
-                elif (svn[0] == 'E'):
-                    f1 = 1575.42
-                    f2 = 1176.45
-                    i1 = frq.index('L1')
-                    i2 = frq.index('L5')
-                frq.append('LC')
-                pco.append((f1**2*pco[i1] - f2**2*pco[i2]) / (f1**2 - f2**2))
+                elif (svn[0] in 'ECJ'):
+                    if not('L5' in frq):
+                        ok = False
+                    else:
+                        f1 = 1575.42
+                        f2 = 1176.45
+                        i1 = frq.index('L1')
+                        i2 = frq.index('L5')
+
+                if (ok):
+                    frq.append('LC')
+                    pco.append((f1**2*pco[i1] - f2**2*pco[i2]) / (f1**2 - f2**2))
 
                 # If current PCO is valid at requested date,
                 if (earlier(start, t)) and ((end == '00:000:00000') or earlier(t, end)):
