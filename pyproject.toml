@@ -15,7 +15,9 @@ dependencies = [
   'scipy',
   'astropy',
   'matplotlib',
-  'cartopy'
+  'cartopy',
+  'unlzw3',
+  'pdoc3'
 ]
 
 [project.urls]
