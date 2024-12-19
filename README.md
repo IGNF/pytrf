@@ -22,6 +22,12 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 ## Installation
 
+### Requirements
+
+- `python3`. See [installation instructions](https://www.python.org/downloads/).
+- `pip`. See [installation instructions](https://pip.pypa.io/en/stable/installation/).
+- `git`. See [installation instructions](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
+
 ### Clone the repository
 
 - Create a [github](https://github.com/) account if you don't already have one.
@@ -33,7 +39,7 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
     $ git clone https://github.com/prebischung/pytrf
     ```
 
-- A `pytrf` folder should now be seen in the current directory.  
+- A `pytrf` folder should have been created in the current directory.
   Run:
     ```sh
     $ cd pytrf
@@ -43,12 +49,11 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 ### Install pytrf
 
-- It is assumed that `pip` is installed on your computer. If not, check [pip installation instructions](https://pip.pypa.io/en/stable/installation/).
-
 - If you work with a package manager, e.g., `conda`, you may want to create and activate a specific environment for pytrf.
 
 - In `path_to_pytrf_folder/pytrf`, run one of the two following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
 
+  Note: This will automatically install the missing required packages.
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
   ```sh
@@ -71,12 +76,7 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 ### Generate documentation
 
-Install `pdoc` if needed:
-```sh
-$ pip install pdoc
-```
-
-Then run:
+Run:
 ```sh
 $ pdoc --html pytrf
 ```

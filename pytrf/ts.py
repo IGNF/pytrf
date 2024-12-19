@@ -2740,7 +2740,8 @@ class vw(noise):
     def set_cov(n, m, set_dcov=False):
 
         """
-        Compute variance vector [and its partial derivatives]
+        Set variance vector [and its partial derivatives]
+        This method overrides the default noise.set_cov() method.
 
         set_cov() does not return anything, but sets attributes Q [and dQ] of the vw instance.
 
@@ -5156,7 +5157,7 @@ class model:
                 # Find optimal log-relaxation times
                 ltau = optimize.minimize(logl, ltau, method='Nelder-Mead', tol=1e-5).x
                 
-                # Set optimal log-relaxation times and unfix them
+                # Set optimal log-relaxation times
                 i = -1
                 for f in m.f:
                     if isinstance(f, fexp) or isinstance(f, flog):
