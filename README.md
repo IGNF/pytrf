@@ -55,6 +55,7 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 - In `path_to_pytrf_folder/pytrf`, run one of the two following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
 
   Note: This will automatically install the missing required packages.
+
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
   ```sh
