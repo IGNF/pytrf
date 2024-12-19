@@ -89,10 +89,12 @@ A folder should have been created:
 
 ### Update with latest version
 
+Run:
 ```sh
 $ git pull
 ```
 
+Then re-install pytrf.
 
 
 
