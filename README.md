@@ -5,6 +5,7 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 **Table of Contents**
 1. [Installation](#installation)
+    1. [Requirements](#requirements)
     1. [Clone the repository](#clone-the-repository)
     1. [Install pytrf](#install-pytrf)
     1. [Generate documentation](#generate-documentation)
