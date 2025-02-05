@@ -205,6 +205,8 @@ class sinex:
         snx.stats = None
         snx.sta = None
         snx.rs = None
+        snx.gpspco = None
+        snx.galpco = None
         snx.param = None
         snx.x = None
         snx.sig = None
@@ -521,6 +523,69 @@ class sinex:
                         snx.sta[i].ecc.append(r)
                     line = f.readline()
 
+            # Read SITE/GPS_PHASE_CENTER block -> snx.gpspco
+            if ('SITE/GPS_PHASE_CENTER' in blocks) and not('metadata' in dont_read):
+                snx.gpspco = []
+                f.seek(addresses[blocks.index('SITE/GPS_PHASE_CENTER')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line.strip()) and (line[0] != '*'):
+                        r = record()
+                        r.type = line[1:21]
+                        r.serie = line[22:27]
+                        r.dx = [[0]*3 for i in range(4)]
+                        r.dx[0][0] = line[28:34]
+                        r.dx[0][1] = line[35:41]
+                        r.dx[0][2] = line[42:48]
+                        r.dx[1][0] = line[49:55]
+                        r.dx[1][1] = line[56:62]
+                        r.dx[1][2] = line[63:69]
+                        r.model = line[70:80]
+                        line = f.readline()
+                        r.dx[2][0] = line[28:34]
+                        r.dx[2][1] = line[35:41]
+                        r.dx[2][2] = line[42:48]
+                        r.dx[3][0] = line[49:55]
+                        r.dx[3][1] = line[56:62]
+                        r.dx[3][2] = line[63:69]
+                        snx.gpspco.append(r)
+                    line = f.readline()
+                        
+            # Read SITE/GAL_PHASE_CENTER block -> snx.galpco
+            if ('SITE/GAL_PHASE_CENTER' in blocks) and not('metadata' in dont_read):
+                snx.galpco = []
+                f.seek(addresses[blocks.index('SITE/GAL_PHASE_CENTER')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line.strip()) and (line[0] != '*'):
+                        r = record()
+                        r.type = line[1:21]
+                        r.serie = line[22:27]
+                        r.dx = [[0]*3 for i in range(6)]
+                        r.dx[0][0] = line[28:34]
+                        r.dx[0][1] = line[35:41]
+                        r.dx[0][2] = line[42:48]
+                        r.dx[1][0] = line[49:55]
+                        r.dx[1][1] = line[56:62]
+                        r.dx[1][2] = line[63:69]
+                        r.model = line[70:80]
+                        line = f.readline()
+                        r.dx[2][0] = line[28:34]
+                        r.dx[2][1] = line[35:41]
+                        r.dx[2][2] = line[42:48]
+                        r.dx[3][0] = line[49:55]
+                        r.dx[3][1] = line[56:62]
+                        r.dx[3][2] = line[63:69]
+                        line = f.readline()
+                        r.dx[4][0] = line[28:34]
+                        r.dx[4][1] = line[35:41]
+                        r.dx[4][2] = line[42:48]
+                        r.dx[5][0] = line[49:55]
+                        r.dx[5][1] = line[56:62]
+                        r.dx[5][2] = line[63:69]                        
+                        snx.galpco.append(r)
+                    line = f.readline()
+                    
             # Read SOLUTION/EPOCHS block -> snx.sta[*].soln
             if ('SOLUTION/EPOCHS' in blocks):
                 f.seek(addresses[blocks.index('SOLUTION/EPOCHS')])
@@ -576,6 +641,8 @@ class sinex:
                 snx.x = np.array(snx.x)
                 snx.sig = np.array(snx.sig)
                 snx.npar = len(snx.param)
+            else:
+                snx.npar = 0
 
             # Read SOLUTION/APRIORI block -> snx.prior, snx.x0 and snx.sig0
             if ('SOLUTION/APRIORI' in blocks) and not('apriori' in dont_read):
@@ -1320,6 +1387,33 @@ class sinex:
                     for a in s.ant:
                         f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.type} {1.serie} {1.daz}\n'.format(s, a))
                 f.write('-SITE/ANTENNA\n')
+                
+
+            # Write SITE/GPS_PHASE_CENTER block
+            if (snx.gpspco) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/GPS_PHASE_CENTER\n')
+                f.write('*                           _______L1_PCO_______ _______L2_PCO_______\n')
+                f.write('*                           _______L5_PCO_______\n')
+                f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
+                for a in snx.gpspco:
+                    f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                f.write('-SITE/GPS_PHASE_CENTER\n')
+                
+            # Write SITE/GAL_PHASE_CENTER block
+            if (snx.galpco) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/GAL_PHASE_CENTER\n')
+                f.write('*                           _______L1_PCO_______ _______L5_PCO_______\n')
+                f.write('*                           _______L6_PCO_______ _______L7_PCO_______\n')
+                f.write('*                           _______L8_PCO_______\n')
+                f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
+                for a in snx.galpco:
+                    f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[4][0]} {1[4][1]} {1[4][2]} {1[5][0]} {1[5][1]} {1[5][2]} {0.model}\n'.format(a, a.dx))
+                f.write('-SITE/GAL_PHASE_CENTER\n')
 
             # Write SITE/ECCENTRICITY block
             if (snx.sta) and not('metadata' in dont_write):
@@ -1433,6 +1527,8 @@ class sinex:
         pkl.acks = snx.acks
         pkl.sta = snx.sta
         pkl.rs = snx.rs
+        pkl.gpspco = snx.gpspco
+        pkl.galpco = snx.galpco
         pkl.stats = snx.stats
         pkl.param = snx.param
         pkl.x = snx.x
@@ -1521,9 +1617,11 @@ class sinex:
             snx2.input = copy.deepcopy(snx.input)
             snx2.acks = copy.deepcopy(snx.acks)
 
-        # Copy lists of stations, radiosources and parameters
+        # Copy lists of stations, radiosources, ground antenna PCOs and parameters
         snx2.sta = copy.deepcopy(snx.sta)
         snx2.rs = copy.deepcopy(snx.rs)
+        snx2.gpspco = copy.deepcopy(snx.gpspco)
+        snx2.galpco = copy.deepcopy(snx.galpco)
         snx2.param = copy.deepcopy(snx.param)
         snx2.x = copy.deepcopy(snx.x)
         snx2.sig = copy.deepcopy(snx.sig)
@@ -1803,12 +1901,12 @@ class sinex:
         if (earlier(tend, snx.end)):
             snx.end = tend
         
-    # Check receivers, antennas and eccentricities against site logs
-    #---------------------------------------------------------------
-    def check_metadata(snx, metasnx, start=None, end=None, antlist=None, flag_daz=True, quiet=False, out=sys.stdout):
+    # Check receivers, antennas and eccentricities against metadata SINEX
+    #--------------------------------------------------------------------
+    def check_metadata(snx, metasnx, match_crd=True, check_siteid=False, add_pco=False, antlist=None, flag_daz=True, quiet=False, out=sys.stdout):
 
         """
-        Check receivers, antennas and eccentricities against site logs
+        Check receivers, antennas and eccentricities against metadata SINEX
 
         Returns
         -------
@@ -1818,16 +1916,21 @@ class sinex:
             List of stations for which no sitelog is available
         rej : list
             List of stations which have either a wrong antenna type, an eccentricity error > 1 mm
-            or an orientation error > 10°
+            or an antenna orientation error > 10°
 
         Parameters
         ----------
         metasnx : sinex instance
-            sinex instance containing station metadata (from ioutils.sitelogs2snx)
-        start : str, optional
-            Start date (in SINEX date format)
-        end : str, optional
-            End date (in SINEX date format)
+            sinex instance containing station metadata (e.g., from io.sitelogs2snx)
+        match_crd : bool, optional
+            Whether to match station coordinates, in addition to 4-char station ID, before checking metadata.
+            Default is True.
+        check_siteid : bool, optional
+            Whether to replace information in the SITE/ID block with that from the metadata SINEX.
+            Default is False.
+        add_pco : bool, optional
+            Whether to add SITE/GPS_PHASE_CENTER and SITE/GAL_PHASE_CENTER block information into snx.
+            Default is False.
         antlist : list, optional
             List of ground antenna types in ANTEX file. Default is None.
         flag_daz : bool, optional
@@ -1859,23 +1962,52 @@ class sinex:
             # Get coordinates of current station
             X = snx.get_xyz([s.code], [s.pt])[0]
             
-            # Is there a station with the same 4-char ID less than 100 km away in metasnx.sta?
+            # Initializations
             found = False
             keys = [metas.code for metas in metasnx.sta]
+
+            # If there are stations with the same 4-char ID in metasnx.sta,
             if (s.code in keys):
                 ind = np.nonzero(np.array(keys) == s.code)[0]
-                d = [sqrt(np.sum((metas.X-X)**2)) / 1000 for metas in [metasnx.sta[i] for i in ind]]
-                if (np.min(d) < 100):
+
+                # If station coordinates should be checked,
+                if (match_crd):
+
+                    # If there are stations with the same 4-char ID within less than 100 km in metasnx.sta,
+                    # select the closest one.
+                    d = [sqrt(np.sum((metas.X-X)**2)) / 1000 for metas in [metasnx.sta[i] for i in ind]]
+                    if (np.min(d) < 100):
+                        found = True
+                        i = np.argmin(d)
+
+                # Else, just select the first station with the same 4-char ID in metasnx.sta
+                else:
                     found = True
-                    i = np.argmin(d)
-                    rec = metasnx.sta[ind[i]].rec
-                    ant = metasnx.sta[ind[i]].ant
-                    ecc = metasnx.sta[ind[i]].ecc
-                    source = metasnx.sta[ind[i]].source
+                    i = 0
 
             # If current station was found in metasnx.sta, 
             if (found):
-                
+
+                # Update station description if required
+                if (check_siteid):
+                    s.domes = metasnx.sta[ind[i]].domes
+                    s.tech = metasnx.sta[ind[i]].tech
+                    s.description = metasnx.sta[ind[i]].description
+                    s.lon = metasnx.sta[ind[i]].lon
+                    s.lat = metasnx.sta[ind[i]].lat
+                    s.h = metasnx.sta[ind[i]].h
+
+                # Get its lists of receivers, antennas and eccentricities
+                rec = metasnx.sta[ind[i]].rec
+                ant = metasnx.sta[ind[i]].ant
+                ecc = metasnx.sta[ind[i]].ecc
+
+                # Get source of the metadata information
+                if (hasattr(metasnx.sta[ind[i]], 'source')):
+                    source = metasnx.sta[ind[i]].source
+                else:
+                    source = metasnx.file
+
                 # Any change needed to receiver metadata?
                 b = False
                 if (len(s.rec) != len(rec)):
@@ -1986,6 +2118,72 @@ class sinex:
             # Else, add station to list of stations without sitelogs
             else:
                 nolog.append(s.code)
+                
+        # If SITE/GPS_PHASE_CENTER and SITE/GAL_PHASE_CENTER block information should be added into snx,
+        if (add_pco):
+            
+            # Initializations
+            gps_ant = []
+            gal_ant = []
+            gps_ant_sn = []
+            gal_ant_sn = []
+            snx.gpspco = []
+            snx.galpco = []
+            
+            # List of station antenna types + serial numbers
+            ant = np.unique([[a.type+a.serie for a in s.ant] for s in snx.sta])
+            
+            # Search keys
+            meta_gps_ant = [a.type for a in metasnx.gpspco]
+            meta_gal_ant = [a.type for a in metasnx.galpco]
+            meta_gps_ant_sn = [a.type+a.serie for a in metasnx.gpspco]
+            meta_gal_ant_sn = [a.type+a.serie for a in metasnx.galpco]
+            
+            # Loop over antennas
+            for a in ant:
+                
+                # If current specific antenna is in metasnx.gpspco,
+                if (a in meta_gps_ant_sn):
+                    i = meta_gps_ant_sn.index(a)
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a)
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # Else, if antenna type mean PCO is in metasnx.gpspco, and not yet in snx.gpspco,
+                elif (a[:-5]+'-----' in meta_gps_ant_sn) and not(a[:-5]+'-----' in gps_ant_sn):
+                    i = meta_gps_ant_sn.index(a[:-5]+'-----')
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a[:-5]+'-----')
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # Else, if another antenna of the same type is in metasnx.gpspco, and not yet in snx.gpspco,
+                elif (a[:-5] in meta_gps_ant) and not(a[:-5] in gps_ant):
+                    i = meta_gps_ant.index(a[:-5])
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a[:-5]+metasnx.gpspco[i].serie)
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # If current specific antenna is in metasnx.galpco,
+                if (a in meta_gal_ant_sn):
+                    i = meta_gal_ant_sn.index(a)
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a)
+                    snx.galpco.append(metasnx.galpco[i])
+                    
+                # Else, if antenna type mean PCO is in metasnx.galpco, and not yet in snx.galpco,
+                elif (a[:-5]+'-----' in meta_gal_ant_sn) and not(a[:-5]+'-----' in gal_ant_sn):
+                    i = meta_gal_ant_sn.index(a[:-5]+'-----')
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a[:-5]+'-----')
+                    snx.galpco.append(metasnx.galpco[i])
+                    
+                # Else, if another antenna of the same type is in metasnx.galpco, and not yet in snx.galpco,
+                elif (a[:-5] in meta_gal_ant) and not(a[:-5] in gal_ant):
+                    i = meta_gal_ant.index(a[:-5])
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a[:-5]+metasnx.galpco[i].serie)
+                    snx.galpco.append(metasnx.galpco[i])
+                    
                 
         # Print blank line in log file
         if not(quiet):
@@ -3616,7 +3814,7 @@ class sinex:
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True):
+    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True, quiet=True, out=sys.stdout):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -3654,7 +3852,12 @@ class sinex:
             traces of the 3x3 diagonal blocks of the normal matrix that correspond to
             positions/velocities of the candidate stations. Stations with traces
             lower than the median of traces divided by thr**2 are iteratively rejected.
-            
+        proj : bool, optional
+            Just keep the default, which is True.
+        quiet : bool, optional
+            Whether not to print output messages. Default is True.
+        out : file-like, optional
+            Log file. Default is sys.stdout.            
         """
         
         # If a datum is specified,
@@ -3712,16 +3915,49 @@ class sinex:
         elif (par == 'VEL'):
             irs = np.array([], dtype='int')
         
-        # If a threshold is specified, reject candidate stations with large uncertainties
+        # If a threshold is specified, reject candidate stations with large position uncertainties
         if (thr):
+            
+            # Print header in log file
+            if not(quiet):
+                print('sinex.add_mc', file=out)
+                print('------------', file=out)
+                print('', file=out)
+                print('    Stations discarded for the application of minimal constraints', file=out)
+                print('    -------------------------------------------------------------', file=out)
+                print('', file=out)
+                print('     code pt soln |   trace(N)  <  threshold  |', file=out)
+                print('    --------------|---------------------------|', file=out)
+            
+            # Iterative rejection of candidate stations with large position uncertainties
             end = False
             while not(end):
                 tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
-                ind = np.nonzero(tr > np.median(tr)/thr**2)[0]
-                if (len(ind) == len(isnx)):
+                thrn = np.median(tr)/thr**2
+                ind = np.nonzero(tr < thrn)[0]
+                
+                # If there are no more stations with large position uncertainties, stop iterations.
+                if (len(ind) == 0):
                     end = True
+                    
+                # Else,
                 else:
+                    
+                    # Print rejected stations in log file
+                    if not(quiet):
+                        for i in ind:
+                            p = snx.param[isnx[i][0]]
+                            print('     {0.code} {0.pt} {0.soln} | {1:11.5e} < {2:11.5e} |'.format(p, tr[i], thrn), file=out)
+                    
+                    # Reject stations with large position uncertainties
+                    ind = np.setdiff1d(np.arange(len(isnx)), ind)
                     isnx = isnx[ind]
+                    
+            # Print end of log file
+            if not(quiet):
+                print('    --------------|---------------------------|', file=out)
+                print('', file=out)
+                    
             ix = isnx.flatten()
 
         # If sigma of minimal constraints needs to be computed, compute it
