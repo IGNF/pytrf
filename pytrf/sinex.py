@@ -238,6 +238,13 @@ class sinex:
         snx.iR = []
         snx.iS = []
         snx.iT = []
+        snx.iA = []
+        snx.itrans = []
+        snx.idR = []
+        snx.idS = []
+        snx.idT = []
+        snx.idtrans = []
+
 
     # Create sinex instance from SINEX file
     #--------------------------------------
@@ -767,8 +774,12 @@ class sinex:
                 i = -1
                 while (line[0] != '-'):
                     if (line[0] != '*'):
-                        i = i+1
-                        snx.b[i] = float(line[47:68].replace('D', 'E'))
+                        try:
+                            i = i+1
+                            snx.b[i] = float(line[47:68].replace('D', 'E'))
+                        except:
+                            i = int(line[1:6]) - 1
+                            snx.b[i] = float(line[7:28].replace('D', 'E'))
                     line = f.readline()
 
             # Read SOLUTION/DECOMPOSED_NORMAL_VECTOR block -> snx.b
@@ -1203,7 +1214,8 @@ class sinex:
             snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
             snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
             snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
-            snx.itrans = snx.iT+snx.iS+snx.iR
+            snx.iA = np.nonzero(np.in1d(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
+            snx.itrans = snx.iT+snx.iS+snx.iR+snx.iA
 
             # Transformation parameter rates
             snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
@@ -1234,6 +1246,7 @@ class sinex:
             snx.iR = []
             snx.iS = []
             snx.iT = []
+            snx.iA = []
             snx.itrans = []
             snx.idR = []
             snx.idS = []
@@ -1556,6 +1569,12 @@ class sinex:
         pkl.iR = snx.iR
         pkl.iS = snx.iS
         pkl.iT = snx.iT
+        pkl.iA = snx.iA
+        pkl.itrans = snx.itrans
+        pkl.idR = snx.idR
+        pkl.idS = snx.idS
+        pkl.idT = snx.idT
+        pkl.idtrans = snx.idtrans
 
         # Write 1st pickle file
         pickle.dump(pkl, open(file, 'wb'))
@@ -1663,6 +1682,12 @@ class sinex:
         snx2.iR = snx.iR.copy()
         snx2.iS = snx.iS.copy()
         snx2.iT = snx.iT.copy()
+        snx2.iA = snx.iA.copy()
+        snx2.itrans = snx.itrans.copy()
+        snx2.idR = snx.idR.copy()
+        snx2.idS = snx.idS.copy()
+        snx2.idT = snx.idT.copy()
+        snx2.idtrans = snx.idtrans.copy()
 
         return snx2
     
@@ -2211,7 +2236,7 @@ class sinex:
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
             'STA'; 'VEL'; 'RS'; 'GC'; 'SC ;
-            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
+            'R', 'S', 'T', 'A' and 'TRANS' for all transformation parameters.
         
         """
 
@@ -2270,7 +2295,7 @@ class sinex:
             ind.extend(snx.isc)
 
         if ('TRANS' in types):
-            ind.extend(snx.iR+snx.iS+snx.iT)
+            ind.extend(snx.iR+snx.iS+snx.iT+snx.iA)
         else:
             if ('R' in types):
                 ind.extend(snx.iR)
@@ -2278,6 +2303,8 @@ class sinex:
                 ind.extend(snx.iS)
             if ('T' in types):
                 ind.extend(snx.iT)
+            if ('A' in types):
+                ind.extend(snx.iA)
             
         return ind
             
@@ -2981,9 +3008,9 @@ class sinex:
             A[snx.ixpo, 5]  =  1/mas2rad
             A[snx.iypo, 4]  =  1/mas2rad
             A[snx.iut, 6]   = -1/(ms2rad*dera_dt)
-            A[snx.inutx, 8] =  1/mas2rad
+            A[snx.inutx, 8] = -1/mas2rad
             A[snx.inuty, 7] =  1/mas2rad
-            A[snx.iut, 9]   =  1/(ms2rad*dera_dt)
+            A[snx.iut, 9]   = -1/(ms2rad*dera_dt)
             
             # Geocenter coordinate partial derivatives
             ix = np.array([[i, i+1, i+2] for i in snx.igc])
@@ -3966,7 +3993,7 @@ class sinex:
         
         # Design matrix of minimal constraints
         ix = np.hstack((ix, irs))
-        A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
+        A = snx.helmert_partials('RSTA', par, units='m')[ix,:]
         
         # Indices of relevant columns of A
         ind = []
@@ -4114,7 +4141,7 @@ class sinex:
             Solution with which the comparison is made
         helmerts : str
             Indicates which Helmert parameters should be estimated.
-            It can include 'T' (translations), 'S' (scale), 'R' (rotations).
+            It can include 'T' (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations).
         weighting : str, optional
             Keyword indicating which covariance matrix should be used.
             It can take the following values :
@@ -4296,9 +4323,12 @@ class sinex:
                     ind.append(10)
                 if ('R' in helmerts):
                     ind.extend(range(11, 14))
-            T = np.zeros(14)
+            if ('A' in helmerts):
+                ind.extend(range(14, 17))
+
+            T = np.zeros(17)
             T[ind] = t
-            QT = np.zeros((14, 14))
+            QT = np.zeros((17, 17))
             QT[np.ix_(ind, ind)] = Qt
             sT = np.sqrt(np.diag(QT))
 
@@ -4353,6 +4383,10 @@ class sinex:
                         print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
                         print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
                         print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
+                if ('A' in helmerts):
+                    print('    AX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[14], sT[14]), file=out)
+                    print('    AY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[15], sT[15]), file=out)
+                    print('    AZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[16], sT[16]), file=out)
                 print('', file=out)
 
                 # Print station position residuals

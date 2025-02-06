@@ -109,7 +109,7 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, return_neq=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
             mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
 
     """
@@ -145,8 +145,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     stack_sc : bool, optional
         Whether successive scale factors should be stacked into a single
         combined scale factor. Default is False.
+    return_neq: bool, optional
+        Whether to return unconstrained normal equation, without solving it.
+        Default is False.
     datum : str or sinex instance, optional
-        [File containing] datum. Default is None.
+        [File containing] reference TRF solution. Default is None.
+    crf_datum : str or sinex instance, optional
+        [File containing] reference CRF solution. Default is None.
     mc_sta : str, optional
         String indicating which minimal constraints should be applied to station positions.
         It can be composed of any combination of letters 'T' (translations),
@@ -227,6 +232,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 datum = sinex.load(datum, load_mat=False)
             except:
                 datum = sinex.read(datum, dont_read=['comments', 'metadata', 'apriori', 'matrices'])
+
+    # Read CRF datum if necessary
+    if (crf_datum):
+        if not(isinstance(crf_datum, sinex)):
+            try:
+                crf_datum = sinex.load(crf_datum, load_mat=False)
+            except:
+                crf_datum = sinex.read(crf_datum, dont_read=['comments', 'metadata', 'apriori', 'matrices'])
 
     # Initialize combined SINEX solution
     combsnx = sinex()
@@ -703,6 +716,32 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 # Update combsnx.x0
                 combsnx.x0.extend([0, 0, 0])
 
+            # CRF Rotations?
+            if ('A' in sol.params):
+
+                # Add new AX parameter into combined solution
+                r = record()
+                r.type = 'AX    '
+                r.code = '{0:<4}'.format(sol.name)[:4]
+                r.pt = '--'
+                r.soln = '{0:>4}'.format(isol+1)[-4:]
+                r.tref = sol.tref
+                r.unit = 'mas '
+                r.const = 2
+                r.isol = isol
+                combsnx.param.append(r)
+
+                # Add new AY parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'AY    '
+
+                # Add new AZ parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'AZ    '
+
+                # Update combsnx.x0
+                combsnx.x0.extend([0, 0, 0])
+
 
 
     # Format combined solution
@@ -744,10 +783,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.N = np.zeros((combsnx.npar, combsnx.npar))
     combsnx.Nc = np.zeros((combsnx.npar, combsnx.npar))
     
-    # Change a priori coordinates of RF stations
+    # Change a priori coordinates of reference stations
     if (datum):
         combsnx.prior2ref(datum)
-        
+
+    # Change a priori coordinates of reference radiosources
+    if (crf_datum):
+        combsnx.prior2ref(crf_datum)
+
     # If velocities are going to be estimated, change a priori velocities of solns of RF stations
     # that are not part of the datum
     if (datum) and (set_vel):
@@ -879,6 +922,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(store_inputs):
             del sol.snx
 
+    # Return unconstrained normal equation if required
+    if (return_neq):
+        return(combsnx)
+
 
 
     # 3 - ADD CONSTRAINTS
@@ -906,11 +953,17 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                 print('        Add minimal constraints to station positions', file=out)
             nc += combsnx.add_mc(mc_sta, 'STA', sigma=mc_sta_sig, datum=datum, thr=mc_sta_thr)
 
-        # Add minimal constraints to station velocities
-        if (mc_vel):
-            if not(quiet):
-                print('        Add minimal constraints to station velocities', file=out)
-            nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
+    # Add minimal constraints to station positions
+    if (mc_sta):
+        if not(quiet):
+            print('        Add minimal constraints to station positions', file=out)
+        nc += combsnx.add_mc(mc_sta, 'STA', sigma=mc_sta_sig, datum=datum, crf_datum=crf_datum, thr=mc_sta_thr)
+
+    # Add minimal constraints to station velocities
+    if (mc_vel):
+        if not(quiet):
+            print('        Add minimal constraints to station velocities', file=out)
+        nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
 
 
 
@@ -1142,7 +1195,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
             mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
             thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
 
@@ -1180,7 +1233,9 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         Whether successive scale factors should be stacked into a single
         combined scale factor. Default is False.
     datum : str or sinex instance, optional
-        [File containing] datum. Default is None.
+        [File containing] reference TRF solution. Default is None.
+    crf_datum : str or sinex instance, optional
+        [File containing] reference CRF solution. Default is None.
     mc_sta : str, optional
         String indicating which minimal constraints should be applied to station positions.
         It can be composed of any combination of letters 'T' (translations),
@@ -1258,7 +1313,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, stack_gc, stack_sc, datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
+        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:
