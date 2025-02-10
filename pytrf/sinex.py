@@ -3992,9 +3992,12 @@ class sinex:
             sigma = 0.01 / sqrt(np.median(snx.N[ix,ix]))
         
         # Design matrix of minimal constraints
-        ix = np.hstack((ix, irs))
-        A = snx.helmert_partials('RSTA', par, units='m')[ix,:]
-        
+        if (len(irs) > 0):
+            ix = np.hstack((ix, irs))
+            A = snx.helmert_partials('RSTA', par, units='m')[ix]
+        else:
+            A = snx.helmert_partials('RST', par, units='m')[ix]
+
         # Indices of relevant columns of A
         ind = []
         if ('T' in helmerts):
@@ -4003,7 +4006,7 @@ class sinex:
             ind.append(3)
         if ('R' in helmerts):
             ind.extend(range(4, 7))
-        if ('A' in helmerts):
+        if ('A' in helmerts) and (len(irs) > 0):
             ind.extend(range(7, 10))
         
         # Either reduce columns of A and compute B
