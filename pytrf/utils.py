@@ -322,14 +322,13 @@ def parallel_sh(file, nproc, quiet=False, ignore_errors=False):
     
     # Write make file
     makefile = temp_file()+'.make'
-    f = open(makefile, 'w')
-    f.write('all :')
-    for i in range(len(commands)):
-        f.write(' job{0}'.format(i))
-    f.write('\n')
-    for i in range(len(commands)):
-        f.write('job{0} :\n\t{1}'.format(i, commands[i]))
-    f.close()
+    with open(makefile, 'w') as f:
+        f.write('all :')
+        for i in range(len(commands)):
+            f.write(' job{0}'.format(i))
+        f.write('\n')
+        for i in range(len(commands)):
+            f.write('job{0} :\n\t{1}'.format(i, commands[i]))
     
     # Execute make file
     command = 'make -j{0} -f {1}'.format(nproc, makefile)

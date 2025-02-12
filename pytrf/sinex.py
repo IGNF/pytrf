@@ -7,6 +7,10 @@
 import os
 import sys
 import re
+import gzip
+import unlzw3
+from pathlib import Path
+from io import StringIO
 #import mkl
 #mkl.set_num_threads(1)
 import copy
@@ -52,15 +56,15 @@ def write_mat(M, f):
                 if ((j+2 <= i) and (M[i,j+2] != 0)):
                     f.write(' {0:21.14e}'.format(M[i,j+1]))
                     f.write(' {0:21.14e}\n'.format(M[i,j+2]))
-                    j = j+3 # += ?
+                    j += 3
                 elif ((j+1 <= i) and (M[i,j+1] != 0)):
                     f.write(' {0:21.14e}\n'.format(M[i,j+1]))
-                    j = j+2 # += ?
+                    j += 2
                 else: 
                     f.write('\n')
-                    j = j+1 # += ?
+                    j += 1
             else:
-                j = j+1 # += ?
+                j += 1
 
 
 
@@ -201,6 +205,8 @@ class sinex:
         snx.stats = None
         snx.sta = None
         snx.rs = None
+        snx.gpspco = None
+        snx.galpco = None
         snx.param = None
         snx.x = None
         snx.sig = None
@@ -229,8 +235,17 @@ class sinex:
         snx.isatax = []
         snx.isatay = []
         snx.isataz = []
+        snx.iR = []
+        snx.iS = []
+        snx.iT = []
+        snx.iA = []
         snx.itrans = []
-        
+        snx.idR = []
+        snx.idS = []
+        snx.idT = []
+        snx.idtrans = []
+
+
     # Create sinex instance from SINEX file
     #--------------------------------------
     @classmethod
@@ -267,474 +282,544 @@ class sinex:
         snx.file = os.path.basename(file)
 
         # Open input SINEX file
-        if is_gzip(file):
-            f = gzip.open(file,"rt", encoding='ISO-8859-1')
+        if (file[-3:] == '.gz'):
+            f = gzip.open(file, 'rt', encoding='latin-1')
+        elif (file[-2:] == '.Z'):
+            f = StringIO(unlzw3.unlzw(Path(file)).decode())
         else:
-            f = open(file,"r")
+            f = open(file, encoding='latin-1')
 
-        # Read 1st line
-        line = f.readline()
-        snx.version = line[6:10]
-        snx.agency = line[11:14]
-        snx.t = re.sub(' ', '0', line[15:27])
-        snx.start = re.sub(' ', '0', line[32:44])
-        snx.end = re.sub(' ', '0', line[45:57])
-        snx.tech = line[58]
-        snx.const = line[66]
-        snx.content = line[68:].strip()
+        with f:
 
-        # Read rest of the file to get list and addresses of blocks
-        # Also get types of the matrices (COVA/CORR/INFO)
-        blocks = []
-        addresses = []
-        while (line):
-            if (line[0] == '+'):
-                blocks.append(line[1:line.find(' ')].strip())
-                addresses.append(f.tell())
-                if (blocks[-1] == 'SOLUTION/MATRIX_ESTIMATE'):
-                    type_matest = line[28:32]
-                elif (blocks[-1] == 'SOLUTION/MATRIX_APRIORI'):
-                    type_matapr = line[27:31]
-                elif (blocks[-1] == 'SOLUTION/ESTIMATES'):
-                    blocks[-1] = 'SOLUTION/ESTIMATE'
+            # Read 1st line
             line = f.readline()
-            
-        # Read FILE/REFERENCE block -> snx.ref
-        if ('FILE/REFERENCE' in blocks) and not('comments' in dont_read):
-            snx.ref = record()
-            f.seek(addresses[blocks.index('FILE/REFERENCE')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    setattr(snx.ref, line[1:19].strip().lower(), line[20:].strip())
-                line = f.readline()
-            
-        # Read FILE/COMMENT block -> snx.comment
-        if ('FILE/COMMENT' in blocks) and not('comments' in dont_read):
-            snx.comment = []
-            f.seek(addresses[blocks.index('FILE/COMMENT')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    snx.comment.append(line[1:].rstrip())
+            snx.version = line[6:10]
+            snx.agency = line[11:14]
+            snx.t = re.sub(' ', '0', line[15:27])
+            snx.start = re.sub(' ', '0', line[32:44])
+            snx.end = re.sub(' ', '0', line[45:57])
+            snx.tech = line[58]
+            snx.const = line[66]
+            snx.content = line[68:].strip()
+
+            # Read rest of the file to get list and addresses of blocks
+            # Also get types of the matrices (COVA/CORR/INFO)
+            blocks = []
+            addresses = []
+            while (line):
+                if (line[0] == '+'):
+                    blocks.append(line[1:line.find(' ')].strip())
+                    addresses.append(f.tell())
+                    if (blocks[-1] == 'SOLUTION/MATRIX_ESTIMATE'):
+                        type_matest = line[28:32]
+                    elif (blocks[-1] == 'SOLUTION/MATRIX_APRIORI'):
+                        type_matapr = line[27:31]
+                    elif (blocks[-1] == 'SOLUTION/ESTIMATES'):
+                        blocks[-1] = 'SOLUTION/ESTIMATE'
                 line = f.readline()
 
-        # Read INPUT/HISTORY block -> snx.input
-        if ('INPUT/HISTORY' in blocks) and not('comments' in dont_read):
-            snx.input = []
-            f.seek(addresses[blocks.index('INPUT/HISTORY')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if ((line[0] != '*') and (line[1:2] == '+')):
-                    r = record()
-                    r.version = line[6:10]
-                    r.agency = line[11:14]
-                    r.t = line[15:27]
-                    r.start = line[32:44]
-                    r.end = line[45:57]
-                    r.tech = line[58:59]
-                    r.npar = int(line[60:65])
-                    r.const = line[66:67]
-                    r.content = line[68:].strip()
-                    snx.input.append(r)
+            # Read FILE/REFERENCE block -> snx.ref
+            if ('FILE/REFERENCE' in blocks) and not('comments' in dont_read):
+                snx.ref = record()
+                f.seek(addresses[blocks.index('FILE/REFERENCE')])
                 line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        setattr(snx.ref, line[1:19].strip().lower(), line[20:].strip())
+                    line = f.readline()
 
-        # Read INPUT/FILES block -> complement snx.input
-        if ('INPUT/FILES' in blocks) and not('comments' in dont_read):
-            f.seek(addresses[blocks.index('INPUT/FILES')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    agency = line[1:4]
-                    t = line[5:17]
-                    if (agency+t in [inp.agency+inp.t for inp in snx.input]):
-                        i = [inp.agency+inp.t for inp in snx.input].index(agency+t)
-                        snx.input[i].file = line[18:47]
-                        snx.input[i].description = line[48:].strip()
+            # Read FILE/COMMENT block -> snx.comment
+            if ('FILE/COMMENT' in blocks) and not('comments' in dont_read):
+                snx.comment = []
+                f.seek(addresses[blocks.index('FILE/COMMENT')])
                 line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        snx.comment.append(line[1:].rstrip())
+                    line = f.readline()
 
-        # Read INPUT/ACKNOWLEDGEMENTS block -> snx.acks
-        if ('INPUT/ACKNOWLEDGEMENTS' in blocks) and not('comments' in dont_read):
-            snx.acks = []
-            f.seek(addresses[blocks.index('INPUT/ACKNOWLEDGEMENTS')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    r = record()
-                    r.agency = line[1:4]
-                    r.description = line[5:].strip()
-                    snx.acks.append(r)
+            # Read INPUT/HISTORY block -> snx.input
+            if ('INPUT/HISTORY' in blocks) and not('comments' in dont_read):
+                snx.input = []
+                f.seek(addresses[blocks.index('INPUT/HISTORY')])
                 line = f.readline()
-
-        # Read SOLUTION/STATISTICS block
-        if ('SOLUTION/STATISTICS' in blocks) and not('stats' in dont_read):
-            snx.stats = record()
-            f.seek(addresses[blocks.index('SOLUTION/STATISTICS')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    if ('NUMBER OF OBSERVATIONS' in line[1:31]):
-                        snx.stats.nobs = round(float(line[32:].replace('D', 'E')))
-                    elif ('NUMBER OF UNKNOWNS' in line[1:31]):
-                        snx.stats.nunk = round(float(line[32:].replace('D', 'E')))
-                    elif ('SAMPLING INTERVAL' in line[1:31]):
-                        snx.stats.sampling = float(line[32:].replace('D', 'E'))
-                    elif ('SQUARE SUM OF RESIDUALS' in line[1:31]):
-                        snx.stats.vPv = float(line[32:].replace('D', 'E'))
-                    elif ('PHASE MEASUREMENTS SIGMA' in line[1:31]):
-                        snx.stats.sigphase = float(line[32:].replace('D', 'E'))
-                    elif ('CODE MEASUREMENTS SIGMA' in line[1:31]):
-                        snx.stats.sigcode = float(line[32:].replace('D', 'E'))
-                    elif ('NUMBER OF DEGREES OF FREEDOM' in line[1:31]):
-                        snx.stats.dof = round(float(line[32:].replace('D', 'E')))
-                    elif ('VARIANCE FACTOR' in line[1:31]):
-                        snx.stats.vf = float(line[32:].replace('D', 'E'))
-                    elif ('WEIGHTED SQUARE SUM OF O-C' in line[1:31]):
-                        snx.stats.lPl = float(line[32:].replace('D', 'E'))
-                    elif ('WRMS OF POSTFIT RESIDUALS' in line[1:31]):
-                        snx.stats.wrms = float(line[32:].replace('D', 'E'))
-                line = f.readline()
-
-        # Read SITE/ID block -> snx.sta
-        if ('SITE/ID' in blocks):
-            snx.sta = []
-            f.seek(addresses[blocks.index('SITE/ID')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    r = record()
-                    r.code = line[1:5].upper()
-                    r.pt = line[6:8]
-                    r.domes = line[9:18]
-                    r.tech = line[19:20]
-                    r.description = line[21:43]
-                    r.lon = line[44:55]
-                    r.lat = line[56:67]
-                    if (r.lat[0:4] == '  0-'):
-                        r.lat = ' -0 ' + r.lat[4:]
-                    r.h = line[68:75]
-                    r.rec = []
-                    r.ant = []
-                    r.ecc = []
-                    r.soln = []
-                    snx.sta.append(r)
-                line = f.readline()
-
-        # Read SOURCE/ID block -> snx.rs
-        if ('SOURCE/ID' in blocks):
-            snx.rs = []
-            f.seek(addresses[blocks.index('SOURCE/ID')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    r = record()
-                    r.code = line[1:5]
-                    r.iers = line[6:14]
-                    r.icrf = line[15:31]
-                    r.comments = line[32:].strip()
-                    snx.rs.append(r)
-                line = f.readline()
-
-        # Read SITE/RECEIVER block -> snx.sta[*].rec
-        if ('SITE/RECEIVER' in blocks) and not('metadata' in dont_read):
-            f.seek(addresses[blocks.index('SITE/RECEIVER')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    code = line[1:5].upper()
-                    pt = line[6:8]
-                    
-                    # PATCH: Add possibly missing station into snx.sta
-                    if (not(code+pt in [s.code+s.pt for s in snx.sta])):
+                while (line[0] != '-'):
+                    if ((line[0] != '*') and (line[1:2] == '+')):
                         r = record()
-                        r.code = code
-                        r.pt = pt
-                        r.domes = default_domes
-                        r.tech = 'P'
-                        r.description = 22*' '
-                        r.lon = 11*' '
-                        r.lat = 11*' '
-                        r.h = 7*' '
+                        r.version = line[6:10]
+                        r.agency = line[11:14]
+                        r.t = line[15:27]
+                        r.start = line[32:44]
+                        r.end = line[45:57]
+                        r.tech = line[58:59]
+                        r.npar = int(line[60:65])
+                        r.const = line[66:67]
+                        r.content = line[68:].strip()
+                        snx.input.append(r)
+                    line = f.readline()
+
+            # Read INPUT/FILES block -> complement snx.input
+            if ('INPUT/FILES' in blocks) and not('comments' in dont_read):
+                f.seek(addresses[blocks.index('INPUT/FILES')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        agency = line[1:4]
+                        t = line[5:17]
+                        if (agency+t in [inp.agency+inp.t for inp in snx.input]):
+                            i = [inp.agency+inp.t for inp in snx.input].index(agency+t)
+                            snx.input[i].file = line[18:47]
+                            snx.input[i].description = line[48:].strip()
+                    line = f.readline()
+
+            # Read INPUT/ACKNOWLEDGEMENTS block -> snx.acks
+            if ('INPUT/ACKNOWLEDGEMENTS' in blocks) and not('comments' in dont_read):
+                snx.acks = []
+                f.seek(addresses[blocks.index('INPUT/ACKNOWLEDGEMENTS')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        r = record()
+                        r.agency = line[1:4]
+                        r.description = line[5:].strip()
+                        snx.acks.append(r)
+                    line = f.readline()
+
+            # Read SOLUTION/STATISTICS block
+            if ('SOLUTION/STATISTICS' in blocks) and not('stats' in dont_read):
+                snx.stats = record()
+                f.seek(addresses[blocks.index('SOLUTION/STATISTICS')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        if ('NUMBER OF OBSERVATIONS' in line[1:31]):
+                            snx.stats.nobs = round(float(line[32:].replace('D', 'E')))
+                        elif ('NUMBER OF UNKNOWNS' in line[1:31]):
+                            snx.stats.nunk = round(float(line[32:].replace('D', 'E')))
+                        elif ('SAMPLING INTERVAL' in line[1:31]):
+                            snx.stats.sampling = float(line[32:].replace('D', 'E'))
+                        elif ('SQUARE SUM OF RESIDUALS' in line[1:31]):
+                            snx.stats.vPv = float(line[32:].replace('D', 'E'))
+                        elif ('PHASE MEASUREMENTS SIGMA' in line[1:31]):
+                            snx.stats.sigphase = float(line[32:].replace('D', 'E'))
+                        elif ('CODE MEASUREMENTS SIGMA' in line[1:31]):
+                            snx.stats.sigcode = float(line[32:].replace('D', 'E'))
+                        elif ('NUMBER OF DEGREES OF FREEDOM' in line[1:31]):
+                            snx.stats.dof = round(float(line[32:].replace('D', 'E')))
+                        elif ('VARIANCE FACTOR' in line[1:31]):
+                            snx.stats.vf = float(line[32:].replace('D', 'E'))
+                        elif ('WEIGHTED SQUARE SUM OF O-C' in line[1:31]):
+                            snx.stats.lPl = float(line[32:].replace('D', 'E'))
+                        elif ('WRMS OF POSTFIT RESIDUALS' in line[1:31]):
+                            snx.stats.wrms = float(line[32:].replace('D', 'E'))
+                    line = f.readline()
+
+            # Read SITE/ID block -> snx.sta
+            if ('SITE/ID' in blocks):
+                snx.sta = []
+                f.seek(addresses[blocks.index('SITE/ID')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        r = record()
+                        r.code = line[1:5].upper()
+                        r.pt = line[6:8]
+                        r.domes = line[9:18]
+                        r.tech = line[19:20]
+                        r.description = line[21:43]
+                        r.lon = line[44:55]
+                        r.lat = line[56:67]
+                        if (r.lat[0:4] == '  0-'):
+                            r.lat = ' -0 ' + r.lat[4:]
+                        r.h = line[68:75]
                         r.rec = []
                         r.ant = []
                         r.ecc = []
                         r.soln = []
                         snx.sta.append(r)
-                    
-                    i = [s.code+s.pt for s in snx.sta].index(code+pt)
-                    r = record()
-                    r.start = line[16:28]
-                    r.end = line[29:41]
-                    r.type = line[42:62]
-                    r.serie = line[63:68]
-                    r.firmware = '{0:<11s}'.format(line[69:].strip())
-                    snx.sta[i].rec.append(r)
-                line = f.readline()
+                    line = f.readline()
 
-        # Read SITE/ANTENNA block -> snx.sta[*].ant
-        if ('SITE/ANTENNA' in blocks) and not('metadata' in dont_read):
-            f.seek(addresses[blocks.index('SITE/ANTENNA')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    code = line[1:5].upper()
-                    pt = line[6:8]
-                    i = [s.code+s.pt for s in snx.sta].index(code+pt)
-                    r = record()
-                    r.start = line[16:28]
-                    r.end = line[29:41]
-                    r.type = line[42:62]
-                    r.serie = line[63:68]
-                    if (len(line) > 72):
-                        if (isfloat(line[69:])):
-                            r.daz = '{0:4d}'.format(round(float(line[69:])))
-                        else:
-                            r.daz = '   0'                        
-                    else:
-                        r.daz = '   0'
-                    snx.sta[i].ant.append(r)
+            # Read SOURCE/ID block -> snx.rs
+            if ('SOURCE/ID' in blocks):
+                snx.rs = []
+                f.seek(addresses[blocks.index('SOURCE/ID')])
                 line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        r = record()
+                        r.code = line[1:5]
+                        r.iers = line[6:14]
+                        r.icrf = line[15:31]
+                        r.comments = line[32:].strip()
+                        snx.rs.append(r)
+                    line = f.readline()
 
-        # Read SITE/ECCENTRICITY block -> snx.sta[*].ecc
-        if ('SITE/ECCENTRICITY' in blocks) and not('metadata' in dont_read):
-            f.seek(addresses[blocks.index('SITE/ECCENTRICITY')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    code = line[1:5].upper()
-                    pt = line[6:8]
-                    i = [s.code+s.pt for s in snx.sta].index(code+pt)
-                    r = record()
-                    r.start = line[16:28]
-                    r.end = line[29:41]
-                    r.system = line[42:45]
-                    r.dx = [0]*3
-                    r.dx[0] = line[46:54]
-                    r.dx[1] = line[55:63]
-                    r.dx[2] = line[64:72]
-                    snx.sta[i].ecc.append(r)
+            # Read SITE/RECEIVER block -> snx.sta[*].rec
+            if ('SITE/RECEIVER' in blocks) and not('metadata' in dont_read):
+                f.seek(addresses[blocks.index('SITE/RECEIVER')])
                 line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        code = line[1:5].upper()
+                        pt = line[6:8]
 
-        # Read SOLUTION/EPOCHS block -> snx.sta[*].soln
-        if ('SOLUTION/EPOCHS' in blocks):
-            f.seek(addresses[blocks.index('SOLUTION/EPOCHS')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    code = line[1:5].upper()
-                    pt = line[6:8]
-                    if (code+pt in [s.code+s.pt for s in snx.sta]):
+                        # PATCH: Add possibly missing station into snx.sta
+                        if (not(code+pt in [s.code+s.pt for s in snx.sta])):
+                            r = record()
+                            r.code = code
+                            r.pt = pt
+                            r.domes = default_domes
+                            r.tech = 'P'
+                            r.description = 22*' '
+                            r.lon = 11*' '
+                            r.lat = 11*' '
+                            r.h = 7*' '
+                            r.rec = []
+                            r.ant = []
+                            r.ecc = []
+                            r.soln = []
+                            snx.sta.append(r)
+
                         i = [s.code+s.pt for s in snx.sta].index(code+pt)
                         r = record()
-                        r.soln = line[9:13]
-                        r.datastart = re.sub(' ', '0', line[16:28])
-                        r.dataend = re.sub(' ', '0', line[29:41])
-                        r.datamean = re.sub(' ', '0', line[42:54])
-                        snx.sta[i].soln.append(r)
-                line = f.readline()
+                        r.start = line[16:28]
+                        r.end = line[29:41]
+                        r.type = line[42:62]
+                        r.serie = line[63:68]
+                        r.firmware = '{0:<11s}'.format(line[69:].strip())
+                        snx.sta[i].rec.append(r)
+                    line = f.readline()
 
-        # PATCH: Add soln field for possibly missing stations in SOLUTION/EPOCHS block
-        if (snx.sta):
-            for s in snx.sta:
-                if (len(s.soln) == 0):
-                    r = record()
-                    r.soln = '----'
-                    r.datastart = '00:000:00000'
-                    r.dataend = '00:000:00000'
-                    r.datamean = '00:000:00000'
-                    s.soln.append(r)
+            # Read SITE/ANTENNA block -> snx.sta[*].ant
+            if ('SITE/ANTENNA' in blocks) and not('metadata' in dont_read):
+                f.seek(addresses[blocks.index('SITE/ANTENNA')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        code = line[1:5].upper()
+                        pt = line[6:8]
+                        i = [s.code+s.pt for s in snx.sta].index(code+pt)
+                        r = record()
+                        r.start = line[16:28]
+                        r.end = line[29:41]
+                        r.type = line[42:62]
+                        r.serie = line[63:68]
+                        if (len(line) > 72):
+                            if (isfloat(line[69:])):
+                                r.daz = '{0:4d}'.format(round(float(line[69:])))
+                            else:
+                                r.daz = '   0'
+                        else:
+                            r.daz = '   0'
+                        snx.sta[i].ant.append(r)
+                    line = f.readline()
+
+            # Read SITE/ECCENTRICITY block -> snx.sta[*].ecc
+            if ('SITE/ECCENTRICITY' in blocks) and not('metadata' in dont_read):
+                f.seek(addresses[blocks.index('SITE/ECCENTRICITY')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        code = line[1:5].upper()
+                        pt = line[6:8]
+                        i = [s.code+s.pt for s in snx.sta].index(code+pt)
+                        r = record()
+                        r.start = line[16:28]
+                        r.end = line[29:41]
+                        r.system = line[42:45]
+                        r.dx = [0]*3
+                        r.dx[0] = line[46:54]
+                        r.dx[1] = line[55:63]
+                        r.dx[2] = line[64:72]
+                        snx.sta[i].ecc.append(r)
+                    line = f.readline()
+
+            # Read SITE/GPS_PHASE_CENTER block -> snx.gpspco
+            if ('SITE/GPS_PHASE_CENTER' in blocks) and not('metadata' in dont_read):
+                snx.gpspco = []
+                f.seek(addresses[blocks.index('SITE/GPS_PHASE_CENTER')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line.strip()) and (line[0] != '*'):
+                        r = record()
+                        r.type = line[1:21]
+                        r.serie = line[22:27]
+                        r.dx = [[0]*3 for i in range(4)]
+                        r.dx[0][0] = line[28:34]
+                        r.dx[0][1] = line[35:41]
+                        r.dx[0][2] = line[42:48]
+                        r.dx[1][0] = line[49:55]
+                        r.dx[1][1] = line[56:62]
+                        r.dx[1][2] = line[63:69]
+                        r.model = line[70:80]
+                        line = f.readline()
+                        r.dx[2][0] = line[28:34]
+                        r.dx[2][1] = line[35:41]
+                        r.dx[2][2] = line[42:48]
+                        r.dx[3][0] = line[49:55]
+                        r.dx[3][1] = line[56:62]
+                        r.dx[3][2] = line[63:69]
+                        snx.gpspco.append(r)
+                    line = f.readline()
+                        
+            # Read SITE/GAL_PHASE_CENTER block -> snx.galpco
+            if ('SITE/GAL_PHASE_CENTER' in blocks) and not('metadata' in dont_read):
+                snx.galpco = []
+                f.seek(addresses[blocks.index('SITE/GAL_PHASE_CENTER')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line.strip()) and (line[0] != '*'):
+                        r = record()
+                        r.type = line[1:21]
+                        r.serie = line[22:27]
+                        r.dx = [[0]*3 for i in range(6)]
+                        r.dx[0][0] = line[28:34]
+                        r.dx[0][1] = line[35:41]
+                        r.dx[0][2] = line[42:48]
+                        r.dx[1][0] = line[49:55]
+                        r.dx[1][1] = line[56:62]
+                        r.dx[1][2] = line[63:69]
+                        r.model = line[70:80]
+                        line = f.readline()
+                        r.dx[2][0] = line[28:34]
+                        r.dx[2][1] = line[35:41]
+                        r.dx[2][2] = line[42:48]
+                        r.dx[3][0] = line[49:55]
+                        r.dx[3][1] = line[56:62]
+                        r.dx[3][2] = line[63:69]
+                        line = f.readline()
+                        r.dx[4][0] = line[28:34]
+                        r.dx[4][1] = line[35:41]
+                        r.dx[4][2] = line[42:48]
+                        r.dx[5][0] = line[49:55]
+                        r.dx[5][1] = line[56:62]
+                        r.dx[5][2] = line[63:69]                        
+                        snx.galpco.append(r)
+                    line = f.readline()
                     
-        # Read SOLUTION/ESTIMATE block -> snx.param, snx.x and snx.sig
-        if ('SOLUTION/ESTIMATE' in blocks):
-            snx.param = []
-            snx.x = []
-            snx.sig = []
-            f.seek(addresses[blocks.index('SOLUTION/ESTIMATE')])
-            line = f.readline()
-            i = -1
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = i+1  # += ?
-                    r = record()
-                    r.type = line[7:13]
-                    r.code = line[14:18].upper()
-                    r.pt = line[19:21]
-                    r.soln = line[22:26]
-                    r.tref = re.sub(' ', '0', line[27:39])
-                    r.unit = line[40:44]
-                    r.const = line[45:46]
-                    snx.param.append(r)
-                    snx.x.append(float(line[47:68].replace('D', 'E')))
-                    snx.sig.append(float(line[69:80].replace('D', 'E')))
-                line = f.readline()              
-            snx.x = np.array(snx.x)
-            snx.sig = np.array(snx.sig)
-            snx.npar = len(snx.param)
-            
-        # Read SOLUTION/APRIORI block -> snx.prior, snx.x0 and snx.sig0
-        if ('SOLUTION/APRIORI' in blocks) and not('apriori' in dont_read):
-            snx.prior = []
-            snx.x0 = []
-            snx.sig0 = []
-            f.seek(addresses[blocks.index('SOLUTION/APRIORI')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    r = record()
-                    r.type = line[7:13]
-                    r.code = line[14:18].upper()
-                    r.pt = line[19:21]
-                    r.soln = line[22:26]
-                    r.tref = re.sub(' ', '0', line[27:39])
-                    r.unit = line[40:44]
-                    r.const = line[45:46]
-                    snx.prior.append(r)
-                    snx.x0.append(float(line[47:68].replace('D', 'E')))
-                    snx.sig0.append(float(line[69:80].replace('D', 'E')))
+            # Read SOLUTION/EPOCHS block -> snx.sta[*].soln
+            if ('SOLUTION/EPOCHS' in blocks):
+                f.seek(addresses[blocks.index('SOLUTION/EPOCHS')])
                 line = f.readline()
-            snx.x0 = np.array(snx.x0)
-            snx.sig0 = np.array(snx.sig0)
-            if (snx.npar is None):
-                snx.npar = len(snx.prior)
-        else:
-            snx.prior = None
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        code = line[1:5].upper()
+                        pt = line[6:8]
+                        if (code+pt in [s.code+s.pt for s in snx.sta]):
+                            i = [s.code+s.pt for s in snx.sta].index(code+pt)
+                            r = record()
+                            r.soln = line[9:13]
+                            r.datastart = re.sub(' ', '0', line[16:28])
+                            r.dataend = re.sub(' ', '0', line[29:41])
+                            r.datamean = re.sub(' ', '0', line[42:54])
+                            snx.sta[i].soln.append(r)
+                    line = f.readline()
 
-        # PATCH: Change "UT1" a priori parameters to "UT"
-        if (snx.param):
-            for p in snx.param:
-                if (p.type == 'UT1   '):
-                    p.type = 'UT    '
-        
-        if (snx.prior):
-            for p in snx.prior:
-                if (p.type == 'UT1   '):
-                    p.type = 'UT    '
-            
-        # Read SOLUTION/MATRIX_ESTIMATE block -> snx.Q
-        if ('SOLUTION/MATRIX_ESTIMATE' in blocks) and not('matrices' in dont_read):
-            Q = np.zeros((snx.npar, snx.npar))
-            f.seek(addresses[blocks.index('SOLUTION/MATRIX_ESTIMATE')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = int(line[1:6]) - 1
-                    j = int(line[7:12]) - 1
-                    if (line[13:34].strip()):
+            # PATCH: Add soln field for possibly missing stations in SOLUTION/EPOCHS block
+            if (snx.sta):
+                for s in snx.sta:
+                    if (len(s.soln) == 0):
+                        r = record()
+                        r.soln = '----'
+                        r.datastart = '00:000:00000'
+                        r.dataend = '00:000:00000'
+                        r.datamean = '00:000:00000'
+                        s.soln.append(r)
+
+            # Read SOLUTION/ESTIMATE block -> snx.param, snx.x and snx.sig
+            if ('SOLUTION/ESTIMATE' in blocks):
+                snx.param = []
+                snx.x = []
+                snx.sig = []
+                f.seek(addresses[blocks.index('SOLUTION/ESTIMATE')])
+                line = f.readline()
+                i = -1
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i += 1
+                        r = record()
+                        r.type = line[7:13]
+                        r.code = line[14:18].upper()
+                        r.pt = line[19:21]
+                        r.soln = line[22:26]
+                        r.tref = re.sub(' ', '0', line[27:39])
+                        r.unit = line[40:44]
+                        r.const = line[45:46]
+                        snx.param.append(r)
+                        snx.x.append(float(line[47:68].replace('D', 'E')))
+                        snx.sig.append(float(line[69:80].replace('D', 'E')))
+                    line = f.readline()
+                snx.x = np.array(snx.x)
+                snx.sig = np.array(snx.sig)
+                snx.npar = len(snx.param)
+            else:
+                snx.npar = 0
+
+            # Read SOLUTION/APRIORI block -> snx.prior, snx.x0 and snx.sig0
+            if ('SOLUTION/APRIORI' in blocks) and not('apriori' in dont_read):
+                snx.prior = []
+                snx.x0 = []
+                snx.sig0 = []
+                f.seek(addresses[blocks.index('SOLUTION/APRIORI')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        r = record()
+                        r.type = line[7:13]
+                        r.code = line[14:18].upper()
+                        r.pt = line[19:21]
+                        r.soln = line[22:26]
+                        r.tref = re.sub(' ', '0', line[27:39])
+                        r.unit = line[40:44]
+                        r.const = line[45:46]
+                        snx.prior.append(r)
+                        snx.x0.append(float(line[47:68].replace('D', 'E')))
+                        snx.sig0.append(float(line[69:80].replace('D', 'E')))
+                    line = f.readline()
+                snx.x0 = np.array(snx.x0)
+                snx.sig0 = np.array(snx.sig0)
+                if (snx.npar is None):
+                    snx.npar = len(snx.prior)
+            else:
+                snx.prior = None
+
+            # PATCH: Change "UT1" a priori parameters to "UT"
+            if (snx.param):
+                for p in snx.param:
+                    if (p.type == 'UT1   '):
+                        p.type = 'UT    '
+
+            if (snx.prior):
+                for p in snx.prior:
+                    if (p.type == 'UT1   '):
+                        p.type = 'UT    '
+
+            # Read SOLUTION/MATRIX_ESTIMATE block -> snx.Q
+            if ('SOLUTION/MATRIX_ESTIMATE' in blocks) and not('matrices' in dont_read):
+                Q = np.zeros((snx.npar, snx.npar))
+                f.seek(addresses[blocks.index('SOLUTION/MATRIX_ESTIMATE')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = int(line[1:6]) - 1
+                        j = int(line[7:12]) - 1
+                        if (line[13:34].strip()):
+                            Q[i,j] = float(line[13:34].replace('D', 'E'))
+                            Q[j,i] = Q[i,j]
+                        if (line[35:56].strip()):
+                            Q[i,j+1] = float(line[35:56].replace('D', 'E'))
+                            Q[j+1,i] = Q[i,j+1]
+                        if (line[57:78].strip()):
+                            Q[i,j+2] = float(line[57:78].replace('D', 'E'))
+                            Q[j+2,i] = Q[i,j+2]
+                    line = f.readline()
+
+                # Case of a covariance matrix
+                if (type_matest == 'COVA'):
+                    snx.Q = Q
+
+                # Case of a correlation matrix
+                elif (type_matest == 'CORR'):
+                    d = np.diag(Q).copy()
+                    Q[range(snx.npar), range(snx.npar)] = 1
+                    snx.Q = d*(Q*d).T
+
+                # Case of a normal matrix
+                elif (type_matest == 'INFO'):
+                    snx.Q = invspd(Q)
+
+            # Read SOLUTION/MATRIX_APRIORI block -> snx.Nc
+            if ('SOLUTION/MATRIX_APRIORI' in blocks) and not('apriori' in dont_read) and not('matrices' in dont_read):
+                Q = np.zeros((snx.npar, snx.npar))
+                f.seek(addresses[blocks.index('SOLUTION/MATRIX_APRIORI')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = int(line[1:6]) - 1
+                        j = int(line[7:12]) - 1
                         Q[i,j] = float(line[13:34].replace('D', 'E'))
                         Q[j,i] = Q[i,j]
-                    if (line[35:56].strip()):
-                        Q[i,j+1] = float(line[35:56].replace('D', 'E'))
-                        Q[j+1,i] = Q[i,j+1]
-                    if (line[57:78].strip()):
-                        Q[i,j+2] = float(line[57:78].replace('D', 'E'))
-                        Q[j+2,i] = Q[i,j+2]
+                        if (line[35:56].strip()):
+                            Q[i,j+1] = float(line[35:56].replace('D', 'E'))
+                            Q[j+1,i] = Q[i,j+1]
+                        if (line[57:78].strip()):
+                            Q[i,j+2] = float(line[57:78].replace('D', 'E'))
+                            Q[j+2,i] = Q[i,j+2]
+                    line = f.readline()
+
+                # Case of a covariance matrix
+                if (type_matapr == 'COVA'):
+
+                    # PATCH: if there are parameters with zero a priori variances,
+                    if (np.any(np.diag(Q) == 0)):
+                        indc = np.nonzero(np.diag(Q))[0]
+                        snx.Nc = np.zeros((snx.npar, snx.npar))
+                        snx.Nc[np.ix_(indc,indc)] = invspd(Q[np.ix_(indc,indc)])
+
+                    # Else,
+                    else:
+                        snx.Nc = invspd(Q)
+
+                # Case of a correlation matrix
+                elif (type_matapr == 'CORR'):
+                    d = np.diag(Q).copy()
+                    Q[range(snx.npar), range(snx.npar)] = 1
+                    snx.Nc = invspd(d*(Q*d).T)
+
+                # Case of a normal matrix
+                elif (type_matapr == 'INFO'):
+                    snx.Nc = Q
+
+            # Read SOLUTION/NORMAL_EQUATION_VECTOR block -> snx.b
+            if ('SOLUTION/NORMAL_EQUATION_VECTOR' in blocks) and not('matrices' in dont_read):
+                snx.b = np.zeros(snx.npar)
+                f.seek(addresses[blocks.index('SOLUTION/NORMAL_EQUATION_VECTOR')])
                 line = f.readline()
-            
-            # Case of a covariance matrix
-            if (type_matest == 'COVA'):
-                snx.Q = Q
+                i = -1
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        try:
+                            i = i+1
+                            snx.b[i] = float(line[47:68].replace('D', 'E'))
+                        except:
+                            i = int(line[1:6]) - 1
+                            snx.b[i] = float(line[7:28].replace('D', 'E'))
+                    line = f.readline()
 
-            # Case of a correlation matrix
-            elif (type_matest == 'CORR'):
-                d = np.diag(Q).copy()
-                Q[range(snx.npar), range(snx.npar)] = 1
-                snx.Q = d*(Q*d).T
-                
-            # Case of a normal matrix
-            elif (type_matest == 'INFO'):
-                snx.Q = invspd(Q)
-
-        # Read SOLUTION/MATRIX_APRIORI block -> snx.Nc
-        if ('SOLUTION/MATRIX_APRIORI' in blocks) and not('apriori' in dont_read) and not('matrices' in dont_read):
-            Q = np.zeros((snx.npar, snx.npar))
-            f.seek(addresses[blocks.index('SOLUTION/MATRIX_APRIORI')])
-            line = f.readline()
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = int(line[1:6]) - 1
-                    j = int(line[7:12]) - 1
-                    Q[i,j] = float(line[13:34].replace('D', 'E'))
-                    Q[j,i] = Q[i,j]
-                    if (line[35:56].strip()):
-                        Q[i,j+1] = float(line[35:56].replace('D', 'E'))
-                        Q[j+1,i] = Q[i,j+1]
-                    if (line[57:78].strip()):
-                        Q[i,j+2] = float(line[57:78].replace('D', 'E'))
-                        Q[j+2,i] = Q[i,j+2]
+            # Read SOLUTION/DECOMPOSED_NORMAL_VECTOR block -> snx.b
+            if ('SOLUTION/DECOMPOSED_NORMAL_VECTOR' in blocks) and not('matrices' in dont_read):
+                snx.b = np.zeros(snx.npar)
+                f.seek(addresses[blocks.index('SOLUTION/DECOMPOSED_NORMAL_VECTOR')])
                 line = f.readline()
+                i = -1
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = int(line[1:6]) - 1
+                        snx.b[i] = float(line[7:28].replace('D', 'E'))
+                    line = f.readline()
 
-            # Case of a covariance matrix
-            if (type_matapr == 'COVA'):
-
-                # PATCH: if there are parameters with zero a priori variances,
-                if (np.any(np.diag(Q) == 0)):
-                    indc = np.nonzero(np.diag(Q))[0]
-                    snx.Nc = np.zeros((snx.npar, snx.npar))
-                    snx.Nc[np.ix_(indc,indc)] = invspd(Q[np.ix_(indc,indc)])
-
-                # Else,
+            # Read SOLUTION/NORMAL_EQUATION_MATRIX (or SOLUTION/DECOMPOSED_NORMAL_MATRIX) block -> snx.N
+            if (('SOLUTION/NORMAL_EQUATION_MATRIX' in blocks) or ('SOLUTION/DECOMPOSED_NORMAL_MATRIX' in blocks)) and not('matrices' in dont_read):
+                snx.N = np.zeros((snx.npar, snx.npar))
+                if ('SOLUTION/NORMAL_EQUATION_MATRIX' in blocks):
+                    f.seek(addresses[blocks.index('SOLUTION/NORMAL_EQUATION_MATRIX')])
                 else:
-                    snx.Nc = invspd(Q)
-
-            # Case of a correlation matrix
-            elif (type_matapr == 'CORR'):
-                d = np.diag(Q).copy()
-                Q[range(snx.npar), range(snx.npar)] = 1
-                snx.Nc = invspd(d*(Q*d).T)
-                
-            # Case of a normal matrix
-            elif (type_matapr == 'INFO'):
-                snx.Nc = Q
-
-        # Read SOLUTION/NORMAL_EQUATION_VECTOR block -> snx.b
-        if ('SOLUTION/NORMAL_EQUATION_VECTOR' in blocks) and not('matrices' in dont_read):
-            snx.b = np.zeros(snx.npar)
-            f.seek(addresses[blocks.index('SOLUTION/NORMAL_EQUATION_VECTOR')])
-            line = f.readline()
-            i = -1
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = i+1
-                    snx.b[i] = float(line[47:68].replace('D', 'E'))
+                    f.seek(addresses[blocks.index('SOLUTION/DECOMPOSED_NORMAL_MATRIX')])
                 line = f.readline()
-
-        # Read SOLUTION/DECOMPOSED_NORMAL_VECTOR block -> snx.b
-        if ('SOLUTION/DECOMPOSED_NORMAL_VECTOR' in blocks) and not('matrices' in dont_read):
-            snx.b = np.zeros(snx.npar)
-            f.seek(addresses[blocks.index('SOLUTION/DECOMPOSED_NORMAL_VECTOR')])
-            line = f.readline()
-            i = -1
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = int(line[1:6]) - 1
-                    snx.b[i] = float(line[7:28].replace('D', 'E'))
-                line = f.readline()
-
-        # Read SOLUTION/NORMAL_EQUATION_MATRIX (or SOLUTION/DECOMPOSED_NORMAL_MATRIX) block -> snx.N
-        if (('SOLUTION/NORMAL_EQUATION_MATRIX' in blocks) or ('SOLUTION/DECOMPOSED_NORMAL_MATRIX' in blocks)) and not('matrices' in dont_read):
-            snx.N = np.zeros((snx.npar, snx.npar))
-            if ('SOLUTION/NORMAL_EQUATION_MATRIX' in blocks):
-                f.seek(addresses[blocks.index('SOLUTION/NORMAL_EQUATION_MATRIX')])
-            else:
-                f.seek(addresses[blocks.index('SOLUTION/DECOMPOSED_NORMAL_MATRIX')])
-            line = f.readline()            
-            while (line[0] != '-'):
-                if (line[0] != '*'):
-                    i = int(line[1:6]) - 1
-                    j = int(line[7:12]) - 1
-                    snx.N[i,j] = float(line[13:34].replace('D', 'E'))
-                    snx.N[j,i] = snx.N[i,j]
-                    if (line[35:56].strip()):
-                        snx.N[i,j+1] = float(line[35:56].replace('D', 'E'))
-                        snx.N[j+1,i] = snx.N[i,j+1]
-                    if (line[57:78].strip()):
-                        snx.N[i,j+2] = float(line[57:78].replace('D', 'E'))
-                        snx.N[j+2,i] = snx.N[i,j+2]
-                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        i = int(line[1:6]) - 1
+                        j = int(line[7:12]) - 1
+                        snx.N[i,j] = float(line[13:34].replace('D', 'E'))
+                        snx.N[j,i] = snx.N[i,j]
+                        if (line[35:56].strip()):
+                            snx.N[i,j+1] = float(line[35:56].replace('D', 'E'))
+                            snx.N[j+1,i] = snx.N[i,j+1]
+                        if (line[57:78].strip()):
+                            snx.N[i,j+2] = float(line[57:78].replace('D', 'E'))
+                            snx.N[j+2,i] = snx.N[i,j+2]
+                    line = f.readline()
                         
-        # Close input SINEX file
-        f.close()
-        
         # In case of a normal equation without solution, copy snx.prior into snx.param
         if (snx.prior) and (snx.param is None):
             snx.param = copy.deepcopy(snx.prior)
@@ -765,16 +850,16 @@ class sinex:
                     irs = snx.irs + [i+1 for i in snx.irs]
                     f = np.ones(snx.npar)
                     f[irs] = 1/mas2rad
-                    snx.x = f*snx.x # *= ?
-                    snx.sig = f*snx.sig # *= ?
+                    snx.x *= f
+                    snx.sig *= f
                     if (snx.Q is not None):
                         snx.Q = (snx.Q*f).T*f
                     if (snx.x0 is not None):
-                        snx.x0 = f*snx.x0  # *= ?
-                        snx.sig0 = f*snx.sig0 # *= ?
+                        snx.x0 *= f
+                        snx.sig0 *= f
                     if (snx.N is not None):
                         snx.N = (snx.N/f).T/f
-                        snx.b = snx.b/f # /= ?
+                        snx.b /= f
                     if (snx.Nc is not None):
                         snx.Nc = (snx.Nc/f).T/f
                     for i in irs:
@@ -943,7 +1028,7 @@ class sinex:
                 if not(snx.sta[i].code+snx.sta[i].pt in keys):
                     snx.sta.pop(i)
                 else:
-                    i = i+1 # += ?
+                    i += 1
 
             # Update snx.sta[*].soln
             keys = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
@@ -953,7 +1038,7 @@ class sinex:
                     if not(s.code+s.pt+s.soln[i].soln in keys):
                         s.soln.pop(i)
                     else:
-                        i = i+1 # += ?
+                        i += 1
                 
     # Clean radiosource list (remove radiosources that do not correspond to parameters)
     #----------------------------------------------------------------------------------
@@ -974,7 +1059,7 @@ class sinex:
                 if not(snx.rs[i].code in keys):
                     snx.rs.pop(i)
                 else:
-                    i = i+1 # += ?
+                    i += 1
                     
             # Attribute IERS names to radiosource coordinate parameters
             keys = [r.code for r in snx.rs]
@@ -1130,8 +1215,18 @@ class sinex:
             snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
             
             # Transformation parameters
-            snx.itrans = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']))[0].tolist()
-            
+            snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
+            snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+            snx.iA = np.nonzero(np.in1d(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
+            snx.itrans = snx.iT+snx.iS+snx.iR+snx.iA
+
+            # Transformation parameter rates
+            snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
+            snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
+            snx.idT = np.nonzero(np.in1d(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
+            snx.idtrans = snx.idT+snx.idS+snx.idR
+
         else:
             
             snx.ix = []
@@ -1152,7 +1247,15 @@ class sinex:
             snx.isatax = []
             snx.isatay = []
             snx.isataz = []
+            snx.iR = []
+            snx.iS = []
+            snx.iT = []
+            snx.iA = []
             snx.itrans = []
+            snx.idR = []
+            snx.idS = []
+            snx.idT = []
+            snx.idtrans = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------
@@ -1178,207 +1281,233 @@ class sinex:
         """
 
         # Open output SINEX file
-        f = open(file, 'w')
+        with open(file, 'w') as f:
 
-        # Set snx.t if needed and write first line
-        if (snx.t is None):
-            snx.t = date().tsnx()
-        f.write('%=SNX 2.02 {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(snx))
+            # Set snx.t if needed and write first line
+            if (snx.t is None):
+                snx.t = date().tsnx()
+            f.write('%=SNX 2.02 {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(snx))
 
-        # Write FILE/REFERENCE block
-        if (snx.ref) and not('comments' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+FILE/REFERENCE\n')
-            if (hasattr(snx.ref, 'description')):
-                f.write(' {0:<18} {1}\n'.format('DESCRIPTION', snx.ref.description))
-            if (hasattr(snx.ref, 'output')):
-                f.write(' {0:<18} {1}\n'.format('OUTPUT', snx.ref.output))
-            if (hasattr(snx.ref, 'contact')):
-                f.write(' {0:<18} {1}\n'.format('CONTACT', snx.ref.contact))
-            if (hasattr(snx.ref, 'software')):
-                f.write(' {0:<18} {1}\n'.format('SOFTWARE', snx.ref.software))
-            if (hasattr(snx.ref, 'hardware')):
-                f.write(' {0:<18} {1}\n'.format('HARDWARE', snx.ref.hardware))
-            if (hasattr(snx.ref, 'input')):
-                f.write(' {0:<18} {1}\n'.format('INPUT', snx.ref.input))
-            f.write('-FILE/REFERENCE\n')
+            # Write FILE/REFERENCE block
+            if (snx.ref) and not('comments' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+FILE/REFERENCE\n')
+                if (hasattr(snx.ref, 'description')):
+                    f.write(' {0:<18} {1}\n'.format('DESCRIPTION', snx.ref.description))
+                if (hasattr(snx.ref, 'output')):
+                    f.write(' {0:<18} {1}\n'.format('OUTPUT', snx.ref.output))
+                if (hasattr(snx.ref, 'contact')):
+                    f.write(' {0:<18} {1}\n'.format('CONTACT', snx.ref.contact))
+                if (hasattr(snx.ref, 'software')):
+                    f.write(' {0:<18} {1}\n'.format('SOFTWARE', snx.ref.software))
+                if (hasattr(snx.ref, 'hardware')):
+                    f.write(' {0:<18} {1}\n'.format('HARDWARE', snx.ref.hardware))
+                if (hasattr(snx.ref, 'input')):
+                    f.write(' {0:<18} {1}\n'.format('INPUT', snx.ref.input))
+                f.write('-FILE/REFERENCE\n')
 
-        # Write FILE/COMMENT block
-        if (snx.comment) and not('comments' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+FILE/COMMENT\n')
-            for c in snx.comment:
-                f.write(' {0}\n'.format(c))
-            f.write('-FILE/COMMENT\n')
+            # Write FILE/COMMENT block
+            if (snx.comment) and not('comments' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+FILE/COMMENT\n')
+                for c in snx.comment:
+                    f.write(' {0}\n'.format(c))
+                f.write('-FILE/COMMENT\n')
 
-        # Write INPUT/ACKNOWLEDGEMENTS block
-        if (snx.acks) and not('comments' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+INPUT/ACKNOWLEDGEMENTS\n')
-            f.write('*AGY ______________________________FULL_DESCRIPTION_____________________________\n')
-            for a in snx.acks:
-                f.write(' {0} {1}\n'.format(a.agency, a.description))
-            f.write('-INPUT/ACKNOWLEDGEMENTS\n')
+            # Write INPUT/ACKNOWLEDGEMENTS block
+            if (snx.acks) and not('comments' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+INPUT/ACKNOWLEDGEMENTS\n')
+                f.write('*AGY ______________________________FULL_DESCRIPTION_____________________________\n')
+                for a in snx.acks:
+                    f.write(' {0} {1}\n'.format(a.agency, a.description))
+                f.write('-INPUT/ACKNOWLEDGEMENTS\n')
 
-        # Write INPUT/HISTORY block
-        if (snx.input) and not('comments' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+INPUT/HISTORY\n')
-            f.write('*_VERSION_ CRE __CREATION__ OWN _DATA_START_ __DATA_END__ T PARAM S ____TYPE____\n')
-            for i in snx.input:
-                f.write(' +SNX {0.version} {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(i))
-            f.write(' =SNX 2.02 {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(snx))
-            f.write('-INPUT/HISTORY\n')
+            # Write INPUT/HISTORY block
+            if (snx.input) and not('comments' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+INPUT/HISTORY\n')
+                f.write('*_VERSION_ CRE __CREATION__ OWN _DATA_START_ __DATA_END__ T PARAM S ____TYPE____\n')
+                for i in snx.input:
+                    f.write(' +SNX {0.version} {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(i))
+                f.write(' =SNX 2.02 {0.agency} {0.t} {0.agency} {0.start} {0.end} {0.tech} {0.npar:>5} {0.const} {0.content}\n'.format(snx))
+                f.write('-INPUT/HISTORY\n')
 
-        # Write INPUT/FILES block
-        if (snx.input) and not('comments' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+INPUT/FILES\n')
-            f.write('*OWN __CREATION__ ___________FILENAME__________ ___________DESCRIPTION__________\n')
-            for i in snx.input:
-                f.write(' {0.agency} {0.t} {0.file} {0.description}\n'.format(i))
-            f.write('-INPUT/FILES\n')
+            # Write INPUT/FILES block
+            if (snx.input) and not('comments' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+INPUT/FILES\n')
+                f.write('*OWN __CREATION__ ___________FILENAME__________ ___________DESCRIPTION__________\n')
+                for i in snx.input:
+                    f.write(' {0.agency} {0.t} {0.file} {0.description}\n'.format(i))
+                f.write('-INPUT/FILES\n')
 
-        # Write SOLUTION/STATISTICS block
-        if (snx.stats) and not('stats' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/STATISTICS\n')
-            f.write('*____STATISTICAL_PARAMETER_____ _______VALUE(S)_______\n')
-            if hasattr(snx.stats, 'nobs'):
-                f.write(' NUMBER OF OBSERVATIONS         {0:22d}\n'.format(snx.stats.nobs))
-            if hasattr(snx.stats, 'nunk'):
-                f.write(' NUMBER OF UNKNOWNS             {0:22d}\n'.format(snx.stats.nunk))
-            if hasattr(snx.stats, 'dof'):
-                f.write(' NUMBER OF DEGREES OF FREEDOM   {0:22d}\n'.format(snx.stats.dof))
-            if hasattr(snx.stats, 'lPl'):
-                f.write(' WEIGHTED SQUARE SUM OF O-C     {0:22.16e}\n'.format(snx.stats.lPl))
-            if hasattr(snx.stats, 'vPv'):
-                f.write(' SQUARE SUM OF RESIDUALS (VTPV) {0:22.16e}\n'.format(snx.stats.vPv))
-            if hasattr(snx.stats, 'vf'):
-                f.write(' VARIANCE FACTOR                {0:22.16e}\n'.format(snx.stats.vf))
-            if hasattr(snx.stats, 'sampling'):
-                f.write(' SAMPLING INTERVAL (SECONDS)    {0:22f}\n'.format(snx.stats.sampling))
-            if hasattr(snx.stats, 'sigphase'):
-                f.write(' PHASE MEASUREMENTS SIGMA       {0:22f}\n'.format(snx.stats.sigphase))
-            if hasattr(snx.stats, 'sigcode'):
-                f.write(' CODE MEASUREMENTS SIGMA        {0:22f}\n'.format(snx.stats.sigcode))
-            f.write('-SOLUTION/STATISTICS\n')
+            # Write SOLUTION/STATISTICS block
+            if (snx.stats) and not('stats' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/STATISTICS\n')
+                f.write('*____STATISTICAL_PARAMETER_____ _______VALUE(S)_______\n')
+                if hasattr(snx.stats, 'nobs'):
+                    f.write(' NUMBER OF OBSERVATIONS         {0:22d}\n'.format(snx.stats.nobs))
+                if hasattr(snx.stats, 'nunk'):
+                    f.write(' NUMBER OF UNKNOWNS             {0:22d}\n'.format(snx.stats.nunk))
+                if hasattr(snx.stats, 'dof'):
+                    f.write(' NUMBER OF DEGREES OF FREEDOM   {0:22d}\n'.format(snx.stats.dof))
+                if hasattr(snx.stats, 'lPl'):
+                    f.write(' WEIGHTED SQUARE SUM OF O-C     {0:22.16e}\n'.format(snx.stats.lPl))
+                if hasattr(snx.stats, 'vPv'):
+                    f.write(' SQUARE SUM OF RESIDUALS (VTPV) {0:22.16e}\n'.format(snx.stats.vPv))
+                if hasattr(snx.stats, 'vf'):
+                    f.write(' VARIANCE FACTOR                {0:22.16e}\n'.format(snx.stats.vf))
+                if hasattr(snx.stats, 'sampling'):
+                    f.write(' SAMPLING INTERVAL (SECONDS)    {0:22f}\n'.format(snx.stats.sampling))
+                if hasattr(snx.stats, 'sigphase'):
+                    f.write(' PHASE MEASUREMENTS SIGMA       {0:22f}\n'.format(snx.stats.sigphase))
+                if hasattr(snx.stats, 'sigcode'):
+                    f.write(' CODE MEASUREMENTS SIGMA        {0:22f}\n'.format(snx.stats.sigcode))
+                f.write('-SOLUTION/STATISTICS\n')
 
-        # Write SITE/ID block
-        if (snx.sta):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SITE/ID\n')
-            f.write('*CODE PT __DOMES__ T _STATION DESCRIPTION__ _LONGITUDE_ _LATITUDE__ HEIGHT_\n')
-            for s in snx.sta:
-                f.write(' {0.code} {0.pt} {0.domes} {0.tech} {0.description} {0.lon} {0.lat} {0.h}\n'.format(s))
-            f.write('-SITE/ID\n')
+            # Write SITE/ID block
+            if (snx.sta):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/ID\n')
+                f.write('*CODE PT __DOMES__ T _STATION DESCRIPTION__ _LONGITUDE_ _LATITUDE__ HEIGHT_\n')
+                for s in snx.sta:
+                    f.write(' {0.code} {0.pt} {0.domes} {0.tech} {0.description} {0.lon} {0.lat} {0.h}\n'.format(s))
+                f.write('-SITE/ID\n')
 
-        # Write SOURCE/ID block
-        if (snx.rs):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOURCE/ID\n')
-            f.write('*CODE IERSNAME ___ICRF_NAME____ ___________________COMMENTS_____________________\n')
-            for s in snx.rs:
-                f.write(' {0.code} {0.iers} {0.icrf} {0.comments}\n'.format(s))
-            f.write('-SOURCE/ID\n')
+            # Write SOURCE/ID block
+            if (snx.rs):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOURCE/ID\n')
+                f.write('*CODE IERSNAME ___ICRF_NAME____ ___________________COMMENTS_____________________\n')
+                for s in snx.rs:
+                    f.write(' {0.code} {0.iers} {0.icrf} {0.comments}\n'.format(s))
+                f.write('-SOURCE/ID\n')
 
-        # Write SITE/RECEIVER block
-        if (snx.sta) and not('metadata' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SITE/RECEIVER\n')
-            f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ ___RECEIVER_TYPE____ _S/N_ _FIRMWARE__\n')
-            for s in snx.sta:
-                for r in s.rec:
-                    f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.type} {1.serie} {1.firmware}\n'.format(s, r))
-            f.write('-SITE/RECEIVER\n')
+            # Write SITE/RECEIVER block
+            if (snx.sta) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/RECEIVER\n')
+                f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ ___RECEIVER_TYPE____ _S/N_ _FIRMWARE__\n')
+                for s in snx.sta:
+                    for r in s.rec:
+                        f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.type} {1.serie} {1.firmware}\n'.format(s, r))
+                f.write('-SITE/RECEIVER\n')
 
-        # Write SITE/ANTENNA block
-        if (snx.sta) and not('metadata' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SITE/ANTENNA\n')
-            f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ ____ANTENNA_TYPE____ _S/N_ _DAZ\n')
-            for s in snx.sta:
-                for a in s.ant:
-                    f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.type} {1.serie} {1.daz}\n'.format(s, a))
-            f.write('-SITE/ANTENNA\n')
+            # Write SITE/ANTENNA block
+            if (snx.sta) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/ANTENNA\n')
+                f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ ____ANTENNA_TYPE____ _S/N_ _DAZ\n')
+                for s in snx.sta:
+                    for a in s.ant:
+                        f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.type} {1.serie} {1.daz}\n'.format(s, a))
+                f.write('-SITE/ANTENNA\n')
+                
 
-        # Write SITE/ECCENTRICITY block
-        if (snx.sta) and not('metadata' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SITE/ECCENTRICITY\n')
-            f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ REF __DX_U__ __DX_N__ __DX_E__\n')
-            for s in snx.sta:
-                for e in s.ecc:
-                    f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.system} {2[0]} {2[1]} {2[2]}\n'.format(s, e, e.dx))
-            f.write('-SITE/ECCENTRICITY\n')
+            # Write SITE/GPS_PHASE_CENTER block
+            if (snx.gpspco) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/GPS_PHASE_CENTER\n')
+                f.write('*                           _______L1_PCO_______ _______L2_PCO_______\n')
+                f.write('*                           _______L5_PCO_______\n')
+                f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
+                for a in snx.gpspco:
+                    f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                f.write('-SITE/GPS_PHASE_CENTER\n')
+                
+            # Write SITE/GAL_PHASE_CENTER block
+            if (snx.galpco) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/GAL_PHASE_CENTER\n')
+                f.write('*                           _______L1_PCO_______ _______L5_PCO_______\n')
+                f.write('*                           _______L6_PCO_______ _______L7_PCO_______\n')
+                f.write('*                           _______L8_PCO_______\n')
+                f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
+                for a in snx.galpco:
+                    f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                    f.write(' {0.type} {0.serie} {1[4][0]} {1[4][1]} {1[4][2]} {1[5][0]} {1[5][1]} {1[5][2]} {0.model}\n'.format(a, a.dx))
+                f.write('-SITE/GAL_PHASE_CENTER\n')
 
-        # Write SOLUTION/EPOCHS block
-        if (snx.sta) and not('epochs' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/EPOCHS\n')
-            f.write('*CODE PT SOLN T _DATA_START_ __DATA_END__ _MEAN_EPOCH_\n')
-            for s in snx.sta:
-                for i in s.soln:
-                    f.write(' {0.code} {0.pt} {1.soln} {0.tech} {1.datastart} {1.dataend} {1.datamean}\n'.format(s, i))
-            f.write('-SOLUTION/EPOCHS\n')
-          
-        # Write SOLUTION/APRIORI block
-        if (snx.param) and (snx.x0 is not None) and not('apriori' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/APRIORI\n')
-            f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ____APRIORI_VALUE____ __STD_DEV__\n')
-            for i in range(snx.npar):
-                p = snx.param[i]
-                f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e} {3:11.5e}\n'.format(i+1, p, snx.x0[i], snx.sig0[i]))
-            f.write('-SOLUTION/APRIORI\n')
+            # Write SITE/ECCENTRICITY block
+            if (snx.sta) and not('metadata' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SITE/ECCENTRICITY\n')
+                f.write('*CODE PT SOLN T _DATA START_ __DATA_END__ REF __DX_U__ __DX_N__ __DX_E__\n')
+                for s in snx.sta:
+                    for e in s.ecc:
+                        f.write(' {0.code} {0.pt} ---- {0.tech} {1.start} {1.end} {1.system} {2[0]} {2[1]} {2[2]}\n'.format(s, e, e.dx))
+                f.write('-SITE/ECCENTRICITY\n')
 
-        # Write SOLUTION/ESTIMATE block
-        if (snx.param):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/ESTIMATE\n')
-            f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ___ESTIMATED_VALUE___ __STD_DEV__\n')
-            for i in range(snx.npar):
-                p = snx.param[i]
-                f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e} {3:11.5e}\n'.format(i+1, p, snx.x[i], snx.sig[i]))
-            f.write('-SOLUTION/ESTIMATE\n')
-          
-        # Write SOLUTION/MATRIX_APRIORI block
-        if (snx.Nc is not None) and not('matrices' in dont_write) and not('apriori' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/MATRIX_APRIORI L INFO\n')
-            f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
-            write_mat(snx.Nc, f)
-            f.write('-SOLUTION/MATRIX_APRIORI L INFO\n')
+            # Write SOLUTION/EPOCHS block
+            if (snx.sta) and not('epochs' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/EPOCHS\n')
+                f.write('*CODE PT SOLN T _DATA_START_ __DATA_END__ _MEAN_EPOCH_\n')
+                for s in snx.sta:
+                    for i in s.soln:
+                        f.write(' {0.code} {0.pt} {1.soln} {0.tech} {1.datastart} {1.dataend} {1.datamean}\n'.format(s, i))
+                f.write('-SOLUTION/EPOCHS\n')
 
-        # Write SOLUTION/MATRIX_ESTIMATE block
-        if (snx.Q is not None) and not('matrices' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/MATRIX_ESTIMATE L COVA\n')
-            f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
-            write_mat(snx.Q, f)
-            f.write('-SOLUTION/MATRIX_ESTIMATE L COVA\n')
+            # Write SOLUTION/APRIORI block
+            if (snx.param) and (snx.x0 is not None) and not('apriori' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/APRIORI\n')
+                f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ____APRIORI_VALUE____ __STD_DEV__\n')
+                for i in range(snx.npar):
+                    p = snx.param[i]
+                    f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e} {3:11.5e}\n'.format(i+1, p, snx.x0[i], snx.sig0[i]))
+                f.write('-SOLUTION/APRIORI\n')
 
-        # Write SOLUTION/NORMAL_EQUATION_VECTOR block
-        if (snx.b is not None) and not('matrices' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/NORMAL_EQUATION_VECTOR\n')
-            f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ___ESTIMATED_VALUE___\n')
-            for i in range(snx.npar):
-                p =  snx.param[i]
-                f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e}\n'.format(i+1, p, snx.b[i]))
-            f.write('-SOLUTION/NORMAL_EQUATION_VECTOR\n')
+            # Write SOLUTION/ESTIMATE block
+            if (snx.param):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/ESTIMATE\n')
+                f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ___ESTIMATED_VALUE___ __STD_DEV__\n')
+                for i in range(snx.npar):
+                    p = snx.param[i]
+                    f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e} {3:11.5e}\n'.format(i+1, p, snx.x[i], snx.sig[i]))
+                f.write('-SOLUTION/ESTIMATE\n')
 
-        # Write SOLUTION/NORMAL_EQUATION_MATRIX block
-        if (snx.N is not None) and not('matrices' in dont_write):
-            f.write('*-------------------------------------------------------------------------------\n')
-            f.write('+SOLUTION/NORMAL_EQUATION_MATRIX\n')
-            f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
-            write_mat(snx.N, f)
-            f.write('-SOLUTION/NORMAL_EQUATION_MATRIX\n')
+            # Write SOLUTION/MATRIX_APRIORI block
+            if (snx.Nc is not None) and not('matrices' in dont_write) and not('apriori' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/MATRIX_APRIORI L INFO\n')
+                f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
+                write_mat(snx.Nc, f)
+                f.write('-SOLUTION/MATRIX_APRIORI L INFO\n')
 
-        # Write last line and close output SINEX file
-        f.write('%ENDSNX\n')
-        f.close()
+            # Write SOLUTION/MATRIX_ESTIMATE block
+            if (snx.Q is not None) and not('matrices' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/MATRIX_ESTIMATE L COVA\n')
+                f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
+                write_mat(snx.Q, f)
+                f.write('-SOLUTION/MATRIX_ESTIMATE L COVA\n')
+
+            # Write SOLUTION/NORMAL_EQUATION_VECTOR block
+            if (snx.b is not None) and not('matrices' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/NORMAL_EQUATION_VECTOR\n')
+                f.write('*INDEX _TYPE_ CODE PT SOLN _REF_EPOCH__ UNIT S ___ESTIMATED_VALUE___\n')
+                for i in range(snx.npar):
+                    p =  snx.param[i]
+                    f.write(' {0:5} {1.type} {1.code} {1.pt} {1.soln} {1.tref} {1.unit} {1.const} {2:21.14e}\n'.format(i+1, p, snx.b[i]))
+                f.write('-SOLUTION/NORMAL_EQUATION_VECTOR\n')
+
+            # Write SOLUTION/NORMAL_EQUATION_MATRIX block
+            if (snx.N is not None) and not('matrices' in dont_write):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/NORMAL_EQUATION_MATRIX\n')
+                f.write('*PARA1 PARA2 _______PARA2+0_______ _______PARA2+1_______ _______PARA2+2_______\n')
+                write_mat(snx.N, f)
+                f.write('-SOLUTION/NORMAL_EQUATION_MATRIX\n')
+
+            # Write last line and close output SINEX file
+            f.write('%ENDSNX\n')
 
     # Dump sinex instance into pickle files
     #--------------------------------------
@@ -1415,6 +1544,8 @@ class sinex:
         pkl.acks = snx.acks
         pkl.sta = snx.sta
         pkl.rs = snx.rs
+        pkl.gpspco = snx.gpspco
+        pkl.galpco = snx.galpco
         pkl.stats = snx.stats
         pkl.param = snx.param
         pkl.x = snx.x
@@ -1439,7 +1570,15 @@ class sinex:
         pkl.isatax = snx.isatax
         pkl.isatay = snx.isatay
         pkl.isataz = snx.isataz
+        pkl.iR = snx.iR
+        pkl.iS = snx.iS
+        pkl.iT = snx.iT
+        pkl.iA = snx.iA
         pkl.itrans = snx.itrans
+        pkl.idR = snx.idR
+        pkl.idS = snx.idS
+        pkl.idT = snx.idT
+        pkl.idtrans = snx.idtrans
 
         # Write 1st pickle file
         pickle.dump(pkl, open(file, 'wb'))
@@ -1501,9 +1640,11 @@ class sinex:
             snx2.input = copy.deepcopy(snx.input)
             snx2.acks = copy.deepcopy(snx.acks)
 
-        # Copy lists of stations, radiosources and parameters
+        # Copy lists of stations, radiosources, ground antenna PCOs and parameters
         snx2.sta = copy.deepcopy(snx.sta)
         snx2.rs = copy.deepcopy(snx.rs)
+        snx2.gpspco = copy.deepcopy(snx.gpspco)
+        snx2.galpco = copy.deepcopy(snx.galpco)
         snx2.param = copy.deepcopy(snx.param)
         snx2.x = copy.deepcopy(snx.x)
         snx2.sig = copy.deepcopy(snx.sig)
@@ -1542,8 +1683,16 @@ class sinex:
         snx2.isatax = snx.isatax.copy()
         snx2.isatay = snx.isatay.copy()
         snx2.isataz = snx.isataz.copy()
+        snx2.iR = snx.iR.copy()
+        snx2.iS = snx.iS.copy()
+        snx2.iT = snx.iT.copy()
+        snx2.iA = snx.iA.copy()
         snx2.itrans = snx.itrans.copy()
-        
+        snx2.idR = snx.idR.copy()
+        snx2.idS = snx.idS.copy()
+        snx2.idT = snx.idT.copy()
+        snx2.idtrans = snx.idtrans.copy()
+
         return snx2
     
     # Check station PT codes and DOMES numbers
@@ -1781,12 +1930,12 @@ class sinex:
         if (earlier(tend, snx.end)):
             snx.end = tend
         
-    # Check receivers, antennas and eccentricities against site logs
-    #---------------------------------------------------------------
-    def check_metadata(snx, metasnx, start=None, end=None, antlist=None, flag_daz=True, quiet=False, out=sys.stdout):
+    # Check receivers, antennas and eccentricities against metadata SINEX
+    #--------------------------------------------------------------------
+    def check_metadata(snx, metasnx, match_crd=True, check_siteid=False, add_pco=False, antlist=None, flag_daz=True, quiet=False, out=sys.stdout):
 
         """
-        Check receivers, antennas and eccentricities against site logs
+        Check receivers, antennas and eccentricities against metadata SINEX
 
         Returns
         -------
@@ -1796,16 +1945,21 @@ class sinex:
             List of stations for which no sitelog is available
         rej : list
             List of stations which have either a wrong antenna type, an eccentricity error > 1 mm
-            or an orientation error > 10°
+            or an antenna orientation error > 10°
 
         Parameters
         ----------
         metasnx : sinex instance
-            sinex instance containing station metadata (from ioutils.sitelogs2snx)
-        start : str, optional
-            Start date (in SINEX date format)
-        end : str, optional
-            End date (in SINEX date format)
+            sinex instance containing station metadata (e.g., from io.sitelogs2snx)
+        match_crd : bool, optional
+            Whether to match station coordinates, in addition to 4-char station ID, before checking metadata.
+            Default is True.
+        check_siteid : bool, optional
+            Whether to replace information in the SITE/ID block with that from the metadata SINEX.
+            Default is False.
+        add_pco : bool, optional
+            Whether to add SITE/GPS_PHASE_CENTER and SITE/GAL_PHASE_CENTER block information into snx.
+            Default is False.
         antlist : list, optional
             List of ground antenna types in ANTEX file. Default is None.
         flag_daz : bool, optional
@@ -1837,23 +1991,52 @@ class sinex:
             # Get coordinates of current station
             X = snx.get_xyz([s.code], [s.pt])[0]
             
-            # Is there a station with the same 4-char ID less than 100 km away in metasnx.sta?
+            # Initializations
             found = False
             keys = [metas.code for metas in metasnx.sta]
+
+            # If there are stations with the same 4-char ID in metasnx.sta,
             if (s.code in keys):
                 ind = np.nonzero(np.array(keys) == s.code)[0]
-                d = [sqrt(np.sum((metas.X-X)**2)) / 1000 for metas in [metasnx.sta[i] for i in ind]]
-                if (np.min(d) < 100):
+
+                # If station coordinates should be checked,
+                if (match_crd):
+
+                    # If there are stations with the same 4-char ID within less than 100 km in metasnx.sta,
+                    # select the closest one.
+                    d = [sqrt(np.sum((metas.X-X)**2)) / 1000 for metas in [metasnx.sta[i] for i in ind]]
+                    if (np.min(d) < 100):
+                        found = True
+                        i = np.argmin(d)
+
+                # Else, just select the first station with the same 4-char ID in metasnx.sta
+                else:
                     found = True
-                    i = np.argmin(d)
-                    rec = metasnx.sta[ind[i]].rec
-                    ant = metasnx.sta[ind[i]].ant
-                    ecc = metasnx.sta[ind[i]].ecc
-                    source = metasnx.sta[ind[i]].source
+                    i = 0
 
             # If current station was found in metasnx.sta, 
             if (found):
-                
+
+                # Update station description if required
+                if (check_siteid):
+                    s.domes = metasnx.sta[ind[i]].domes
+                    s.tech = metasnx.sta[ind[i]].tech
+                    s.description = metasnx.sta[ind[i]].description
+                    s.lon = metasnx.sta[ind[i]].lon
+                    s.lat = metasnx.sta[ind[i]].lat
+                    s.h = metasnx.sta[ind[i]].h
+
+                # Get its lists of receivers, antennas and eccentricities
+                rec = metasnx.sta[ind[i]].rec
+                ant = metasnx.sta[ind[i]].ant
+                ecc = metasnx.sta[ind[i]].ecc
+
+                # Get source of the metadata information
+                if (hasattr(metasnx.sta[ind[i]], 'source')):
+                    source = metasnx.sta[ind[i]].source
+                else:
+                    source = metasnx.file
+
                 # Any change needed to receiver metadata?
                 b = False
                 if (len(s.rec) != len(rec)):
@@ -1918,7 +2101,7 @@ class sinex:
                     if (len(ant) == 1) and (len(s.ant) == 1):
                         daz = (int(s.ant[0].daz) - int(ant[0].daz)) % 360
                         if (daz > 180):
-                            daz = daz - 360 # -= ?
+                            daz -= 360
                         if (abs(daz) >= 1):
                             metaerr.append('{0}   antenna orientation   {1:<20d}   {2:<20d}   {3:<6s}'.format(s.code, int(s.ant[0].daz), int(ant[0].daz), source))
                         if (abs(daz) > 10):
@@ -1965,6 +2148,72 @@ class sinex:
             else:
                 nolog.append(s.code)
                 
+        # If SITE/GPS_PHASE_CENTER and SITE/GAL_PHASE_CENTER block information should be added into snx,
+        if (add_pco):
+            
+            # Initializations
+            gps_ant = []
+            gal_ant = []
+            gps_ant_sn = []
+            gal_ant_sn = []
+            snx.gpspco = []
+            snx.galpco = []
+            
+            # List of station antenna types + serial numbers
+            ant = np.unique([[a.type+a.serie for a in s.ant] for s in snx.sta])
+            
+            # Search keys
+            meta_gps_ant = [a.type for a in metasnx.gpspco]
+            meta_gal_ant = [a.type for a in metasnx.galpco]
+            meta_gps_ant_sn = [a.type+a.serie for a in metasnx.gpspco]
+            meta_gal_ant_sn = [a.type+a.serie for a in metasnx.galpco]
+            
+            # Loop over antennas
+            for a in ant:
+                
+                # If current specific antenna is in metasnx.gpspco,
+                if (a in meta_gps_ant_sn):
+                    i = meta_gps_ant_sn.index(a)
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a)
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # Else, if antenna type mean PCO is in metasnx.gpspco, and not yet in snx.gpspco,
+                elif (a[:-5]+'-----' in meta_gps_ant_sn) and not(a[:-5]+'-----' in gps_ant_sn):
+                    i = meta_gps_ant_sn.index(a[:-5]+'-----')
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a[:-5]+'-----')
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # Else, if another antenna of the same type is in metasnx.gpspco, and not yet in snx.gpspco,
+                elif (a[:-5] in meta_gps_ant) and not(a[:-5] in gps_ant):
+                    i = meta_gps_ant.index(a[:-5])
+                    gps_ant.append(a[:-5])
+                    gps_ant_sn.append(a[:-5]+metasnx.gpspco[i].serie)
+                    snx.gpspco.append(metasnx.gpspco[i])
+                    
+                # If current specific antenna is in metasnx.galpco,
+                if (a in meta_gal_ant_sn):
+                    i = meta_gal_ant_sn.index(a)
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a)
+                    snx.galpco.append(metasnx.galpco[i])
+                    
+                # Else, if antenna type mean PCO is in metasnx.galpco, and not yet in snx.galpco,
+                elif (a[:-5]+'-----' in meta_gal_ant_sn) and not(a[:-5]+'-----' in gal_ant_sn):
+                    i = meta_gal_ant_sn.index(a[:-5]+'-----')
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a[:-5]+'-----')
+                    snx.galpco.append(metasnx.galpco[i])
+                    
+                # Else, if another antenna of the same type is in metasnx.galpco, and not yet in snx.galpco,
+                elif (a[:-5] in meta_gal_ant) and not(a[:-5] in gal_ant):
+                    i = meta_gal_ant.index(a[:-5])
+                    gal_ant.append(a[:-5])
+                    gal_ant_sn.append(a[:-5]+metasnx.galpco[i].serie)
+                    snx.galpco.append(metasnx.galpco[i])
+                    
+                
         # Print blank line in log file
         if not(quiet):
             print('', file=out)
@@ -1990,7 +2239,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS'; 'GC'; 'SC ;
+            'R', 'S', 'T', 'A' and 'TRANS' for all transformation parameters.
         
         """
 
@@ -2047,9 +2297,18 @@ class sinex:
 
         if ('SC' in types):
             ind.extend(snx.isc)
-            
+
         if ('TRANS' in types):
-            ind.extend(snx.itrans)
+            ind.extend(snx.iR+snx.iS+snx.iT+snx.iA)
+        else:
+            if ('R' in types):
+                ind.extend(snx.iR)
+            if ('S' in types):
+                ind.extend(snx.iS)
+            if ('T' in types):
+                ind.extend(snx.iT)
+            if ('A' in types):
+                ind.extend(snx.iA)
             
         return ind
             
@@ -2627,12 +2886,11 @@ class sinex:
 
         # Read list of core stations
         core = []
-        f = open(file)
-        line = f.readline()
-        while (line):
-            core.append(line.strip().split())
+        with open(file) as f:
             line = f.readline()
-        f.close()
+            while (line):
+                core.append(line.strip().split())
+                line = f.readline()
 
         # Build list of core stations available in snx : loop over core clusters
         code = []
@@ -2654,9 +2912,9 @@ class sinex:
                     if (core[i][j]+snx.param[isnx].pt+snx.param[isnx].soln in keyr):
                         b = True
                     else:
-                        j = j+1 # += ?
+                        j += 1
                 else:
-                    j = j+1 # += ?
+                    j += 1
 
             # If one station of the cluster was found in snx and ref,
             if (b):
@@ -2754,9 +3012,9 @@ class sinex:
             A[snx.ixpo, 5]  =  1/mas2rad
             A[snx.iypo, 4]  =  1/mas2rad
             A[snx.iut, 6]   = -1/(ms2rad*dera_dt)
-            A[snx.inutx, 8] =  1/mas2rad
+            A[snx.inutx, 8] = -1/mas2rad
             A[snx.inuty, 7] =  1/mas2rad
-            A[snx.iut, 9]   =  1/(ms2rad*dera_dt)
+            A[snx.iut, 9]   = -1/(ms2rad*dera_dt)
             
             # Geocenter coordinate partial derivatives
             ix = np.array([[i, i+1, i+2] for i in snx.igc])
@@ -2790,9 +3048,9 @@ class sinex:
 
         # Express Helmert parameters in adequate units
         if (units is None):
-            A = A * np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad]) # *= ?
+            A *= np.array([1e-3/ae, 1e-3/ae, 1e-3/ae, 1e-9, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad, mas2rad])
         else:
-            A = A / ae # /= ?
+            A /= ae
         
         # Indices of relevant columns of A
         ind = []
@@ -2911,7 +3169,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS'; 'GC'; 'SC';
+            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         keep_const : bool, optional
             Whether not to remove constraints before reducing parameters from a solution.
             Default is False.
@@ -3011,8 +3270,8 @@ class sinex:
         P = np.dot(NA, ANAi)
         
         # Update snx.N and snx.b
-        snx.N = snx.N - np.dot(P, NA.T) # -= ?
-        snx.b = snx.b - np.dot(P, np.dot(A.T, snx.b)) # -= ?
+        snx.N -= np.dot(P, NA.T)
+        snx.b -= np.dot(P, np.dot(A.T, snx.b))
     
     # Delete (reduce) specified stations
     #----------------------------------
@@ -3290,7 +3549,7 @@ class sinex:
 
                 # If current receiver is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1 # += ?
+                    i += 1
 
                 # Else, remove it.
                 else:
@@ -3303,7 +3562,7 @@ class sinex:
 
                 # If current antenna is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1 # += ?
+                    i += 1
 
                 # Else, remove it.
                 else:
@@ -3316,7 +3575,7 @@ class sinex:
 
                 # If current eccentricity is relevant for specified period, keep it.
                 if ((earlier(r.start, end)) or (r.start == '00:000:00000')) and ((earlier(start, r.end)) or (r.end   == '00:000:00000')):
-                    i = i+1 # += ?
+                    i += 1
 
                 # Else, remove it.
                 else:
@@ -3349,7 +3608,7 @@ class sinex:
         snx.b = np.dot(snx.N, snx.x - snx.x0)
         
         # Unconstrained normal matrix
-        snx.N = snx.N - snx.Nc # -= ?
+        snx.N -= snx.Nc
         
         # Delete covariance matrix
         snx.Q = None
@@ -3428,7 +3687,8 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS', 'GC'; 'SC' and 'TRANS' for all transformation parameters.
+            'STA'; 'VEL'; 'RS', 'GC'; 'SC';
+            'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         
         """
         
@@ -3502,7 +3762,7 @@ class sinex:
         snx.b = A.dot(snx.b)
 
         # Update snx.npar
-        snx.npar = snx.npar + 3 # += ?
+        snx.npar += 3
         
     # Set up scale factor in a normal equation
     #-----------------------------------------
@@ -3556,7 +3816,7 @@ class sinex:
         snx.b = A.dot(snx.b)
 
         # Update snx.npar
-        snx.npar = snx.npar + 1 # += ?
+        snx.npar += 1
 
     # Set a priori parameter values to reference values
     #--------------------------------------------------
@@ -3579,13 +3839,13 @@ class sinex:
         dx0 = np.zeros(snx.npar)
         dx0[isnx] = ref.x[iref] - snx.x0[isnx]
         if (np.any(dx0)):
-            snx.x0 = snx.x0 + dx0 # += ?
+            snx.x0 += dx0
             if (snx.N is not None):
-                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
+                snx.b -= np.dot(snx.N, dx0)
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True):
+    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True, quiet=True, out=sys.stdout):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -3623,7 +3883,12 @@ class sinex:
             traces of the 3x3 diagonal blocks of the normal matrix that correspond to
             positions/velocities of the candidate stations. Stations with traces
             lower than the median of traces divided by thr**2 are iteratively rejected.
-            
+        proj : bool, optional
+            Just keep the default, which is True.
+        quiet : bool, optional
+            Whether not to print output messages. Default is True.
+        out : file-like, optional
+            Log file. Default is sys.stdout.            
         """
         
         # If a datum is specified,
@@ -3643,8 +3908,8 @@ class sinex:
             dx0 = np.zeros(snx.npar)
             dx0[ix] = datum.x[ir] - snx.x0[ix]
             if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0 # += ?
-                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
+                snx.x0 += dx0
+                snx.b -= np.dot(snx.N, dx0)
             
         # Else,
         else:
@@ -3669,8 +3934,8 @@ class sinex:
             dx0 = np.zeros(snx.npar)
             dx0[irs] = crf_datum.x[iref] - snx.x0[irs]
             if (np.any(dx0)):
-                snx.x0 = snx.x0 + dx0 # += ?
-                snx.b = snx.b - np.dot(snx.N, dx0) # -= ?
+                snx.x0 += dx0
+                snx.b -= np.dot(snx.N, dx0)
 
         # Else, get indices of all radiosources,
         elif (par == 'STA'):
@@ -3681,16 +3946,49 @@ class sinex:
         elif (par == 'VEL'):
             irs = np.array([], dtype='int')
         
-        # If a threshold is specified, reject candidate stations with large uncertainties
+        # If a threshold is specified, reject candidate stations with large position uncertainties
         if (thr):
+            
+            # Print header in log file
+            if not(quiet):
+                print('sinex.add_mc', file=out)
+                print('------------', file=out)
+                print('', file=out)
+                print('    Stations discarded for the application of minimal constraints', file=out)
+                print('    -------------------------------------------------------------', file=out)
+                print('', file=out)
+                print('     code pt soln |   trace(N)  <  threshold  |', file=out)
+                print('    --------------|---------------------------|', file=out)
+            
+            # Iterative rejection of candidate stations with large position uncertainties
             end = False
             while not(end):
                 tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
-                ind = np.nonzero(tr > np.median(tr)/thr**2)[0]
-                if (len(ind) == len(isnx)):
+                thrn = np.median(tr)/thr**2
+                ind = np.nonzero(tr < thrn)[0]
+                
+                # If there are no more stations with large position uncertainties, stop iterations.
+                if (len(ind) == 0):
                     end = True
+                    
+                # Else,
                 else:
+                    
+                    # Print rejected stations in log file
+                    if not(quiet):
+                        for i in ind:
+                            p = snx.param[isnx[i][0]]
+                            print('     {0.code} {0.pt} {0.soln} | {1:11.5e} < {2:11.5e} |'.format(p, tr[i], thrn), file=out)
+                    
+                    # Reject stations with large position uncertainties
+                    ind = np.setdiff1d(np.arange(len(isnx)), ind)
                     isnx = isnx[ind]
+                    
+            # Print end of log file
+            if not(quiet):
+                print('    --------------|---------------------------|', file=out)
+                print('', file=out)
+                    
             ix = isnx.flatten()
 
         # If sigma of minimal constraints needs to be computed, compute it
@@ -3698,9 +3996,12 @@ class sinex:
             sigma = 0.01 / sqrt(np.median(snx.N[ix,ix]))
         
         # Design matrix of minimal constraints
-        ix = np.hstack((ix, irs))
-        A = snx.helmert_partials('RSTA', par, units='m')[ix,:7]
-        
+        if (len(irs) > 0):
+            ix = np.hstack((ix, irs))
+            A = snx.helmert_partials('RSTA', par, units='m')[ix]
+        else:
+            A = snx.helmert_partials('RST', par, units='m')[ix]
+
         # Indices of relevant columns of A
         ind = []
         if ('T' in helmerts):
@@ -3709,7 +4010,7 @@ class sinex:
             ind.append(3)
         if ('R' in helmerts):
             ind.extend(range(4, 7))
-        if ('A' in helmerts):
+        if ('A' in helmerts) and (len(irs) > 0):
             ind.extend(range(7, 10))
         
         # Either reduce columns of A and compute B
@@ -3724,7 +4025,7 @@ class sinex:
         
         # Add minimal constraints to normal matrix of constraints
         ix2 = np.ix_(ix, ix)
-        snx.Nc[ix2] = snx.Nc[ix2] + np.dot(B.T, B) / sigma**2 # += ?
+        snx.Nc[ix2] += np.dot(B.T, B) / sigma**2
         
         # Change constraint codes of constrained parameters
         for i in ix:
@@ -3847,7 +4148,7 @@ class sinex:
             Solution with which the comparison is made
         helmerts : str
             Indicates which Helmert parameters should be estimated.
-            It can include 'T' (translations), 'S' (scale), 'R' (rotations).
+            It can include 'T' (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations).
         weighting : str, optional
             Keyword indicating which covariance matrix should be used.
             It can take the following values :
@@ -3876,260 +4177,282 @@ class sinex:
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
         
-        # Design matrix
-        A = snx.helmert_partials(helmerts, 'STA')[isnx]
-        if (len(np.intersect1d(isnx, snx.iv)) > 0):
-            A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+        # If both solutions are identical,
+        if np.array_equal(snx.x[isnx], ref.x[iref]):
 
-        # Right-hand side
-        y = snx.x[isnx] - ref.x[iref]
-        
-        # Least-squares adjustment of Helmert parameters
-        if (weighting == 'identity'):
-            AtP = A.T
-        elif (weighting == 'diagonal'):
-            P = 1 / snx.sig[isnx]**2
-            AtP = A.T * P
-        elif (weighting == 'full'):
-            L = cholesky(snx.Q[isnx2])
-            AtP = (cholsolve(L, A)).T
-        N = np.dot(AtP, A)
-        b = np.dot(AtP, y)
-        Qt = invspd(N)
-        t = np.dot(Qt, b)
+            # Print message
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+                print('', file=out)
+                print('Both solutions are identical!', file=out)
 
-        # Residuals
-        v = y - np.dot(A, t)
-        
-        # Compute unit variance factor if needed
-        if (apply_vf):
+            return (None, None)
+
+        # Else,
+        else:
+
+            # Design matrix
+            A = snx.helmert_partials(helmerts, 'STA')[isnx]
+            if (len(np.intersect1d(isnx, snx.iv)) > 0):
+                A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+
+            # Right-hand side
+            y = snx.x[isnx] - ref.x[iref]
+
+            # Least-squares adjustment of Helmert parameters
             if (weighting == 'identity'):
-                vPv = np.sum(v**2)
+                AtP = A.T
             elif (weighting == 'diagonal'):
-                vPv = np.sum(v**2*P)
+                P = 1 / snx.sig[isnx]**2
+                AtP = A.T * P
             elif (weighting == 'full'):
-                vPv = np.sum(v*cholsolve(L, v))
-            sig02 = vPv / (A.shape[0]-A.shape[1])
-            
-        # "Full" array of residuals
-        snx.v = np.zeros(snx.npar)
-        snx.v[isnx] = v        
-        
-        # Covariance matrix of observations
-        Q = np.zeros((snx.npar, snx.npar))
-        if (weighting == 'identity'):
-            Q[isnx2] = np.eye(len(isnx))
-        elif (weighting == 'diagonal'):
-            Q[isnx2] = np.diag(snx.sig[isnx]**2)
-        else:
-            Q[isnx2] = snx.Q[isnx2]
-            
-        # Compute covariance matrix of residuals if needed
-        if (norm_res == 'correct'):
-            Qv = np.zeros((snx.npar, snx.npar))
-            Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T)) 
-            
-        # Scale covariance matrices with unit variance factor if needed
-        if (apply_vf):
-            Q = sig02 * Q # *= ?
-            Qt = sig02 * Qt # *= ?
-            if (norm_res == 'correct'):
-                Qv = sig02 * Qv # *= ?
-                
-        # Variances of observations
-        s2 = np.diag(Q).copy()
-        
-        # Standard deviations of residuals
-        if (norm_res == 'correct'):
-            snx.sv = np.sqrt(np.diag(Qv))
-        else:
-            snx.sv = np.sqrt(np.diag(Q))
-        
-        # Normalized residuals
-        snx.vn = np.zeros(snx.npar)
-        snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
-        
-        # Rotate station position residuals to ENH frames and convert them into mm
-        indx = np.nonzero(snx.v[snx.ix])[0]
-        ix = np.array([snx.ix[i] for i in indx])
-        for i in ix:
-            R = xyz2enh(snx.x[i:i+3])
-            snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
-            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
-            if (norm_res == 'correct'):
-                snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                L = cholesky(snx.Q[isnx2])
+                AtP = (cholsolve(L, A)).T
+            N = np.dot(AtP, A)
+            b = np.dot(AtP, y)
+            Qt = invspd(N)
+            t = np.dot(Qt, b)
+
+            # Residuals
+            v = y - np.dot(A, t)
+
+            # Compute unit variance factor if needed
+            if (apply_vf):
+                if (weighting == 'identity'):
+                    vPv = np.sum(v**2)
+                elif (weighting == 'diagonal'):
+                    vPv = np.sum(v**2*P)
+                elif (weighting == 'full'):
+                    vPv = np.sum(v*cholsolve(L, v))
+                sig02 = vPv / (A.shape[0]-A.shape[1])
+
+            # "Full" array of residuals
+            snx.v = np.zeros(snx.npar)
+            snx.v[isnx] = v
+
+            # Covariance matrix of observations
+            Q = np.zeros((snx.npar, snx.npar))
+            if (weighting == 'identity'):
+                Q[isnx2] = np.eye(len(isnx))
+            elif (weighting == 'diagonal'):
+                Q[isnx2] = np.diag(snx.sig[isnx]**2)
             else:
-                snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
-            snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
+                Q[isnx2] = snx.Q[isnx2]
 
-        # Compute WRMS of ENH station position residuals
-        snx.wrmsx = np.zeros(3)
-        for i in range(3):
-            snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
-            
-        # Rotate station velocity residuals to ENH frames and convert them into mm
-        indv = np.nonzero(snx.v[snx.iv])[0]
-        iv = np.array([snx.iv[i] for i in indv])
-        for i in iv:
-            R = xyz2enh(snx.x[i-3:i])
-            snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
-            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+            # Compute covariance matrix of residuals if needed
             if (norm_res == 'correct'):
-                snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                Qv = np.zeros((snx.npar, snx.npar))
+                Qv[isnx2] = Q[isnx2] - np.dot(A, np.dot(Qt, A.T))
+
+            # Scale covariance matrices with unit variance factor if needed
+            if (apply_vf):
+                Q *= sig02
+                Qt *= sig02
+                if (norm_res == 'correct'):
+                    Qv *= sig02
+
+            # Variances of observations
+            s2 = np.diag(Q).copy()
+
+            # Standard deviations of residuals
+            if (norm_res == 'correct'):
+                snx.sv = np.sqrt(np.diag(Qv))
             else:
-                snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
-            snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
-        
-        # Compute WRMS of ENH station velocity residuals
-        if (len(iv) > 0):
-            snx.wrmsv = np.zeros(3)
-            for i in range(3):
-                snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
-                
-        # Convert geocenter residuals into mm
-        igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
-        snx.v[igc] = 1000*snx.v[igc] # *= ?
-        snx.sv[igc] = 1000*snx.sv[igc]  # *= ?
-        
-        # Indices of radiosource coordinate residuals
-        indrs = np.nonzero(snx.v[snx.irs])[0]
-        irs = np.array([snx.irs[i] for i in indrs])
-        
-        # Indices of ERP / GC / SC residuals
-        ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
-        ig = np.setdiff1d(isnx, ic)
+                snx.sv = np.sqrt(np.diag(Q))
 
-        # Reshape array of transformation parameters and their covariance matrix
-        ind = []
-        if ('T' in helmerts):
-            ind.extend(range(0, 3))
-        if ('S' in helmerts):
-            ind.append(3)
-        if ('R' in helmerts):
-            ind.extend(range(4, 7))
-        if (len(iv) > 0):
-            if ('T' in helmerts):
-                ind.extend(range(7, 10))
-            if ('S' in helmerts):
-                ind.append(10)
-            if ('R' in helmerts):
-                ind.extend(range(11, 14))
-        T = np.zeros(14)
-        T[ind] = t
-        QT = np.zeros((14, 14))
-        QT[np.ix_(ind, ind)] = Qt
-        sT = np.sqrt(np.diag(QT))
+            # Normalized residuals
+            snx.vn = np.zeros(snx.npar)
+            snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
 
-        # Print output
-        if not(quiet):
-            print('sinex.compare', file=out)
-            print('-------------', file=out)
-
-            # Print main options and statistics
-            print('', file=out)
-            print('    Main statistics', file=out)
-            print('    ---------------', file=out)
-            print('', file=out)
-            print('    # observations      : {0}'.format(len(isnx)), file=out)
-            print('    (station positions  : {0})'.format(3*len(indx)), file=out)
-            print('    (station velocities : {0})'.format(3*len(indv)), file=out)
-            print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
-            print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
-            print('    # parameters        : {0}'.format(A.shape[1]), file=out)
-            print('    Weighting           : {0}'.format(weighting), file=out)
-            print('    WRMS East           : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
-            print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
-            print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
-            if (len(iv) > 0):
-                print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
-                print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
-                print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
-            print('', file=out)
-
-            # Print estimated parameters and formal errors
-            print('    Estimated Helmert parameters', file=out)
-            print('    ----------------------------', file=out)
-            print('', file=out)
-            if ('T' in helmerts):
-                print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[0], sT[0]), file=out)
-                print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[1], sT[1]), file=out)
-                print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[2], sT[2]), file=out)
-            if ('S' in helmerts):
-                print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[3], sT[3]), file=out)
-            if ('R' in helmerts):
-                print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
-                print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
-                print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
-            if (len(indv) > 0):
-                if ('T' in helmerts):
-                    print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
-                    print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
-                    print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[9], sT[9]), file=out)
-                if ('S' in helmerts):
-                    print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(T[10], sT[10]), file=out)
-                if ('R' in helmerts):
-                    print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
-                    print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
-                    print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
-            print('', file=out)
-            
-            # Print station position residuals
-            print('    Station position residuals', file=out)
-            print('    --------------------------', file=out)
-            print('', file=out)
-            print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
-            print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
+            # Rotate station position residuals to ENH frames and convert them into mm
+            indx = np.nonzero(snx.v[snx.ix])[0]
+            ix = np.array([snx.ix[i] for i in indx])
             for i in ix:
-                print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
-            print('    --------------|----------------------------|----------------------------|', file=out)
-            print('', file=out)
+                R = xyz2enh(snx.x[i:i+3])
+                snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
+                s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+                if (norm_res == 'correct'):
+                    snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                else:
+                    snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
+                snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
 
-            # Print station velocity residuals
+            # Compute WRMS of ENH station position residuals
+            snx.wrmsx = np.zeros(3)
+            for i in range(3):
+                snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
+
+            # Rotate station velocity residuals to ENH frames and convert them into mm
+            indv = np.nonzero(snx.v[snx.iv])[0]
+            iv = np.array([snx.iv[i] for i in indv])
+            for i in iv:
+                R = xyz2enh(snx.x[i-3:i])
+                snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
+                s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3, i:i+3], R.T)))
+                if (norm_res == 'correct'):
+                    snx.sv[i:i+3] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3, i:i+3], R.T))))
+                else:
+                    snx.sv[i:i+3] = 1000 * np.sqrt(s2[i:i+3])
+                snx.vn[i:i+3] = snx.v[i:i+3] / snx.sv[i:i+3]
+
+            # Compute WRMS of ENH station velocity residuals
             if (len(iv) > 0):
-                print('    Station velocity residuals', file=out)
+                snx.wrmsv = np.zeros(3)
+                for i in range(3):
+                    snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
+
+            # Convert geocenter residuals into mm
+            igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
+            snx.v[igc] *= 1000
+            snx.sv[igc] *= 1000
+
+            # Indices of radiosource coordinate residuals
+            indrs = np.nonzero(snx.v[snx.irs])[0]
+            irs = np.array([snx.irs[i] for i in indrs])
+
+            # Indices of ERP / GC / SC residuals
+            ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
+            ig = np.setdiff1d(isnx, ic)
+
+            # Reshape array of transformation parameters and their covariance matrix
+            ind = []
+            if ('T' in helmerts):
+                ind.extend(range(0, 3))
+            if ('S' in helmerts):
+                ind.append(3)
+            if ('R' in helmerts):
+                ind.extend(range(4, 7))
+            if (len(iv) > 0):
+                if ('T' in helmerts):
+                    ind.extend(range(7, 10))
+                if ('S' in helmerts):
+                    ind.append(10)
+                if ('R' in helmerts):
+                    ind.extend(range(11, 14))
+            if ('A' in helmerts):
+                ind.extend(range(14, 17))
+
+            T = np.zeros(17)
+            T[ind] = t
+            QT = np.zeros((17, 17))
+            QT[np.ix_(ind, ind)] = Qt
+            sT = np.sqrt(np.diag(QT))
+
+            # Print output
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+
+                # Print main options and statistics
+                print('', file=out)
+                print('    Main statistics', file=out)
+                print('    ---------------', file=out)
+                print('', file=out)
+                print('    # observations      : {0}'.format(len(isnx)), file=out)
+                print('    (station positions  : {0})'.format(3*len(indx)), file=out)
+                print('    (station velocities : {0})'.format(3*len(indv)), file=out)
+                print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
+                print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
+                print('    # parameters        : {0}'.format(A.shape[1]), file=out)
+                print('    Weighting           : {0}'.format(weighting), file=out)
+                print('    WRMS East           : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
+                print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
+                print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
+                if (len(iv) > 0):
+                    print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
+                    print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
+                    print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                print('', file=out)
+
+                # Print estimated parameters and formal errors
+                print('    Estimated Helmert parameters', file=out)
+                print('    ----------------------------', file=out)
+                print('', file=out)
+                if ('T' in helmerts):
+                    print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[0], sT[0]), file=out)
+                    print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[1], sT[1]), file=out)
+                    print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[2], sT[2]), file=out)
+                if ('S' in helmerts):
+                    print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[3], sT[3]), file=out)
+                if ('R' in helmerts):
+                    print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
+                    print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
+                    print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
+                if (len(indv) > 0):
+                    if ('T' in helmerts):
+                        print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
+                        print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
+                        print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[9], sT[9]), file=out)
+                    if ('S' in helmerts):
+                        print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(T[10], sT[10]), file=out)
+                    if ('R' in helmerts):
+                        print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
+                        print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
+                        print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
+                if ('A' in helmerts):
+                    print('    AX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[14], sT[14]), file=out)
+                    print('    AY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[15], sT[15]), file=out)
+                    print('    AZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[16], sT[16]), file=out)
+                print('', file=out)
+
+                # Print station position residuals
+                print('    Station position residuals', file=out)
                 print('    --------------------------', file=out)
                 print('', file=out)
-                print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
+                print('                  |     Raw residuals [mm]     |    Normalized residuals    |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
-                print('     code pt soln |     E        N        H    |     E        N        H    |', file=out)
+                print('     code pt soln |     E        N        H    |     E        N       H     |', file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
-                for i in iv:
+                for i in ix:
                     print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
                 print('    --------------|----------------------------|----------------------------|', file=out)
                 print('', file=out)
-                
-            # Print radiosource coordinate residuals
-            if (len(irs) > 0):
-                print('    Radiosource coordinate residuals', file=out)
-                print('    --------------------------------', file=out)
-                print('', file=out)
-                print('                   |   Raw res. [mas]  |  Normalized res.  |', file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                print('     code IERSname |    RA       DE    |    RA       DE    |', file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                for i in irs:
-                    print('     {0.code} {0.iers} | {1[0]:8.3f} {1[1]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} |'.format(snx.param[i], snx.v[i:i+2], snx.vn[i:i+2]), file=out)
-                print('    ---------------|-------------------|-------------------|', file=out)
-                print('', file=out)
 
-            # ERP/GC residuals
-            if (len(ig) > 0):
-                print('    ERP / geocenter / scale residuals', file=out)
-                print('    ---------------------------------', file=out)
-                print('', file=out)
-                print('                         |      Raw      |   Norm   |', file=out)
-                print('    ---------------------|---------------|----------|', file=out)
-                for i in ig:
-                    if (snx.param[i].type[1:3] == 'GC'):
-                        print('     {0.type} {0.tref} | {1:8.3f} mm   | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
-                    else:
-                        print('     {0.type} {0.tref} | {1:8.3f} {0.unit} | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
-                print('    ---------------------|---------------|----------|', file=out)
-                print('', file=out)
+                # Print station velocity residuals
+                if (len(iv) > 0):
+                    print('    Station velocity residuals', file=out)
+                    print('    --------------------------', file=out)
+                    print('', file=out)
+                    print('                  |    Raw residuals [mm/y]    |    Normalized residuals    |', file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    print('     code pt soln |     E        N        H    |     E        N        H    |', file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    for i in iv:
+                        print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
+                    print('    --------------|----------------------------|----------------------------|', file=out)
+                    print('', file=out)
 
-        return (T, QT)
+                # Print radiosource coordinate residuals
+                if (len(irs) > 0):
+                    print('    Radiosource coordinate residuals', file=out)
+                    print('    --------------------------------', file=out)
+                    print('', file=out)
+                    print('                   |   Raw res. [mas]  |  Normalized res.  |', file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    print('     code IERSname |    RA       DE    |    RA       DE    |', file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    for i in irs:
+                        print('     {0.code} {0.iers} | {1[0]:8.3f} {1[1]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} |'.format(snx.param[i], snx.v[i:i+2], snx.vn[i:i+2]), file=out)
+                    print('    ---------------|-------------------|-------------------|', file=out)
+                    print('', file=out)
+
+                # ERP/GC residuals
+                if (len(ig) > 0):
+                    print('    ERP / geocenter / scale residuals', file=out)
+                    print('    ---------------------------------', file=out)
+                    print('', file=out)
+                    print('                         |      Raw      |   Norm   |', file=out)
+                    print('    ---------------------|---------------|----------|', file=out)
+                    for i in ig:
+                        if (snx.param[i].type[1:3] == 'GC'):
+                            print('     {0.type} {0.tref} | {1:8.3f} mm   | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
+                        else:
+                            print('     {0.type} {0.tref} | {1:8.3f} {0.unit} | {2:8.3f} |'.format(snx.param[i], snx.v[i], snx.vn[i]), file=out)
+                    print('    ---------------------|---------------|----------|', file=out)
+                    print('', file=out)
+
+            return (T, QT)
     
     # Get list of outliers from Helmert comparison or combination
     #------------------------------------------------------------
@@ -4480,7 +4803,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[0] = dx[0] + amp * da # += ?
+                dx[0] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4491,7 +4814,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[0] = dx[0] + amp * da # += ?
+                dx[0] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4524,7 +4847,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[1] = dx[1] + amp * da # += ?
+                dx[1] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4535,7 +4858,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[1] = dx[1] + amp * da # += ?
+                dx[1] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4568,7 +4891,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = 1. - exp(-dt / tau)
-                dx[2] = dx[2] + amp * da # += ?
+                dx[2] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4579,7 +4902,7 @@ class sinex:
             
                 # Compute associated deformation
                 da = log(1 + dt / tau)
-                dx[2] = dx[2] + amp * da # += ?
+                dx[2] += amp * da
                 
                 # Compute partial derivatives of the model parameters
                 A[i] = da
@@ -4631,14 +4954,14 @@ class sinex:
                 
                 # Add or remove post-seismic deformations
                 if (remove):
-                    snx.x[i:i+3] = snx.x[i:i+3] - dxyz # -= ?
+                    snx.x[i:i+3] -= dxyz
                 else:
-                    snx.x[i:i+3] = snx.x[i:i+3] + dxyz # += ?
+                    snx.x[i:i+3] += dxyz
                     
                 # Update covariance matrix if required
                 if (update_cov):
                     if (snx.Q is not None):
-                        snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + Qxyz # += ?
+                        snx.Q[i:i+3,i:i+3] += Qxyz
                         snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
                     else:
                         snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
@@ -4700,8 +5023,8 @@ class sinex:
                 c = cos(2*pi*k*dt/365.25)
             elif (p.type[2:5] == 'SIN'):
                 c = sin(2*pi*k*dt/365.25)
-            dx[j] = dx[j] + c*snx.x[i] # += ?
-            s2x[j] = s2x[j] + (c*snx.sig[i])**2 # += ?
+            dx[j] += c*snx.x[i]
+            s2x[j] += (c*snx.sig[i])**2
 
         return (dx, np.sqrt(s2x))
         
@@ -4731,9 +5054,9 @@ class sinex:
             (dx, sx) = seas.get_seas(p.code, p.pt, p.soln, p.tref)
             
             # Add seasonal signals
-            snx.x[i:i+3] = snx.x[i:i+3] + dx # += ?
+            snx.x[i:i+3] += dx
             if (snx.Q is not None):
-                snx.Q[i:i+3,i:i+3] = snx.Q[i:i+3,i:i+3] + np.diag(sx**2) # += ?
+                snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
                 snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
             else:
                 snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
@@ -4779,15 +5102,15 @@ class sinex:
                     if (mjd in rec.mjd) and (mjd in ref.mjd):
                         irec = (np.nonzero(rec.mjd == mjd))[0][0]
                         iref = (np.nonzero(ref.mjd == mjd))[0][0]
-                        b = b + ref.lod[iref] - rec.lod[irec] # += ?
-                        n = n+1 # += ?
+                        b += ref.lod[iref] - rec.lod[irec]
+                        n += 1
 
                 # If at least one previous day was available,
                 if (n > 0):
 
                     # Modify normal equation
-                    b = b / n # /= ?
-                    snx.b = snx.b + b*snx.N[:,i] # += ?
+                    b /= n
+                    snx.b += b*snx.N[:,i]
 
                     # Print message
                     if not(quiet):

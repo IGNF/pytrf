@@ -5,20 +5,17 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 **Table of Contents**
 1. [Installation](#installation)
-    1. [Install conda via Anaconda or Miniconda](#install-conda-via-anaconda-or-miniconda)
-        1. [Clone the repository](#clone-the-repository)
-        1. [Setup the conda environment](#setup-the-conda-environment)
-        1. [Install pytrf](#install-pytrf)
-        1. [Generate documentation](#generate-documentation)
-        1. [Update with latest version](#update-with-latest-version)
+    1. [Requirements](#requirements)
+    1. [Clone the repository](#clone-the-repository)
+    1. [Install pytrf](#install-pytrf)
+    1. [Generate documentation](#generate-documentation)
+    1. [Update with latest version](#update-with-latest-version)
 1. [Tips and common issues](#tips-and-common-issues)  
-    1. [IGN network](#ign-network)
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
+        1. [IGN network](#ign-network)
         1. [Run `git` behind a proxy server](#run-git-behind-a-proxy-server)
         1. [Run `conda` behind a proxy server](#run-conda-behind-a-proxy-server)
         1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)
-    1. [What is a virtual environment ?](#what-is-a-virtual-environment)
-    1. [Conda useful commands](#conda-useful-commands)
 
 <br/><br/>
 
@@ -26,62 +23,16 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 
 ## Installation
 
-The aim of this section is to setup a **conda virtual environment** with pytrf libraries and dependencies.  
+### Requirements
 
-This solution provides a first quick and minimal working environment for pytrf. Choose this option if you want to **test pytrf** tools for the first time, without the need of integrating it into another project at the moment.
-
-> [**_What is a virtual environment?_**](#what-is-a-virtual-environment)
-
-Note: this installation procedure has been tested on a Windows 11 machine, but Anaconda / Miniconda distributions also work on Linux-based machines.  
-<br>
-
-### Install conda via Anaconda or Miniconda
-
-We will need `conda` (a package manager) for the installation. The easiest way to obtain it is to install an [**Anaconda**](https://docs.anaconda.com/anaconda/install/index.html) or [**Miniconda**](https://docs.conda.io/en/latest/miniconda.html) distribution.
-If you already have one of those two distributions installed on your computer, please  directly go to the [next section](2.-clone-the-repository).
-
-> [**_Anaconda or Miniconda?_**](https://conda.io/projects/conda/en/latest/user-guide/install/download.html#anaconda-or-miniconda)
-<br/><br/>
-> If one still can't figure out which distribution to install after reading this article, Miniconda installation is recommended for our purpose.
-
-
-After installing the distribution, open a shell and run:
-```sh
-$ conda
-```
-If you have a error message "conda is not recognized as internal or external command.", it means that we have to set our PATH environment variable for Anaconda or Miniconda:
-
-- First, check `conda.exe` installed location:
-    ```sh
-    $ where conda.exe
-    ```
-
-  In the tested machine, `conda.exe` is in:
-    `C:\Users\cpov\Anaconda3\Scripts\`
-
-- For Linux users, one mays refers to [this link](https://opensource.com/article/17/6/set-path-linux) .  
-    For Windows users:
-    - Add this directory to the PATH environment variable:
-        ```sh
-        $ set Path=%Path%;C:\Users\cpov\Anaconda3\Scripts
-        ```
-
-        _Note: if you have installed Miniconda3, conda.exe may be located in:
-    `C:\Users\cpov\AppData\Local\miniconda3\Scripts`_
-
-- Run
-    ```sh
-    $ conda init
-    ```
-
-- For changes to take effect, close and re-open your current shell.
-
-<br>
+- `python3`. See [installation instructions](https://www.python.org/downloads/).
+- `pip`. See [installation instructions](https://pip.pypa.io/en/stable/installation/).
+- `git`. See [installation instructions](https://git-scm.com/book/en/v2/Getting-Started-Installing-Git).
 
 ### Clone the repository
 
 - Create a [github](https://github.com/) account if you don't already have one.
-- Create a [**personal access token**](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for your github account. **Copy paste your token value somewhere.**
+- Create a [**personal access token**](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/creating-a-personal-access-token) for your github account. **Copy-paste your token value somewhere.**
 
 - Open a terminal and **clone the repository** with the following command.  
   IMPORTANT: you will be asked to enter your github username and *password*. **The *password* is your token, not your usual github password**.
@@ -89,7 +40,7 @@ If you have a error message "conda is not recognized as internal or external com
     $ git clone https://github.com/prebischung/pytrf
     ```
 
-- A `pytrf` folder should now be seen in the current directory.  
+- A `pytrf` folder should have been created in the current directory.
   Run:
     ```sh
     $ cd pytrf
@@ -97,61 +48,13 @@ If you have a error message "conda is not recognized as internal or external com
 
 <br>
 
-### Setup the conda environment
-
-
-We will use the `<path_to_pytrf_folder>/pytrf/environment.yml` file to set up our virtual environment.
-
-This formatted file lists all the packages required for pytrf (see above) and their dependencies.
-
-| Packages | Purpose |
-| ------ |------ |
-| [python3]    | |
-| [yaml]       | |
-| [numpy]      | |
-| [scipy]      | |
-| [astropy]    | tools for astronomy and astrophysics|
-| [matplotlib] | |
-| [cartopy]    | geospatial data processing |
-| [pip]        | |
-| [git]        | |
-| [pdoc3]      | Generate project documentation |
-
-[python3]: https://www.python.org/downloads/
-[yaml]: https://yaml.org/
-[numpy]: https://numpy.org/
-[scipy]: https://scipy.org/
-[astropy]: https://www.astropy.org/
-[matplotlib]: https://matplotlib.org/
-[cartopy]: https://scitools.org.uk/cartopy/docs/latest/
-[pip]: https://pypi.org/project/pip/
-[git]: https://anaconda.org/anaconda/git
-[pdoc3]: https://anaconda.org/anaconda/pdoc3
-
-
-- Let's create a virtual environment named `pytrf_env` from the `environment.yml` file.
-    ```sh
-    $ conda env create --name pytrf_env -f environment.yml
-    ```
-
-- Then activate it:
-    ```sh
-    $ conda activate pytrf_env
-    ```
-
-    This command worked if in your command prompt, `(pytrf_env)` appears in front of your current directory, for example:
-
-    ```
-    C:\Users\cpov>
-    C:\Users\cpov>conda activate pytrf_env
-    (pytrf_env) C:\Users\cpov>
-    ```
-
-<br>
-
 ### Install pytrf
 
-- In `path_to_pytrf_folder/pytrf`, run one of the 2 following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
+- If you work with a package manager, e.g., `conda`, you may want to create and activate a specific environment for pytrf.
+
+- In `path_to_pytrf_folder/pytrf`, run one of the two following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
+
+  Note: This will automatically install the missing required packages.
 
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
@@ -169,26 +72,29 @@ This formatted file lists all the packages required for pytrf (see above) and th
     >>>
     >>> exit()
     ```
-    You should be able to import the library without any error.
+    You should hopefully be able to import the library without any error.
 
 <br>
 
 ### Generate documentation
 
+Run:
 ```sh
 $ pdoc --html pytrf
 ```
 A folder should have been created:
-- `html`: contains the project documentation
+- `path_to_pytrf_folder/html`: contains the project documentation
 
 <br>
 
 ### Update with latest version
 
+Run:
 ```sh
 $ git pull
 ```
 
+Then re-install pytrf.
 
 
 
@@ -196,20 +102,17 @@ $ git pull
 
 ## Tips and common issues
 
-### Proxy issues with IGN network
-
-#### Connectivity problems with `git`, `conda` and `pip`
+### Connectivity problems with `git`, `conda` and `pip`
 
 `git`, `conda` and `pip` commands that require internet connection may fail because of the network configuration (firewall, proxy server, etc.)
 
 If you do use a proxy and need to keep it activated for security reasons, this section will detail how to use `git`, `conda` and `pip` behind a proxy server.
 
-
-Issues (and solutions) detailed were encountered (has worked) for a:
+Issues (and solutions) detailed were encountered (have worked) for a:
 - Windows 11 machine
 - connected to IGN network  
 
-but it can still be useful for users with a different configuration.
+but can still be useful for users with a different configuration.
 
 <br>
 
@@ -229,9 +132,9 @@ It should have download a `.pac` file in your usual `Downloads` folder.
 
 <br>
 
-##### Run `git` behind a proxy server
+#### Run `git` behind a proxy server
 
-###### Example of proxy error
+##### Example of proxy error
 
 While running the `git clone` command, you may have the following error message.
 
@@ -260,9 +163,9 @@ git config --global http.proxy "myproxy.com:portnumber"
 <br>
 
 
-##### Run `conda` behind a proxy server
+#### Run `conda` behind a proxy server
 
-###### Example of proxy error
+##### Example of proxy error
 
 Issues may occur when trying to install libraries with conda:
 
@@ -315,9 +218,9 @@ The proxy address must be specified in conda configuration file (`.condarc`).
 
 <br>
 
-##### Run `pip` behind a proxy server
+#### Run `pip` behind a proxy server
 
-###### Example of proxy error
+##### Example of proxy error
 
 Issues may occur when trying to install libraries with `pip`:
 ```sh
@@ -330,101 +233,3 @@ Like conda, one possibility is to modify the configuration file. As a temporary 
 ```sh
 $ pip install --proxy myproxy.com:portnumber library_name
 ```
-
-
-<br></br>
-
-### What is a virtual environment?
-
-**_[IN PROGRESS - NEED TO ADD SCHEMAS]_**
-
-A virtual environment helps you keep dependencies required by different projects separated.
-
-Why it is useful?
-
-Let's say we work on a project1. To run it, we installed all the required dependencies in our machine:
-
-We then start to work on another project (project2) which will never overlap with project1. It requires a more recent version of python3 and numpy.
-
-To run both project1 AND project2 without conflicts, multiple options can be considered:
-- upgrade python and numpy to run project2, and downgrade them each time project1 need to be run
-- Install both versions manually and add them in python path with a different name.
-- Test which python and numpy versions are compatible for both projects
-- etc.
-
-For a larger number of projects and packages, having to manage many different version of packages <b>in a single environment</b> can be quite time consuming and painful. In fact, with this approach, we just have <b>one global installation</b> for Python and libraries.
-
-Virtual environments will allow us to have <b>separated environment for each project</b>, hence isolate dependencies: each project can have its own dependencies, regardless of what dependencies other projects have.
-
-Other advantages of virtual environments are:
-- easier to define and install packages specific to a project
-- easier for other developers to reproduce your development environment.
-
-
-
-<br></br>
-### Conda useful commands
-
-- [Link to conda cheat sheet](https://docs.conda.io/projects/conda/en/4.6.0/_downloads/52a95608c49671267e40c689e0bc00ca/conda-cheatsheet.pdf)
-
-- **The `base` virtual environment is created by default**. It is the default active one when an "Anaconda Prompt" is launched.
-
-
-- **Create an environment with python 3.9 installed**
-    ```sh
-    $ conda create --name python39_env python=3.9
-    ```
-
-
-- **Install a library**
-    ```sh
-    $ conda install library_name
-    ```
-    It is suggested that one searches on the internet for the exact command line recommended by the library author.
-
-
-- **List all existing virtual environments**:
-    ```sh
-    $ conda info --envs
-    ```
-    You should see a `*` just after the name of the active one (and no `*` if none is activated.)  
-    A possible output can be:
-    ```
-    # conda environments:
-    #
-    base           *          C:\Users\cpov\Anaconda3
-    pytrf_env                 C:\Users\cpov\Anaconda3\envs\pytrf_env
-    ML_env                    C:\Users\cpov\Anaconda3\envs\ML_env
-    ```
-    In this case, the active environment is `base`.
-
-
-- **Deactivate the current active environment**:
-    ```sh
-    $ conda deactivate environment_name
-    ```
-    Note: Simply do `conda activate name_of_the_environment` to switch from one environment to another. We don't need to deactivate the current one, it will be automatically deactivated when another environment is activated. (This phenomena can be checked with `conda info --envs`. )
-
-
-- **List all packages installed in an environment "E"**:
-    ```sh
-    $ conda list -n environment_name
-    ```
-    If one simply wants to list all packages of the current active environment:
-    ```sh
-    $ conda list
-    ```
-
-
-- **Create an `environment.yml` for the active environment**:
-    ```sh
-    $ conda env export > environment.yml
-    ```
-
-
-- **Directly clone an existing environment without the need of generating an `environment.yml`**:
-    ```sh
-    $ conda create --name cloned_environment_name --clone name_of_environment_to_be_cloned
-    ```
-    Possible use case: One wants to install a library "α" in a existing environment "`E`", but wants to prevent it from being broken by "α" installation (dependencies).
-    One can consider installing "α" in a cloned environment "`E'`" first, and then check if projects usually run on "`E`" can also by run on "`E'`".
