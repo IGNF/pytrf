@@ -1397,6 +1397,7 @@ class sinex:
                 
 
             # Write SITE/GPS_PHASE_CENTER block
+            # Note: current version only allows a single line of information per antenna
             if (snx.gpspco) and not('metadata' in dont_write):
                 f.write('*-------------------------------------------------------------------------------\n')
                 f.write('+SITE/GPS_PHASE_CENTER\n')
@@ -1405,7 +1406,6 @@ class sinex:
                 f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
                 for a in snx.gpspco:
                     f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
-                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
                 f.write('-SITE/GPS_PHASE_CENTER\n')
                 
             # Write SITE/GAL_PHASE_CENTER block
