@@ -531,6 +531,7 @@ class sinex:
                     line = f.readline()
 
             # Read SITE/GPS_PHASE_CENTER block -> snx.gpspco
+            # Note: current version only allows a single line of information per antenna
             if ('SITE/GPS_PHASE_CENTER' in blocks) and not('metadata' in dont_read):
                 snx.gpspco = []
                 f.seek(addresses[blocks.index('SITE/GPS_PHASE_CENTER')])
@@ -548,13 +549,6 @@ class sinex:
                         r.dx[1][1] = line[56:62]
                         r.dx[1][2] = line[63:69]
                         r.model = line[70:80]
-                        line = f.readline()
-                        r.dx[2][0] = line[28:34]
-                        r.dx[2][1] = line[35:41]
-                        r.dx[2][2] = line[42:48]
-                        r.dx[3][0] = line[49:55]
-                        r.dx[3][1] = line[56:62]
-                        r.dx[3][2] = line[63:69]
                         snx.gpspco.append(r)
                     line = f.readline()
                         
