@@ -2998,19 +2998,19 @@ class sinex:
             if (len(ix) > 0):
                 a = mas2rad * x[ix[:,0]]
                 d = mas2rad * x[ix[:,1]]
-                A[ix[:,0], 7] =  np.tan(d)*np.cos(a) / mas2rad
-                A[ix[:,1], 7] = -np.sin(a)           / mas2rad
-                A[ix[:,0], 8] =  np.tan(d)*np.sin(a) / mas2rad
-                A[ix[:,1], 8] =  np.cos(a)           / mas2rad
-                A[ix[:,0], 9] = -1                   / mas2rad
+                A[ix[:,0], 7] = -np.tan(d)*np.cos(a) / mas2rad
+                A[ix[:,1], 7] =  np.sin(a)           / mas2rad
+                A[ix[:,0], 8] = -np.tan(d)*np.sin(a) / mas2rad
+                A[ix[:,1], 8] = -np.cos(a)           / mas2rad
+                A[ix[:,0], 9] =  1                   / mas2rad
             
             # ERP partial derivatives
             A[snx.ixpo, 5]  =  1/mas2rad
             A[snx.iypo, 4]  =  1/mas2rad
             A[snx.iut, 6]   = -1/(ms2rad*dera_dt)
-            A[snx.inutx, 8] = -1/mas2rad
-            A[snx.inuty, 7] =  1/mas2rad
-            A[snx.iut, 9]   = -1/(ms2rad*dera_dt)
+            A[snx.inutx, 8] =  1/mas2rad
+            A[snx.inuty, 7] = -1/mas2rad
+            A[snx.iut, 9]   =  1/(ms2rad*dera_dt)
             
             # Geocenter coordinate partial derivatives
             ix = np.array([[i, i+1, i+2] for i in snx.igc])
@@ -4008,7 +4008,7 @@ class sinex:
             ind.extend(range(4, 7))
         if ('A' in helmerts) and (len(irs) > 0):
             ind.extend(range(7, 10))
-        
+
         # Either reduce columns of A and compute B
         if not(proj):
             A = A[:,ind]
