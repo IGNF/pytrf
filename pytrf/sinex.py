@@ -253,6 +253,13 @@ class sinex:
         snx.isataz = []
         snx.itrans = []
         snx.idtrans = []
+        snx.iR = []
+        snx.iS = []
+        snx.iT = []
+        snx.idR = []
+        snx.idS = []
+        snx.idT = []
+        
         
         
     # Create sinex instance from SINEX file
@@ -833,6 +840,17 @@ class sinex:
             snx.N = mat.N
             snx.b = mat.b
             snx.Nc = mat.Nc
+            
+        # Load old pkl: case of missing sinex attributes -> init them as 'None' or '[]'
+        snx_empty = self()
+        attr = snx_empty.__dict__.keys()
+        pkl_attr = snx.__dict__.keys()
+        for at in attr:
+            if at not in pkl_attr: #attribute of actual sinex() class version missing in pkl file
+                snx.__dict__[at] = snx_empty.__dict__[at] #create attr and init
+            
+        # case where new attribute ind are added : init 
+        snx.set_par_ind()
         
         return snx
 
@@ -1546,48 +1564,12 @@ class sinex:
         
         # New "view" of sinex instance with everything required but matrices
         pkl = sinex()
-        pkl.file = snx.file
-        pkl.version = snx.version
-        pkl.agency = snx.agency
-        pkl.t = snx.t
-        pkl.start = snx.start
-        pkl.end = snx.end
-        pkl.tech = snx.tech
-        pkl.npar = snx.npar
-        pkl.const = snx.const
-        pkl.content = snx.content
-        pkl.ref = snx.ref
-        pkl.comment = snx.comment
-        pkl.input = snx.input
-        pkl.acks = snx.acks
-        pkl.sta = snx.sta
-        pkl.rs = snx.rs
-        pkl.stats = snx.stats
-        pkl.param = snx.param
-        pkl.x = snx.x
-        pkl.sig = snx.sig
-        pkl.x0 = snx.x0
-        pkl.sig0 = snx.sig0
-        pkl.ix = snx.ix
-        pkl.iv = snx.iv
-        pkl.ipsd = snx.ipsd
-        pkl.iper = snx.iper
-        pkl.iper_dict = snx.iper_dict
-        pkl.irs = snx.irs
-        pkl.ixpo = snx.ixpo
-        pkl.ixpor = snx.ixpor
-        pkl.iypo = snx.iypo
-        pkl.iypor = snx.iypor
-        pkl.iut = snx.iut
-        pkl.ilod = snx.ilod
-        pkl.inutx = snx.inutx
-        pkl.inuty = snx.inuty
-        pkl.igc = snx.igc
-        pkl.isc = snx.isc
-        pkl.isatax = snx.isatax
-        pkl.isatay = snx.isatay
-        pkl.isataz = snx.isataz
-        pkl.itrans = snx.itrans
+        
+        mat_params = ['Q','N','Nc','b'] #param for 'pkl.mat' file
+        for key in snx.__dict__.keys():
+            if key not in mat_params:
+                pkl.__dict__[key] = snx.__dict__[key]
+        
 
         # Write 1st pickle file
         pickle.dump(pkl, open(file, 'wb'))
@@ -1692,6 +1674,13 @@ class sinex:
         snx2.isatay = snx.isatay.copy()
         snx2.isataz = snx.isataz.copy()
         snx2.itrans = snx.itrans.copy()
+        snx2.idtrans = snx.idtrans.copy()
+        snx2.iR = snx.iR.copy()
+        snx2.iS = snx.iS.copy()
+        snx2.iT = snx.iT.copy()
+        snx2.idR = snx.idR.copy()
+        snx2.idS = snx.idS.copy()
+        snx2.idT = snx.idT.copy()
         
         return snx2
     
@@ -4208,7 +4197,7 @@ class sinex:
             Format example for combination of 3 soltutions : dict_helmert = {0 :'RST', 2:'RS', 3:''}. Key refer to a solution.
         ic_type : str
             Indicates to which type of constraints should be applied.
-            It can be either 'MEAN' (internal constraints on MEAN) 'TREND' (internal constraints on TREND) or 'PERIOD' (internal constraints on periodic signals).
+            It can be either 'MEAN' (internal constraints on MEAN) 'TREND' (internal constraints on TREND) 'PERIOD' (internal constraints on periodic signals) or 'DRIFT' (internal constraints on 'DRIFT')
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
@@ -4223,8 +4212,18 @@ class sinex:
         """
         #initialize nc : number of constraints
         nc = 0
-        # get all param TRANS indices
-        all_transf_id = snx.itrans
+       
+        
+        if ic_type == 'DRIFT':
+            # dTRANS param
+            all_transf_id = snx.idtrans #change indices
+            ic_type = 'MEAN' # then same computation than 'MEAN' case
+            pos_par_type = 1 # R,S or T are at id 1 in param.type : dRx, dTx, dSc, etc..
+        
+        else:
+            # get all param TRANS indices
+            all_transf_id = snx.itrans
+            pos_par_type = 0 # R,S or T are at id 0 in param.type : Rx, Tx, Sc, etc..
         
         # dict of id according to R, S,T (classication):
         #in each list, we keep param only according to dict_helmert from user YAML
@@ -4252,12 +4251,19 @@ class sinex:
         for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
             
             if par.isol in list(dict_helmert.keys()): #ic_ for this sol ? isol is int 0...k
-                if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T > which one ask by user ?
+            
+                if par.type[pos_par_type] in dict_helmert[par.isol] : #pos_par_type 0 (RX) or 1 (dRX drift case) 'par.type[0]' can be R, S or T > which one ask by user ?
                     #Here, at least 1 Internal constraint apply on this TRANSF param
                     #we are looking for if 'R...', 'SC' or 'T...' are in par.type
                     
                     #add to list inside dict_transf: par.type can also be with X, Y, Z dims
-                    dict_transf[par.type[0:2]].append(all_transf_id[num]) #type[0:2] because par.type like 'RX    ' -> 'RX'
+                    if pos_par_type ==1: #DRIFT case with 'd'
+                        # .strip() because par.type like 'dRX    ' -> 'dRX'
+                        dt_key = par.type.strip()[1:] #[1:]: del 'd'
+                    else:
+                        dt_key = par.type.strip() # .strip() because par.type like 'RX    ' -> 'RX'
+                        
+                    dict_transf[dt_key].append(all_transf_id[num]) 
                     #we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
                     
                     if ic_type == 'TREND' :#complete vect_ic
@@ -4280,6 +4286,7 @@ class sinex:
         
         if ic_type == 'MEAN' :
             ## complet Nc matrix with 1/sigma²
+            print("ic dict transf", dict_transf)
             for key in dict_transf.keys():
                 snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) #key[0] : R, S or T
                 
@@ -4666,8 +4673,8 @@ class sinex:
         periods: list of objects (built with pytrf.utils.Period), optional
             Periods of signals (seasonal, draconitic..)
         """
-        if not os.path.exists(file):#e no file provides by user, vfconst_file applied
-            print("No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
+        if not os.path.exists(file):# no file provides by user, vfconst_file applied
+            print("WARNING No file for constrains on site (velocity+periods) provides by user, generate 'vfconst.yml' automatically")
             snx.vfconst_file(sigma=sigma, periods=periods)
             file= "vfconst.yml"
         
@@ -6075,7 +6082,7 @@ class sinex:
 
     # Print table of transformation parameters, as "status3.out" in catref software
     #-------------------------------------------------
-    def status3(snx, inputs, out="status3.out", quiet=False, save_fout=True, save_ftable=True):
+    def status3(snx, inputs=None, out="status3.out", quiet=False, save_fout=True, save_ftable=True):
         """
         Summarizes the transformation parameters (values in "snx") for each solution listed in "inputs"
            + number of common points & WRMS if "inputs" provided
@@ -6111,10 +6118,17 @@ class sinex:
         """
         #retrieve values of snx.param. 1 object by line-> "type" attribute.
         sols = [record.code for record in np.array(snx.param)[snx.itrans]]
+        sols_d = [record.code for record in np.array(snx.param)[snx.idtrans]]
         names = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[snx.itrans]]
+        names_d = ["{}[{}]".format(record.type.split(" ")[0], record.unit.split(" ")[0]) for record in np.array(snx.param)[snx.idtrans]]
         values = [snx.x[i] for i in snx.itrans]
+        values_d = [snx.x[i] for i in snx.idtrans] #derive
         sigs = [snx.sig[i] for i in snx.itrans]
+        sigs_d = [snx.sig[i] for i in snx.idtrans]
         epoch = [snx.param[i].tref for i in snx.itrans]
+        epoch_d = [snx.param[i].tref for i in snx.idtrans]
+        
+      
         
         #create df object
         df_transf = pd.DataFrame()
@@ -6145,6 +6159,33 @@ class sinex:
         df_transf = df_transf.sort_values(by='mjd') #sort according to date
         df_transf = df_transf[[col for col in df_transf.columns if col != 'epoch'] + ['epoch']] #set epoch to the end
         
+        
+        #### dR, dS, dT create df object
+        df_transfd = pd.DataFrame()
+        df_transfd["solutions"] = sols_d
+        df_transfd["names"] = names_d
+        df_transfd["values"] = values_d
+        df_transfd["sigs"] = sigs_d
+        
+        #separation 2 df: values + sigmas
+        df = df_transfd.pivot(index=['solutions'], columns = 'names', values='values')
+        df.columns.name=''
+        df = df.reset_index().set_index("solutions")
+     
+        df_sigsd = df_transfd.pivot(index=['solutions'], columns = 'names', values='sigs')
+        df_sigsd.columns.name=''
+        df_sigsd = df_sigsd.reset_index().set_index("solutions")
+        
+        #reorder as catref : T,S,R
+        order_d = ["dTX[mm/y]" ,"dTY[mm/y]","dTZ[mm/y]","dSC[pb/y]","dRX[ma/y]","dRY[ma/y]","dRZ[ma/y]"]
+        df = df.reindex(columns=order_d)
+        df_sigsd = df_sigsd.reindex(columns=order_d)
+        
+        #concat dRST values + sigmas in 1 table
+        df_sigsd = df_sigsd.rename(columns= {col: 's' + col for col in df_sigsd.columns})
+        df_transfd = pd.concat([df, df_sigsd], axis=1) #1 table
+        df_transfd = df_transfd.dropna(subset=order_d, how="all")
+        
         ### Write solution
         solutions = df_transf.index
         dims = order[:-1] #all columns, except 'epoch'
@@ -6168,16 +6209,39 @@ class sinex:
             for d in dims:
                 text+="{0:10.3f}".format(df_transf.loc[sol,'s'+d]) #sTX, sTY ...
                 
+        ### add dR dS dT
+        if len(df_transfd)>0:
+            solutions_d = df_transfd.index
+            dims_d = order_d #all columns
+            
+            text+="\n\n"
+            text += "{0:<10}".format("Rates")       
+            for d in dims_d:
+                text+="{0:>10}".format(d)
+            text += "\n---------------------------------------------------------------------------------------------------------------"
+            
+            for sol in solutions_d:
+                text += "\n\n{0:<10}".format(sol)
+                for d in dims_d: # T, S, R
+                    text+="{0:10.3f}".format(df_transfd.loc[sol,d])
+                
+                text += "\n{0:>10}".format("")
+                for d in dims_d:
+                    text+="{0:10.3f}".format(df_transfd.loc[sol,'s'+d]) #sdTX, sdTY ...
+                
         ### add WRMS
         if bool(inputs): #if no inputs, this WRMS stats block not computed, only RST from snx.
             text += '\n\n__________________WRMS_________________'
-            text += '\n{0:9}{1:9}{2:9}{3:9}{4:9}{5:9}'.format('AC','N','E[mm]','N[mm]','U[mm]','vf')
+            text += '\n{0:9}{1:7}{2:9}{3:9}{4:9}{5:9}'.format('AC','N','E[mm]','N[mm]','U[mm]','vf')
             text += '\n-----------------------------------------------'
             for ac in inputs:
                 text+= '\n{0}{1:9}{2[0]:9.3f}{2[1]:9.3f}{2[2]:9.3f}{3:9.3f}'.format(ac.name, ac.nobs, ac.wrms, ac.vf)
             
             #global varince factor
             text+= "\n\nGlobal var factor : {}".format(np.sqrt(snx.stats.vf))
+            
+            
+        
         
         if not quiet:
             print(text)

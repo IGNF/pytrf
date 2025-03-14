@@ -115,10 +115,15 @@ def write_res(snx, acs, fres, fyml):
                     if len(sta.soln)!=1:
                         print(f"WARNING {ac.file}: station {code}: len(soln) = {len(sta.soln)}")
                         datemean=0
+                        mjddatemean = 0
                     else:
                         datemean = sta.soln[0].datamean
-                    #mjd date conversion, usefull for time format pytrf.ts    
-                    mjddatemean = date.from_tsnx(datemean).mjd
+                        #mjd date conversion, usefull for time format pytrf.ts 
+                        try:
+                            mjddatemean = date.from_tsnx(datemean).mjd
+                        except:
+                            mjddatemean = 0
+                            
                     #res_sta_line = ' {0}   {1} {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f} {3[0]:9.3f} {3[1]:9.3f} {3[2]:9.3f}'.format(code, ac.name, ac.v[ix:ix+3], ac.sv[ix:ix+3])
                     res_sta_line = ' {0}  {1}  {2[0]:8.5f} {2[1]:14.5f} {2[2]:14.5f} {3[0]:7.3f} {3[1]:7.3f} {3[2]:7.3f}   {4[0]:7.3f} {4[1]:7.3f} {4[2]:7.3f}  {5[0]:7.3f} {5[1]:7.3f} {5[2]:7.3f}   {6[0]:7.3f} {6[1]:7.3f} {6[2]:7.3f}    {7}   {8}'.format(sta.code+sta.pt+sta.soln[0].soln, ac.name, 
                                                                                                                                                                                                                                                       ac.ym[ix:ix+3], ac.sm[ix:ix+3],

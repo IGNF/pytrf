@@ -917,12 +917,15 @@ class Graph_vfconst():
         
         list_pbm = [] #station pbm: del in datum or in vfconst
         if not valid_vf_datum: #no valid, wich site/ station ???
-            for num, site in list_sites:
+            for num, site in enumerate(list_sites):
+                #print(num, site, in_datum[num])
                 #list of stations on this site
                 list_sta = np.array(site) #site= [sta1, sta2...]
                 #for this site, stations concerned
                 select = np.array(in_datum[num]) #list of bool for "index" site: [True, False,..], same lenght that list_sta
-                list_pbm += list_sta[select]
-                logging.warning(f'Datum vs vfconst, error for vfconst site "{num}": multiple stations in datum: {list_sta[select]}')
+                #print(list_sta[select])
+                if len(list(list_sta[select]))>1:
+                    list_pbm += list(list_sta[select])
+                    logging.warning(f'Datum vs vfconst, error for vfconst site "{num}": multiple stations in datum: {list_sta[select]}')
                 
         return valid_vf_datum, list_pbm      
