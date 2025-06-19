@@ -945,13 +945,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Add minimal constraints
     #------------------------
     
-    if (datum):
-            
-        # Add minimal constraints to station positions
-        if (mc_sta):
-            if not(quiet):
-                print('        Add minimal constraints to station positions', file=out)
-            nc += combsnx.add_mc(mc_sta, 'STA', sigma=mc_sta_sig, datum=datum, thr=mc_sta_thr)
 
     # Add minimal constraints to station positions
     if (mc_sta):

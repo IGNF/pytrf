@@ -674,7 +674,7 @@ class sinex:
                     line = f.readline()
                 snx.x0 = np.array(snx.x0)
                 snx.sig0 = np.array(snx.sig0)
-                if (snx.npar is None):
+                if (snx.npar is None) or (snx.npar == 0):
                     snx.npar = len(snx.prior)
             else:
                 snx.prior = None
@@ -775,7 +775,7 @@ class sinex:
                 while (line[0] != '-'):
                     if (line[0] != '*'):
                         try:
-                            i = i+1
+                            i = int(line[1:6]) - 1
                             snx.b[i] = float(line[47:68].replace('D', 'E'))
                         except:
                             i = int(line[1:6]) - 1
