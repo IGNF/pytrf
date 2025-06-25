@@ -408,7 +408,7 @@ def write_tie_baseline(list_snxtie):
 
     """
     
-    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"])
+    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd","site"])
     
     idx = 0
     for tiesnx in list_snxtie:
@@ -425,7 +425,7 @@ def write_tie_baseline(list_snxtie):
             sta_coords = tiesnx.get_xyz(code=[sta.code], pt=[sta.pt], soln=[sta.soln[0].soln])
             baseline = ref_coords - sta_coords
             
-            df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta.code}_{sta.pt.strip()}_{sta.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd]
+            df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta.code}_{sta.pt.strip()}_{sta.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd, sta.domes[:5]]
             
             idx+=1
            
@@ -433,10 +433,10 @@ def write_tie_baseline(list_snxtie):
             
     
     with open("contie.txt","w") as fi:
-        fi.write("{:<7} {:15} {:15} {:15} {:15} {:15} {:15} {:15}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"))
+        fi.write("{:<7} {:15} {:15} {:20} {:20} {:20} {:15} {:15} {:10}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd", "site"))
     
         for idx in df.index:
-            fi.write("{:<7} {:15} {:15} {:<15.3f} {:<15.3f} {:<15.3f} {:15} {:15}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"]))
+            fi.write("{:<7} {:15} {:15} {:<20.9f} {:<20.9f} {:<20.9f} {:15} {:15} {:10}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"], df.loc[idx,"site"]))
        
             
        
@@ -459,7 +459,7 @@ def write_tie_baseline_btw2tech(list_snxtie, list_sta_tech1, list_sta_tech2, tit
 
     """
     
-    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"])
+    df = pd.DataFrame(columns=["station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd", "site"])
     
     idx = 0
     for tiesnx in list_snxtie:
@@ -473,33 +473,22 @@ def write_tie_baseline_btw2tech(list_snxtie, list_sta_tech1, list_sta_tech2, tit
                 t_snx = tiesnx.param[tiesnx.get_sta_ind(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])[0,0]].tref
                 t_mjd = date.from_tsnx(t_snx).mjd
                 
-                
                 sta1_coords = tiesnx.get_xyz(code=[sta_ref.code], pt=[sta_ref.pt], soln=[sta_ref.soln[0].soln])
                 
-                # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
-                #     print("sta1 2021 GRACE", sta1_coords, sta.code, [st.code for st in tiesnx.sta])
-                #     print("listSTA: ")
-               
-                for num2, sta2 in enumerate(tiesnx.sta): #stations of list tech2
-                    # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
-                    #     print("2e sta", [sta2.code.strip(), sta2.pt.strip()], list_sta_tech2)
+                for num2, sta2 in enumerate(tiesnx.sta): #stations of list tech2                   
                     if ([sta2.code.strip(), sta2.pt.strip()] in list_sta_tech2): #num2==0: same station1 & station2
                         sta2_coords = tiesnx.get_xyz(code=[sta2.code], pt=[sta2.pt], soln=[sta2.soln[0].soln])
                         baseline = sta1_coords - sta2_coords
                         
-                        df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta2.code}_{sta2.pt.strip()}_{sta2.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd]
+                        df.loc[idx,:] = [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta2.code}_{sta2.pt.strip()}_{sta2.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx, str(t_mjd), str(sta.domes[:5])]
                         
                         idx+=1
                         
-                        # if tiesnx.file == "10002_IGN_2021-084_V10.SNX-MOD":
-                        #     print("sta2 2021 GRACE", sta2_coords, [f"{sta_ref.code}_{sta_ref.pt.strip()}_{sta_ref.soln[0].soln.strip()}", f"{sta.code}_{sta.pt.strip()}_{sta.soln[0].soln.strip()}", baseline[0,0], baseline[0,1], baseline[0,2], t_snx,t_mjd])
-           
+                        
     df.sort_values(by=["t_mjd","station1"]).reset_index(drop=True)
-    #print("df:", df)
-            
     
     with open(f"contie_{title_baseline}.txt","w") as fi:
-        fi.write("{:<7} {:15} {:15} {:15} {:15} {:15} {:15} {:15}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd"))
+        fi.write("{:<7} {:15} {:15} {:20} {:20} {:20} {:15} {:15} {:10}\n".format("id_tie", "station1","station2", "dX[m]", "dY[m]","dZ[m]","t_snx","t_mjd","site"))
     
         for idx in df.index:
-            fi.write("{:<7} {:15} {:15} {:<15.3f} {:<15.3f} {:<15.3f} {:15} {:15}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"]))
+            fi.write("{:<7} {:15} {:15} {:<20.9f} {:<20.9f} {:<20.9f} {:<15} {:<15} {:<10}\n".format(f"t{idx}", df.loc[idx,"station1"],df.loc[idx,"station2"], df.loc[idx,"dX[m]"], df.loc[idx,"dY[m]"],df.loc[idx,"dZ[m]"],df.loc[idx,"t_snx"], df.loc[idx,"t_mjd"], df.loc[idx,"site"]))

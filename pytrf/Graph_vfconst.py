@@ -21,6 +21,7 @@ from shapely.geometry import LineString, MultiLineString
 from pytrf import date
 from pytrf.const import mjd_leap, gps_utc, PERIODS
 from pytrf.io import read_solns
+from pytrf.utils import record
 
 
 class Graph_vfconst():
@@ -66,7 +67,7 @@ class Graph_vfconst():
         
         dates_from_obs: bool, default True.
             keep anyway dates from obs, not fit on soln dates. 
-            If no datastart or dataend in df_sta, set dby default dates_from_obs = False (-> 'dates from SOLNS')
+            If no datastart or dataend in df_sta, set by default dates_from_obs = False (-> 'dates from SOLNS')
         
         Returns
         -------
@@ -140,9 +141,9 @@ class Graph_vfconst():
             #create sub selection of solnV based on data in staId -> datastart & dataend date based on data observation (self.df_staId)
             self.df_v_disc_fit_dataObs = self.generate_v_disc_fit_dataObs()
         
-        print("len df_staId", len(self.df_staId))
+        #print("len df_staId", len(self.df_staId))
         self.df_sites = self.generate_sites_domes(self.df_staId)
-        print("len df_staId", len(self.df_staId))
+        #print("len df_staId", len(self.df_staId))
               
     def generate_staId_from_snx(self):
         """ DataFrame summarizing stations in self.snx file
@@ -177,9 +178,13 @@ class Graph_vfconst():
                 elif list_dicontinuities[i] < k <= list_dicontinuities[i + 1]: #middle
                     return i + 1
                 
-                
+        ### init df      
         df_solns = pd.DataFrame()
+        # Explicitly set the dtype of the 'segment_v' column
+        df_solns['segment_v'] = pd.Series([None] * len(df_solns), dtype=object)
         df_v_disc = pd.DataFrame()
+        # Explicitly set the dtype of the 'segment' column
+        df_v_disc['segment'] = pd.Series([None] * len(df_solns), dtype=object)
         num=0
         numV=0
         for soln in tqdm.tqdm(self.solns, desc='Building df from solns...'):
@@ -281,6 +286,13 @@ class Graph_vfconst():
         
         df_v_disc_fit_dataObs['segment_obs'] = [LineString([(mjd_datastart_obs[num], 0), (mjd_dataend_obs[num], 0)]) for num in range(len(mjd_datastart_obs))]
         
+        #special case -> apply OBS date only on single segment '00:000:00000' '00:000:00000' (i.e. when no disc)
+        df_v_disc_fit_dataObs['segment_obs_mix'] = [df_v_disc_fit_dataObs.loc[idx, 'segment_obs'] 
+                                                    if (df_v_disc_fit_dataObs.loc[idx, "datastart"]=='00:000:00000'  and df_v_disc_fit_dataObs.loc[idx, "dataend"]=='00:000:00000')
+                                                    else df_v_disc_fit_dataObs.loc[idx, 'segment']
+                                                    for idx in df_v_disc_fit_dataObs.index ]
+      
+            
         return df_v_disc_fit_dataObs
     
     
@@ -316,7 +328,7 @@ class Graph_vfconst():
     def generate_sites_domes(self, df_domes_snx):
         """From df_staId, generate df_sites using domes 5chr"""
         
-        if 'domes' not in df_domes_snx.columns or type(df_domes_snx) == type(None):
+        if type(df_domes_snx) == type(None) or 'domes' not in df_domes_snx.columns:
             return None
         
         #copy 
@@ -379,7 +391,29 @@ class Graph_vfconst():
     
     # get linked stations according vfconst.yml file
     def build_vfgraph_from_vfconst(self, vfconst, type_graph, del_sta_not_in_snx=False):
-        """ Build constraints graph from vfconst: stations (node) and edges (constraints)"""
+        """
+        Build constraints graph from vfconst: stations (node) and edges (constraints)
+
+        Parameters
+        ----------
+        vfconst : list of records
+            DESCRIPTION.
+        type_graph : TYPE
+            DESCRIPTION.
+        del_sta_not_in_snx : TYPE, optional
+            DESCRIPTION. The default is False.
+
+        Raises
+        ------
+        ValueError
+            DESCRIPTION.
+
+        Returns
+        -------
+        graph : TYPE
+            DESCRIPTION.
+
+        """
         if type_graph!='VEL' and (type_graph not in self.snx.iper_dict.keys()):
             raise ValueError(f"Unknown type graph for current sinex. Possible type_graph: 'VEL' or periods '{list(self.snx.iper_dict.keys())}'")
         
@@ -387,7 +421,8 @@ class Graph_vfconst():
         # Loop over constrains
         for const in vfconst:
             # convert record to dict
-            const = const.__dict__
+            if isinstance(const, record):
+                const = const.__dict__
             
             #VELOCITIES & PERIODS
             if (const["type"]== type_graph) and ("sta2" in const.keys()): #at least 2 stations on this site
@@ -413,10 +448,12 @@ class Graph_vfconst():
             
         return graph
     
-    
+
     def build_snx_graph(self, limit_dist=10000, link_only_soln=False):
         """ Build graph from self.df_staId: based on station distance in a site
-         if link_only_soln=True: no dist consideration, only station solns linked.
+         if link_only_soln=True: no dist consideration, only station solns linked 
+         WARNING : ALL links, whatever discontinuities in solns.snx file.
+         
         """
         # Create a graph using networkx
         G = nx.Graph()
@@ -434,8 +471,66 @@ class Graph_vfconst():
                 
                 
                 elif not link_only_soln and distance <= limit_dist: #check distance only if not "link_only_soln" 
-                    G.add_edge(staId1, staId2, length=distance)        
+                    G.add_edge(staId1, staId2, length=distance)
+                else: #add simply node
+                    G.add_node(staId1)
+                    G.add_node(staId2)
         return G
+    
+    
+    def build_snx_graph_from_solnsnxfile(self):
+        """ 
+        Interpret soln.snx ('solns' argument) file as a Graph : only links (or not) btw successive solns of a station.
+        Build graph from self.df_staId and consider discontinuities from soln.snx files : links all successive solnP if same solnV (no V discontinuity)
+        NOTE :  !! no links provides btw close station (no dist consideration, use build_snx_graph())
+        """
+        # Create a graph using networkx
+        G = nx.Graph()
+        
+        # Add edges to the graph based on soln
+        for site in tqdm.tqdm(self.df_sites['staId'], desc='Building SOLN.SNX graph...'):
+            #site: a list of all stations on the site. Multiple SOLN & no dist limit yet
+            complete_graph = nx.complete_graph(site) #get all pairs on site
+            for staId1, staId2 in complete_graph.edges():
+                #print("dist", distance, staId1, staId2)
+                if (staId1[:5]==staId2[:5]) and (self.df_staId.loc[staId1, "solnV"] == self.df_staId.loc[staId2, "solnV"]): #add edge only for same station, between SOLNS + same solnV ??
+                    G.add_edge(staId1, staId2)
+                else: #add simply node
+                    G.add_node(staId1)
+                    G.add_node(staId2)
+        return G
+    
+    
+    def valid_graph_compare2graph_from_solnsnxfile(self, G):
+        """
+        Compare G, if contains edges forbiden according to G_soln builds from 'build_snx_graph_from_solnsnxfile()'
+
+        Parameters
+        ----------
+        G : networkx.Graph
+            graph we want to compare.
+
+        Returns
+        -------
+        G_pbm_forbidden_links (networkx.Graph)
+            Graph with all forbidden links in G.
+
+        """
+        #solns.snx as Graph with no link if V disc
+        G_solns = self.build_snx_graph_from_solnsnxfile()
+        #all links btwn solns whatever V disc
+        G_solns_all = self.build_snx_graph(link_only_soln=True) 
+        #build subcomplete graphes (all links)
+        G_solns, _ = self.sub_complete_graph(G_solns)
+        G_solns_all, _ = self.sub_complete_graph(G_solns_all)
+        #differences :  all forbidden links
+        G_solns_forbidden = nx.difference(G_solns_all, G_solns)
+        #any forbidden links in intersection_graph ??
+        G_pbm_forbidden_links = nx.intersection(G, G_solns_forbidden)
+        #remove isolate nodes
+        G_pbm_forbidden_links.remove_nodes_from(list(nx.isolates(G_pbm_forbidden_links)))
+        
+        return G_pbm_forbidden_links
     
     
     def sub_complete_graph(self, G):
@@ -471,7 +566,7 @@ class Graph_vfconst():
         Firstly, add all segment solnV (nodes) in graph, without constraints (edges)
         
         Secondly, about constraints (edges), there are several possibilites on each DOMES site:
-            -> same V solns = same discontinuities (do nothing, not edges btw solnV segments)
+            -> same V solns = same discontinuities (do nothing, not edges btw solnV segments, already linked to node_v_segment (last step))
             - no same solnV segment:
                 -> 2 solnV segment of a station included in 1 solnV segment of another station: CONFLICT -> get station(s) name(s) to user (pbm_names) -> (default: do nothing, not edges btw solnV segments)
                 -> 1 solnV segment of a station included in 1 solnV segment of another station: same V -> ADD CONSTRAINTS (edge) btw these 2 nodes.
@@ -506,6 +601,7 @@ class Graph_vfconst():
             
             dict_pbms = find_common_values_ml(multiline)
             
+            print("LIST multistring PBM", list_multilinestrings)
             multline_pbm1 = np.array(list_multilinestrings[sta])
             
             pbms = {}
@@ -590,10 +686,11 @@ class Graph_vfconst():
             df_v_disc = self.df_v_disc_fit_dataObs
         
             ##### for each staId, associate all solnV of this station (no solnP consideration) --> considerepd.merge(df_staId, grB.df_v_disc_fit_dataObs[['code', 'pt', 'solnV', 'segment_obs']], on=['code', 'pt', 'solnV'])d segment_obs too
-            df = pd.merge(self.df_staId.reset_index(), df_v_disc[['code', 'pt','segment', 'segment_obs']], on=['code', 'pt'], how='left').set_index("staId")
+            df = pd.merge(self.df_staId.reset_index(), df_v_disc[['code', 'pt','segment', 'segment_obs', 'segment_obs_mix']], on=['code', 'pt'], how='left').set_index("staId")
             self.df_grouped = df.groupby('staId')['segment'].agg(list).to_frame()
             self.df_grouped['segment_multi'] = self.df_grouped['segment'].apply(lambda x: MultiLineString(x)) #dataframe with saId as index & list of segment
             self.df_grouped['segment_multi_obs'] = df.groupby('staId')['segment_obs'].agg(list).to_frame()['segment_obs'].apply(lambda x: MultiLineString(x))
+            self.df_grouped['segment_multi_obs_mix'] = df.groupby('staId')['segment_obs_mix'].agg(list).to_frame()['segment_obs_mix'].apply(lambda x: MultiLineString(x))
             
         
         else: # 'fit on soln'
@@ -619,33 +716,57 @@ class Graph_vfconst():
             
             sub = self.df_grouped.loc[site['staId']] #on site, all V discontinuities time segment
             #nodes_seg_names = pd.unique([f'site_{site["siteId"]}_{list(line.coords)[0][0]}_{list(line.coords)[1][0]}' for line in sub['segment'].explode()])
-            nodes_seg_names = pd.unique([self.get_node_sitename_linestring(site['siteId'], line) for line in sub['segment'].explode()])
+            nodes_seg_names = pd.unique(pd.Series([self.get_node_sitename_linestring(site['siteId'], line) for line in sub['segment'].explode()]))
             
             #add all temporal solnV segments as nodes
             G_time_seg.add_nodes_from(nodes_seg_names, color='red') 
             
             ### add links btw nodes_seg_names?
-            if sub["segment_multi"].nunique() == 1: #All values in V 'segment' are identical >>> same discontinuities, all right, no needs to link 'node_seg_names'
+            #print(sub["segment_multi"].apply(lambda geom: geom.wkt if geom else None).nunique())
+            #Convert Geometries to WKT Strings to apply nunique() method
+            if sub["segment_multi"].apply(lambda geom: geom.wkt if geom else None).nunique() == 1: 
+                #All values in V 'segment' are identical >>> same discontinuities, all right, no needs to link 'node_seg_names'
                 #logging.info(f"Site {site['siteId']} OK.")
                 pass
        
             else:
                 #logging.warning(f"No consistent V discontinuities on site {num} >> {self.df_sites.loc[num, ['siteId', 'staId']].values}")
                 list_multilinestrings = list(pd.unique(sub["segment_multi"]))
+                # Create a hashable representation (e.g., WKT) for comparison
+                # sub['geom_wkt'] = sub["segment_multi"].apply(lambda g: g.wkt)
+                # unique_df = sub.drop_duplicates(subset='geom_wkt')
+                # list_multilinestrings = unique_df['segment_multi'].tolist()
+                
                 dict_included = self.check_inclusionML(list_multilinestrings)
                 
                 pbm_in_dc = any([len(find_common_values_ml(multiline))>0 for sta, multiline in dict_included.items()])
                 pbm_in_dc_obs = True #set default to True
+                pbm_in_dc_obs_mix = True
                 
                 
                 if self.dates_from_obs:
-                    list_multilinestrings_obs = list(pd.unique(sub["segment_multi_obs"])) #study based on datastart & dataend of observations
+                    
+                    list_multilinestrings_obs_mix = list(pd.unique(sub["segment_multi_obs_mix"]))  #study based on datastart & dataend of observations only for '00:000:00000' soln (no V disc)
+                    list_multilinestrings_obs = list(pd.unique(sub["segment_multi_obs"]))  #study based on datastart & dataend of observations
+                    
+                    dict_included_obs_mix = self.check_inclusionML(list_multilinestrings_obs_mix, obs_mix_case=True) #obs_mix_case: check only if seg 00 000 000000 included in other sub seg, not the reverse
                     dict_included_obs = self.check_inclusionML(list_multilinestrings_obs)
                     
-                    pbm_in_dc_obs = any([len(find_common_values_ml(multiline))>0 for sta, multiline in dict_included_obs.items()])
+                    ##empty dict ?
+                    all_empty_dicts_mix = all(isinstance(v, dict) and len(v) == 0  for v in dict_included_obs_mix.values())
+                    all_empty_dicts = all(isinstance(v, dict) and len(v) == 0  for v in dict_included_obs.values())
+                    
+                    #pbm if double or more inclusion (or not inclusion at all-> set after link manually...)
+                    pbm_in_dc_obs_mix = any([len(find_common_values_ml(multiline))>0 for sta, multiline in dict_included_obs_mix.items()]) or all_empty_dicts_mix
+                    pbm_in_dc_obs = any([len(find_common_values_ml(multiline))>0 for sta, multiline in dict_included_obs.items()]) or all_empty_dicts
+                   
+                    if site['siteId'] == "43001":
+                        print("""tst THU1 OBS""", list_multilinestrings_obs)
+                        print("OBS", dict_included_obs, pbm_in_dc_obs )
+                        print("OBS MIX", dict_included_obs_mix, pbm_in_dc_obs_mix )
                     
                 ### 1. pbm anyway, stay focus on soln or no pbm
-                if (pbm_in_dc and pbm_in_dc_obs) or (not pbm_in_dc) : 
+                if (pbm_in_dc and pbm_in_dc_obs and pbm_in_dc_obs_mix) or (not pbm_in_dc) : 
                 
                     for sta, multiline in dict_included.items():
                         #multiline: list of dict -> simple list {0:[(1,2)], 1:[2,7]}
@@ -684,8 +805,51 @@ class Graph_vfconst():
                                     
                 
                 
-                ###2. pbm solved by obs...
-                if pbm_in_dc and not pbm_in_dc_obs: 
+                ###2. pbm solved by obs MIX (i.e only with obs fit when no disc ('00:000:00000'-'00:000:00000' seg: reduce seg size)...
+                elif pbm_in_dc and not pbm_in_dc_obs_mix: 
+                    logging.warning(f" --- !! [Segment conflict solved using Obs MIX solnV dates (only for '00:000:00000' seg)] site {site} !!--")
+                    
+                    for sta, multiline in dict_included.items(): #loop on basic soln data, only to get 'solved pbm'
+                        
+                        if len(find_common_values_ml(multiline))>0: #case of pbm...
+                            list_pbm_solved.append(num_site)
+                            num_pbm_solved +=1
+                                
+                            #generate pbm list LOG
+                            pbm = get_pbms(df_v_disc, site, sub, sta, multiline, list_multilinestrings)                  
+                            if site['siteId'] not in pbm_solved.keys():
+                                pbm_solved[site['siteId']] = []
+                                
+                            pbm_solved[site['siteId']].append(pbm)
+                    
+                    for sta, multiline in dict_included_obs_mix.items():
+                        #multiline: list of dict -> simple list {0:[(1,2)], 1:[2,7]}
+                        #### inclusion trouble: 2 or + inclusion from station1 to station2 >>>> no more V discontinuities !!  flag but do nothing on links
+                        if len(find_common_values_ml(multiline))>0: #always pbm NOT POSSIBLE
+                            raise ValueError(f'Always pbm obs {sta}')
+                            
+                        ### 1 segment included in another sta segment -> link -> V constraints possible
+                        elif len(multiline)!=0: # pbm solved
+                            # print(">>> possible inclusion") #possible to have several included segment for this current multline, but on different segments.
+                            # print(f"site:{num_site}", sta, multiline)
+                            
+                            for il1 in multiline.keys():
+                                
+                                for iml, il in multiline[il1]:
+                                
+                                    line_obj1 = np.array(list_multilinestrings_obs_mix[sta].geoms)[il1]
+                                    node1 = self.get_node_sitename_linestring(site['siteId'], line_obj1)
+                                    
+                                    line_obj2 = np.array(list_multilinestrings_obs_mix[iml].geoms)[il]
+                                    node2 = self.get_node_sitename_linestring(site['siteId'], line_obj2)
+                                    
+                                    if (node1 not in G_time_seg.nodes) or (node2 not in G_time_seg.nodes):
+                                        logging.warning("[Add included time segment] Unknown node {node1} & {node2}")
+                                    
+                                    G_time_seg.add_edge(node1, node2)
+                                    
+                ###3. pbm solved by obs...
+                elif pbm_in_dc and pbm_in_dc_obs_mix and not pbm_in_dc_obs: 
                     logging.warning(f" --- !! [Segment conflict solved using Obs solnV dates] site {site} !!--")
                     
                     for sta, multiline in dict_included.items(): #loop on basic soln data, only to get 'solved pbm'
@@ -709,7 +873,6 @@ class Graph_vfconst():
                             
                         ### 1 segment included in another sta segment -> link -> V constraints possible
                         elif len(multiline)!=0: # pbm solved
-                            # only plot the warning message
                             # print(">>> possible inclusion") #possible to have several included segment for this current multline, but on different segments.
                             # print(f"site:{num_site}", sta, multiline)
                             
@@ -784,7 +947,7 @@ class Graph_vfconst():
         return staId_absconst
         
 
-    def check_inclusionML(self, multilinestrings):
+    def check_inclusionML(self, multilinestrings, obs_mix_case=False):
         """
         For a list of MultiLine objects, get potential inclusion btw mutilines
         A Multiline: defined as a set of LineString
@@ -792,7 +955,17 @@ class Graph_vfconst():
         Modelisation:
             Line: a time segment (i.e. 1 soln)
             MultiLine: set of Line (i.e. a station modelisation, with several solns)
-        
+            
+            obs_mix: bool
+            if we are in the case of 'obs_mix' check (ie. where obs date only for seg without disc '00:000:00000' - '00:000:00000') -> dont check inclusion of other fragmented seg in thus single seg
+            
+            ex problem:
+                V- WUH2 A   1 00:000:00000  11:159:43200   -->   07:141:00000  11:064:00000       site_21602_-1.0_55720.5                             site_21602_54241.0_55625.0
+                V- WUH2 A   2 11:159:43200  13:311:00000   -->   11:160:00000  13:311:00000       site_21602_55720.5_56603.0                          site_21602_55721.0_56603.0
+                V- WUH2 A   3 13:311:00000  00:000:00000   -->   13:311:00000  25:075:00000       site_21602_56603.0_999999.0                         site_21602_56603.0_60750.0
+                VS. 
+                V- WUHN A   1 00:000:00000  00:000:00000   -->   95:365:00000  25:075:00000 
+           ---> WUH2 A   2 11:159:43200  13:311:00000  included in WUHN A   1  95:365:00000  25:075:00000, not the case for the other WUH2 A   1 & WUH2 A   3: give a solve situation...
         
         Parameters
         ----------
@@ -821,13 +994,15 @@ class Graph_vfconst():
                         for j2, ls2 in enumerate(mls2.geoms):
                             # Convert the LineString to a shapely LineString object                                
                             # Check if ls1 is completely included in ls2
-                            if ls1.within(ls2):
-                                ##print(f"LineString {j} of MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.")
-                                #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
-                                if j not in dict_included[i]:
-                                    dict_included[i][j] =  []
-                                    
-                                dict_included[i][j].append((k, j2)) #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
+                            
+                            if (not obs_mix_case) or (obs_mix_case and len(mls2.geoms)>1): #basic case or at least 2 seg (means no '00:000:00000')
+                                if ls1.within(ls2):
+                                    ##print(f"LineString {j} of MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.")
+                                    #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
+                                    if j not in dict_included[i]:
+                                        dict_included[i][j] =  []
+                                        
+                                    dict_included[i][j].append((k, j2)) #### LineString {j} of current MultiLineString {i} is completely included in LineString {j2} of MultiLineString {k}.
                                     
         return dict_included
 
@@ -1034,7 +1209,7 @@ class Graph_vfconst():
 
 
 
-    def write_pbm_file(self, pbm_names, out_file="list_pbm_solnV.txt", no_site=False):
+    def write_pbm_file(self, pbm_names, out_file="list_pbm_solnV.txt", no_site=False, block_title="SITE PROBLEM"):
         
         with open(out_file, "w") as fpbm: #overwrite potential existing file
             fpbm.write("## code pt solnV  datastart_solnV  dataend_solnV   -----actual time range in input data ---->  datastart_solnV_obs  dataend_solnV_obs     'id solnV segment'  (id_solnV_obs) ##\n")
@@ -1042,7 +1217,7 @@ class Graph_vfconst():
                 
                 site = pbm_names[siteId]
                 #fpbm.write("\n--------------------------------- SITE PROBLEM -----------------------------------\n")
-                fpbm.write(f"\n{34*'>'} SITE PROBLEM {34*'>'}\n")
+                fpbm.write(f"\n{34*'>'} {block_title} {34*'>'}\n")
                 
                 for nump, pbm in enumerate(site):
                     fpbm.write(f">> Pbm n.{nump+1}:\n")
@@ -1068,7 +1243,7 @@ class Graph_vfconst():
                          
                             if len(dates_obs) == 0: #no obs for this solnV time segment
                                 dates_obs = [12*'*', 12*'*']
-                            
+                    
                             fpbm.write(f"V- {code}{pt}{solnV} {dates[0]}  {dates[1]}   -->   {dates_obs[0]}  {dates_obs[1]}       {id_solnV:<50}  {id_solnV_obs}\n")
                          
                         fpbm.write("VS. \n")

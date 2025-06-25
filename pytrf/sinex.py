@@ -265,7 +265,7 @@ class sinex:
     # Create sinex instance from SINEX file
     #--------------------------------------
     @classmethod
-    def read(self, file, dont_read=[]):
+    def read(self, file, dont_read=[], read_comments=[]):
       
         """
         Create sinex instance from SINEX file
@@ -286,7 +286,10 @@ class sinex:
               - 'apriori'  in order not to read a priori information
               - 'metadata' in order not to read receivers, antennas...
               - 'stats' in order not to read SOLUTION/STATISTICS block
-        
+        read_comments : list
+            List of keywords to indicate -from which blocks- '*' lines should be read.
+            read_comments can include the following keywords:
+              - 'comment' in order to read all '*' lines in  'FILE/COMMENT'
         """
         
         # Initialization
@@ -346,7 +349,7 @@ class sinex:
                 f.seek(addresses[blocks.index('FILE/COMMENT')])
                 line = f.readline()
                 while (line[0] != '-'):
-                    if (line[0] != '*'):
+                    if (line[0] != '*') or ('comment' in read_comments):
                         snx.comment.append(line[1:].rstrip())
                     line = f.readline()
 
@@ -574,7 +577,7 @@ class sinex:
                         r.dataend = '00:000:00000'
                         r.datamean = '00:000:00000'
                         s.soln.append(r)
-
+    
             # Read SOLUTION/ESTIMATE block -> snx.param, snx.x and snx.sig
             if ('SOLUTION/ESTIMATE' in blocks):
                 snx.param = []
@@ -762,13 +765,13 @@ class sinex:
                             snx.N[i,j+2] = float(line[57:78].replace('D', 'E'))
                             snx.N[j+2,i] = snx.N[i,j+2]
                     line = f.readline()
-                        
+                       
         # In case of a normal equation without solution, copy snx.prior into snx.param
         if (snx.prior) and (snx.param is None):
             snx.param = copy.deepcopy(snx.prior)
             snx.x = np.zeros(snx.npar)
             snx.sig = np.zeros(snx.npar)
-        
+       
         # If SINEX file contains any parameter,
         if (snx.param is not None):
 

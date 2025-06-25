@@ -679,6 +679,7 @@ class Period():
     
 
 
+##### WARNING -> Graph_vfconst.py not OLD version ...
 class Graph_vfconst():
     """
     This class allows to build a graph from a sinex object (pytrf.sinex) and to resonate in terms of "nodes" (stations) and "edges" (constraints).
