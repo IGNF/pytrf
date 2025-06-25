@@ -3960,9 +3960,6 @@ class sinex:
             end = False
             while not(end):
                 tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
-                print(np.median(1/np.sqrt(tr)))
-                pp.hist(1/np.sqrt(tr))
-                pp.show()
                 thrn = np.median(tr)/thr**2
                 ind = np.nonzero(tr < thrn)[0]
                 
