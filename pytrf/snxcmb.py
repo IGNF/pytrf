@@ -769,9 +769,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.content = ''
     if (len(combsnx.ix+combsnx.iv) > 0):
         combsnx.content = combsnx.content + 'S '
-    if (len(combsnx.ixpo+combsnx.iypo+combsnx.ixpor+combsnx.iypor+combsnx.iut+combsnx.ilod) > 0):
+    if (len(combsnx.ixpo+combsnx.iypo+combsnx.ixpor+combsnx.iypor+combsnx.iut+combsnx.ilod+combsnx.inutx+combsnx.inuty) > 0):
         combsnx.content = combsnx.content + 'E '
-    if (len(snx.isatax+snx.isatay+snx.isataz) > 0):
+    if (len(combsnx.irs) > 0):
+        combsnx.content = combsnx.content + 'C '
+    if (len(combsnx.isatax+combsnx.isatay+combsnx.isataz) > 0):
         combsnx.content = combsnx.content + 'A '
     combsnx.content = combsnx.content[:-1]
 

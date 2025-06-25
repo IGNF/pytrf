@@ -1070,7 +1070,7 @@ class pl_index(param):
   
     """
     Sub-class of the param class for for spectral indices of power-law noise,
-    which are internally reparameterized as xr = -log(exp(3-x)-1)
+    which are internally reparameterized as xr = x + exp(x)
 
     A pl_index instance is initialized by:
     
@@ -1080,7 +1080,7 @@ class pl_index(param):
         
     Each pl_index instance additionally has the following methods:
 
-        x2xr()   : Compute reparameterized value (xr = -log(exp(3-x)-1)) from original value
+        x2xr()   : Compute reparameterized value (xr = x + exp(x)) from original value
         xr2x()   : Compute original value (x = 3-log(1+exp(-xr))) from reparameterized value
         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
         
@@ -1120,17 +1120,17 @@ class pl_index(param):
 
         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
-    # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+    # Compute reparameterized value (xr = x + exp(x)) from original value
     #------------------------------------------------------------------------
     def x2xr(p, x):
         
         """
-        Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+        Compute reparameterized value (xr = x + exp(x)) from original value
 
         Returns
         -------
         xr : float
-            Reparameterized value (xr=-log(exp(3-x)-1))
+            Reparameterized value (xr = x + exp(x))
         
         Parameter
         ---------
@@ -1139,19 +1139,19 @@ class pl_index(param):
             
         """
         
-        return -log(exp(3-x)-1)
+        return x + exp(x)
 
-    # Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+    # Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
     #------------------------------------------------------------------------
     def xr2x(p, xr):
         
         """
-        Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+        Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
 
         Returns
         -------
         x : float
-            Original value (x=3-log(1+exp(-xr)))
+            Original value (x = xr - lambertw(exp(xr)))
         
         Parameter
         ---------
@@ -1160,7 +1160,7 @@ class pl_index(param):
             
         """
         
-        return 3-log(1+exp(-xr))
+        return xr - np.real(special.lambertw(exp(xr)))
     
     # Compute partial derivative of original value wrt reparameterized value
     #-----------------------------------------------------------------------
@@ -1181,7 +1181,7 @@ class pl_index(param):
             
         """
         
-        return 1-exp(x-3)
+        return 1 / (1+exp(x))
 
 
 

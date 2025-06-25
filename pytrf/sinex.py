@@ -3960,6 +3960,9 @@ class sinex:
             end = False
             while not(end):
                 tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
+                print(np.median(1/np.sqrt(tr)))
+                pp.hist(1/np.sqrt(tr))
+                pp.show()
                 thrn = np.median(tr)/thr**2
                 ind = np.nonzero(tr < thrn)[0]
                 
@@ -4172,7 +4175,7 @@ class sinex:
         # Get indices of common parameters between both solutions
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
-        
+
         # If both solutions are identical,
         if np.array_equal(snx.x[isnx], ref.x[iref]):
 
