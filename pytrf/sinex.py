@@ -555,12 +555,13 @@ class sinex:
                 snx.gpspco = []
                 f.seek(addresses[blocks.index('SITE/GPS_PHASE_CENTER')])
                 line = f.readline()
-                while (line[0] != '-'):
-                    if (line.strip()) and (line[0] != '*'):
+                while line and line[0] != '-':
+                    if line.strip() and line[0] != '*':
                         r = record()
                         r.type = line[1:21]
                         r.serie = line[22:27]
-                        r.dx = [[0]*3 for i in range(4)]
+                        r.dx = [[0]*3 for _ in range(4)]  # Prepare 4 vectors, use as needed (particular case)
+            
                         r.dx[0][0] = line[28:34]
                         r.dx[0][1] = line[35:41]
                         r.dx[0][2] = line[42:48]
@@ -568,14 +569,24 @@ class sinex:
                         r.dx[1][1] = line[56:62]
                         r.dx[1][2] = line[63:69]
                         r.model = line[70:80]
-                        line = f.readline()
-                        r.dx[2][0] = line[28:34]
-                        r.dx[2][1] = line[35:41]
-                        r.dx[2][2] = line[42:48]
-                        r.dx[3][0] = line[49:55]
-                        r.dx[3][1] = line[56:62]
-                        r.dx[3][2] = line[63:69]
+            
+                        # Peek at next line to check if it's part of the same record (same 'type')
+                        pos = f.tell()
+                        next_line = f.readline()
+                        if next_line and next_line[1:21] == r.type:
+                            r.dx[2][0] = next_line[28:34]
+                            r.dx[2][1] = next_line[35:41]
+                            r.dx[2][2] = next_line[42:48]
+                            r.dx[3][0] = next_line[49:55]
+                            r.dx[3][1] = next_line[56:62]
+                            r.dx[3][2] = next_line[63:69]
+                        else:
+                            # Only a 1-line record (classic case); rewind if the next line doesn't match
+                            f.seek(pos)
+                            r.dx = r.dx[:2]  # Trim to only 2 vectors
+            
                         snx.gpspco.append(r)
+            
                     line = f.readline()
                         
             # Read SITE/GAL_PHASE_CENTER block -> snx.galpco
@@ -1546,14 +1557,17 @@ class sinex:
 
             # Write SITE/GPS_PHASE_CENTER block
             if (snx.gpspco) and not('metadata' in dont_write):
+                #check snx.gpspco.dx size -> 2 lines with L5 or only 1 line L1 & L2 ?
                 f.write('*-------------------------------------------------------------------------------\n')
                 f.write('+SITE/GPS_PHASE_CENTER\n')
                 f.write('*                           _______L1_PCO_______ _______L2_PCO_______\n')
-                f.write('*                           _______L5_PCO_______\n')
+                if len(snx.gpspco[0].dx) == 4 :#special case with L5.... common case: len(dx) = 2 (L1 & L2)
+                    f.write('*                           _______L5_PCO_______\n')
                 f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
                 for a in snx.gpspco:
                     f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
-                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                    if len(snx.gpspco[0].dx) == 4 : #special case with L5
+                        f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
                 f.write('-SITE/GPS_PHASE_CENTER\n')
                 
             # Write SITE/GAL_PHASE_CENTER block
