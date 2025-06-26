@@ -292,14 +292,13 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 # Combination of SINEX solutions
 #-------------------------------
 #@profile
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None,
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, return_neq=False, datum=None, crf_datum=None,
             mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, mc_period=None, mc_period_sig=1e-5, mc_period_thr=None,#Minimal constraints
             ic_mean=None, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
             file_vfconst="vfconst.yml", apply_automatic_vfconst=False, #Constraints on velocity & amplitude for stations located on the same site
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout,
             break_combine=""
             ):
-
     """
     Combination of SINEX solutions
 
@@ -335,8 +334,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     stack_sc : bool, optional
         Whether successive scale factors should be stacked into a single
         combined scale factor. Default is False.
+    return_neq: bool, optional
+        Whether to return unconstrained normal equation, without solving it.
+        Default is False.
     datum : str or sinex instance, optional
-        [File containing] datum. Default is None.
+        [File containing] reference TRF solution. Default is None.
+    crf_datum : str or sinex instance, optional
+        [File containing] reference CRF solution. Default is None.
     
     ---------- MINIMAL constraints parameters ----------
     mc_sta : str, optional
@@ -485,6 +489,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         dict_periods={}
         for per in periods:
             dict_periods[per.code]=per
+
+    # Read CRF datum if necessary
+    if (crf_datum):
+        if not(isinstance(crf_datum, sinex)):
+            try:
+                crf_datum = sinex.load(crf_datum, load_mat=False)
+            except:
+                crf_datum = sinex.read(crf_datum, dont_read=['comments', 'metadata', 'apriori', 'matrices'])
 
     # Initialize combined SINEX solution
     combsnx = sinex()
@@ -1012,6 +1024,31 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
                 # Update combsnx.x0
                 combsnx.x0.extend([0, 0, 0])
+            # CRF Rotations?
+            if ('A' in sol.params):
+
+                # Add new AX parameter into combined solution
+                r = record()
+                r.type = 'AX    '
+                r.code = '{0:<4}'.format(sol.name)[:4]
+                r.pt = '--'
+                r.soln = '{0:>4}'.format(isol+1)[-4:]
+                r.tref = sol.tref
+                r.unit = 'mas '
+                r.const = 2
+                r.isol = isol
+                combsnx.param.append(r)
+
+                # Add new AY parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'AY    '
+
+                # Add new AZ parameter into combined solution
+                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                combsnx.param[-1].type = 'AZ    '
+
+                # Update combsnx.x0
+                combsnx.x0.extend([0, 0, 0])
 
             # Translation rates?
             if hasattr(sol, 'dparams'):
@@ -1113,9 +1150,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.content = ''
     if (len(combsnx.ix+combsnx.iv) > 0):
         combsnx.content = combsnx.content + 'S '
-    if (len(combsnx.ixpo+combsnx.iypo+combsnx.ixpor+combsnx.iypor+combsnx.iut+combsnx.ilod) > 0):
+    if (len(combsnx.ixpo+combsnx.iypo+combsnx.ixpor+combsnx.iypor+combsnx.iut+combsnx.ilod+combsnx.inutx+combsnx.inuty) > 0):
         combsnx.content = combsnx.content + 'E '
-    if (len(snx.isatax+snx.isatay+snx.isataz) > 0):
+    if (len(combsnx.irs) > 0):
+        combsnx.content = combsnx.content + 'C '
+    if (len(combsnx.isatax+combsnx.isatay+combsnx.isataz) > 0):
         combsnx.content = combsnx.content + 'A '
     combsnx.content = combsnx.content[:-1]
 
@@ -1127,10 +1166,14 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     combsnx.N = np.zeros((combsnx.npar, combsnx.npar))
     combsnx.Nc = np.zeros((combsnx.npar, combsnx.npar))
     
-    # Change a priori coordinates of RF stations
+    # Change a priori coordinates of reference stations
     if (datum):
         combsnx.prior2ref(datum)
-        
+
+    # Change a priori coordinates of reference radiosources
+    if (crf_datum):
+        combsnx.prior2ref(crf_datum)
+
     # If velocities are going to be estimated, change a priori velocities of solns of RF stations
     # that are not part of the datum
     if (datum) and (set_vel):
@@ -1448,7 +1491,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             del sol.snx
             
     #if we want to break process here, after set up normal equation       
-    if break_combine=="2":
+    if break_combine=="2" or return_neq:
         print('-- Break end Step 2 -- Set up normal equation', file=out)
         # Stop profiling
         profiler.disable()
@@ -1456,6 +1499,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # save profiling results
         save_profiler(profiler)
         return combsnx
+
 
     # 3 - ADD CONSTRAINTS
     #--------------------
@@ -1474,28 +1518,26 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Add minimal constraints
     #------------------------
     
-    if (datum):
-            
-        # Add minimal constraints to station positions
-        if (mc_sta):
-            if not(quiet):
-                print('        Add minimal constraints to station positions', file=out)
-            nc += combsnx.add_mc(mc_sta, 'STA', sigma=mc_sta_sig, datum=datum, thr=mc_sta_thr)
-
-        # Add minimal constraints to station velocities
-        if (mc_vel):
-            if not(quiet):
-                print('        Add minimal constraints to station velocities', file=out)
-            nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
-            
-        # Add minimal constraints to station periodic signals (seasonal, draconitic..)
-        if (mc_period):
-            if not(quiet):
-                print('        Add minimal constraints to station periodic signals', file=out)
-                print('          {}'.format([(per.code, per.mc_period) for per in periods]), file=out)
-            nc += combsnx.add_mc(mc_period, 'PERIOD', sigma=mc_period_sig, datum=datum, thr=mc_period_thr, periods=periods)
-            
+    # Add minimal constraints to station positions
+    if (mc_sta):
+        if not(quiet):
+            print('        Add minimal constraints to station positions', file=out)
+        nc += combsnx.add_mc(mc_sta, 'STA', sigma=mc_sta_sig, datum=datum, crf_datum=crf_datum, thr=mc_sta_thr)
+    
+    # Add minimal constraints to station velocities
+    if (mc_vel):
+        if not(quiet):
+            print('        Add minimal constraints to station velocities', file=out)
+        nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
         
+    # Add minimal constraints to station periodic signals (seasonal, draconitic..)
+    if (mc_period):
+        if not(quiet):
+            print('        Add minimal constraints to station periodic signals', file=out)
+            print('          {}'.format([(per.code, per.mc_period) for per in periods]), file=out)
+        nc += combsnx.add_mc(mc_period, 'PERIOD', sigma=mc_period_sig, datum=datum, thr=mc_period_thr, periods=periods)
+        
+    
     # Add internal constraints
     #------------------------
     print("dict_ic_helmert:", ic_helmert)
@@ -1826,13 +1868,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, 
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, periods=[], dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, crf_datum=None,
                  mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, mc_period=None, mc_period_sig=1e-5, mc_period_thr=None, #Minimal constraints
                  ic_mean=None, ic_mean_sig=1e-5, ic_trend=None, ic_trend_sig=1e-6, ic_period=None, ic_period_sig=1e-5, #Internal constraints
                  file_vfconst="vfconst.yml", apply_automatic_vfconst=False, #Constraints on velocity & amplitude for stations located on the same site
                  update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
                  thr_raw=None, thr_norm=None,  thr_abs_E=None, thr_abs_N=None, thr_abs_H=None, flag_once=False, quiet=False, out=sys.stdout):
-
     """
     Iterative combination of SINEX solutions
 
@@ -1870,6 +1911,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         combined scale factor. Default is False.
     datum : str or sinex instance, optional
         [File containing] datum. Default is None.
+    crf_datum : str or sinex instance, optional
+        [File containing] reference CRF solution. Default is None.
     
     ---------- MINIMAL constraints parameters ----------
     mc_sta : str, optional
@@ -2002,11 +2045,12 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         num_iteration += 1 
         start_time_iter = date()
         # Combine input solutions
-        combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, datum=datum,
+
+        combsnx = combine(inputs=inputs, tref=tref, solns=solns, check_solns=check_solns, psd=psd, set_vel=set_vel, periods=periods, dv_sig=dv_sig, stack_gc=stack_gc, stack_sc=stack_sc, return_neq=False, datum=datum, crf_datum= crf_datum,
                           mc_sta=mc_sta, mc_sta_sig=mc_sta_sig, mc_sta_thr=mc_sta_thr, mc_vel=mc_vel, mc_vel_sig=mc_vel_sig, mc_vel_thr=mc_vel_thr, mc_period=mc_period, mc_period_sig=mc_period_sig, mc_period_thr=mc_period_thr,
                           ic_mean=ic_mean, ic_mean_sig=ic_mean_sig, ic_trend=ic_trend, ic_trend_sig=ic_trend_sig, ic_period=ic_period, ic_period_sig =ic_period_sig, file_vfconst=file_vfconst, apply_automatic_vfconst=apply_automatic_vfconst,
                           update_sf=update_sf, norm_res=norm_res, vce=vce, store_inputs=store_inputs, reduce_trans=reduce_trans, clear_neq=clear_neq, quiet=quiet, out=out)
-        
+
         # First loop over input solutions to flag outliers
         for sol in inputs:
             

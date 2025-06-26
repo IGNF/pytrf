@@ -14,6 +14,10 @@ import pickle
 from math import pi, sqrt, exp, log, ceil, factorial, tanh, atanh
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
+try:
+    from scipy.signal import gaussian
+except:
+    from scipy.signal.windows import gaussian
 from scipy.stats import median_abs_deviation as mad
 import matplotlib.pyplot as pp
 pp.rcParams['font.family'] = 'monospace'
@@ -1066,7 +1070,7 @@ class pl_index(param):
   
     """
     Sub-class of the param class for for spectral indices of power-law noise,
-    which are internally reparameterized as xr = -log(exp(3-x)-1)
+    which are internally reparameterized as xr = x + exp(x)
 
     A pl_index instance is initialized by:
     
@@ -1076,7 +1080,7 @@ class pl_index(param):
         
     Each pl_index instance additionally has the following methods:
 
-        x2xr()   : Compute reparameterized value (xr = -log(exp(3-x)-1)) from original value
+        x2xr()   : Compute reparameterized value (xr = x + exp(x)) from original value
         xr2x()   : Compute original value (x = 3-log(1+exp(-xr))) from reparameterized value
         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
         
@@ -1116,17 +1120,17 @@ class pl_index(param):
 
         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
-    # Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+    # Compute reparameterized value (xr = x + exp(x)) from original value
     #------------------------------------------------------------------------
     def x2xr(p, x):
         
         """
-        Compute reparameterized value (xr=-log(exp(3-x)-1)) from original value
+        Compute reparameterized value (xr = x + exp(x)) from original value
 
         Returns
         -------
         xr : float
-            Reparameterized value (xr=-log(exp(3-x)-1))
+            Reparameterized value (xr = x + exp(x))
         
         Parameter
         ---------
@@ -1135,19 +1139,19 @@ class pl_index(param):
             
         """
         
-        return -log(exp(3-x)-1)
+        return x + exp(x)
 
-    # Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+    # Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
     #------------------------------------------------------------------------
     def xr2x(p, xr):
         
         """
-        Compute original value (x=3-log(1+exp(-xr))) from reparameterized value
+        Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
 
         Returns
         -------
         x : float
-            Original value (x=3-log(1+exp(-xr)))
+            Original value (x = xr - lambertw(exp(xr)))
         
         Parameter
         ---------
@@ -1156,7 +1160,7 @@ class pl_index(param):
             
         """
         
-        return 3-log(1+exp(-xr))
+        return xr - np.real(special.lambertw(exp(xr)))
     
     # Compute partial derivative of original value wrt reparameterized value
     #-----------------------------------------------------------------------
@@ -1177,7 +1181,7 @@ class pl_index(param):
             
         """
         
-        return 1-exp(x-3)
+        return 1 / (1+exp(x))
 
 
 
@@ -2186,7 +2190,7 @@ class noise:
         if np.isscalar(T) and (T/dt).is_integer():
             
             # Dates of averaged noise
-            td = np.arange(n.tn[0], n.tn[-1]+T, T)
+            td = np.arange(n.tn[0], n.tn[-1]+T/2, T)
             nd = len(td)
 
             # Averaging factor
@@ -2298,7 +2302,8 @@ class noise:
                 ind = []
                 j = 0
                 for i in range(len(t)):
-                    while (td[j] < t[i]):
+                    #while (td[j] < t[i]):
+                    while not(np.isclose(td[j], t[i])):
                         j += 1
                     ind.append(j)
 
@@ -2735,7 +2740,8 @@ class vw(noise):
     def set_cov(n, m, set_dcov=False):
 
         """
-        Compute variance vector [and its partial derivatives]
+        Set variance vector [and its partial derivatives]
+        This method overrides the default noise.set_cov() method.
 
         set_cov() does not return anything, but sets attributes Q [and dQ] of the vw instance.
 
@@ -3244,7 +3250,6 @@ class pl(noise):
             - '2-way' means that half of the noise is assumed to start at the beginning of the series
               and to propagate forward, and half of the noise is assumed to start at the end
               of the series and to propagate backward.
-            - 'stationary' means that the noise is assumed to have started infinitely long ago.
             Default if '2-way'.
         tn : float or list, optionnal
             Float : date of the beginning of the noise
@@ -3528,6 +3533,193 @@ class ggm(noise):
 
 
 
+# figgm class
+#------------
+class figgm(noise):
+
+    """
+    Sub-class of the noise class for FIGGM processes
+
+    An figgm instance is initialized by:
+    
+        n = figgm()
+
+    An figgm instance inherits the attributes and methods from a noise instance.
+    
+    Each figgm instance additionally has the following methods:
+
+        set_x0() : Set default a priori values for unknown parameters
+        set_h()  : Compute coefficients of MA representation [and their partial derivatives]
+
+    """
+
+    # Initialize an figgm instance
+    #-----------------------------
+    def __init__(n, dt=None, per=None, flow='2-way', tn=None, s2=None, fix_s2=False, a1=None, fix_a1=False, tau=None, fix_tau=False, a2=None, fix_a2=False, tunit='d', yunit='m'):
+
+        """
+        Initialize an figgm instance
+
+        Returns
+        -------
+        n : figgm instance
+        
+        Parameters
+        ----------
+        dt : float, optional
+            Noise sampling
+        per : float, optional
+            Period of possible modulating sine wave
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
+        s2 : float, optional
+            [A priori] variance factor
+        fix_s2 : bool, optional
+            Whether provided variance factor should be fixed (or only used as a priori).
+            Default is False.
+        a1 : float, optional
+            [A priori] high-frequency spectral index
+        fix_a1 : bool, optional
+            Whether provided high-frequency spectral index should be fixed (or only used as a priori).
+            Default is False.
+        tau : float, optional
+            [A priori] correlation time
+        fix_tau : bool, optional
+            Whether provided correlation time should be fixed (or only used as a priori).
+            Default is False.
+        a2 : float, optional
+            [A priori] low-frequency spectral index
+        fix_a1 : bool, optional
+            Whether provided low-frequency spectral index should be fixed (or only used as a priori).
+            Default is False.
+        tunit : str, optional
+            Time unit. Default is 'm'.
+        yunit : str, optional
+            Time series unit. Default is 'm'.
+
+        """
+        
+        super().__init__(dt=dt, per=per, flow=flow, tn=tn)
+        n.par.append(scale_param(type='FIGGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
+        n.par.append(pl_index(type='FIGGM high-frequency spectral index', x=a1, fixed=fix_a1))
+        n.par.append(scale_param(type='FIGGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
+        n.par.append(pl_index(type='FIGGM low-frequency spectral index', x=a2, fixed=fix_a2))
+        
+    # Set default a priori values for unknown parameters
+    #---------------------------------------------------
+    def set_x0(n, m, v0):
+
+        """
+        Set default a priori values for unknown parameters
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+        v0 : float
+            A priori variance
+            
+        """
+        
+        # Noise sampling
+        dt = n.get_dt(m)
+        
+        # Set a priori high-frequency spectral index if needed
+        if (n.par[1].x is None):
+            n.par[1].x = 1
+        
+        # Set a priori correlation time if needed
+        if (n.par[2].x is None):
+            if (n.per is None):
+                n.par[2].x = -dt/log(0.9)
+            else:
+                n.par[2].x = 5*n.per
+                
+        # Set a priori low-frequency spectral index if needed
+        if (n.par[3].x is None):
+            n.par[3].x = 1
+
+        # Set a priori variance factor if needed
+        if (n.par[0].x is None):
+            n.par[0].x = 1
+            n.set_cov(m)
+            v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
+            n.par[0].x = v0 / v
+
+    # Compute coefficients of MA representation [and their partial derivatives]
+    #-------------------------------------------------------------------------
+    def set_h(n, m, set_dh=False):
+
+        """
+        Compute coefficients of MA representation [and their partial derivatives]
+
+        set_h() does not return anything, but sets attributes h [and dh] of the figgm instance.
+
+        Parameters
+        ----------
+        m : model instance
+            The parent model
+        set_dh : bool, optional
+            Whether to compute partial derivatives of h wrt unknown parameters
+            
+        """
+
+        # Original noise sampling and dates
+        dt = n.get_dt(m)
+        tf = n.get_dates(m)
+        nf = len(tf)
+        
+        # Get noise parameters
+        s2 = n.par[0].x
+        a1 = n.par[1].x
+        tau = n.par[2].x
+        phi = exp(-dt/tau)
+        a2 = n.par[3].x
+        
+        # Coefficients of MA representation of both the FI and GGM parts
+        n1 = ggm(dt=n.dt, tn=n.tn, s2=1, fix_s2=True, a=a1, fix_a=False, tau=tau, fix_tau=False)
+        n1.set_h(m, set_dh=set_dh)
+        n2 = pl(dt=n.dt, tn=n.tn, s2=1, fix_s2=True, a=a2, fix_a=False)
+        n2.set_h(m, set_dh=set_dh)
+        
+        # MA representation of FIGGM = convolution of both parts
+        n.h = sqrt(s2) * signal.convolve(n1.h, n2.h)[:nf]
+
+        # Initialize partial derivatives
+        if (set_dh):
+            n.dh = []
+        else:
+            n.dh = None
+            
+        # Partial derivative wrt variance factor
+        if (set_dh) and not(n.par[0].fixed):
+            n.dh.append(n.h / (2*s2))
+            
+        # Partial derivative wrt a1
+        if (set_dh) and not(n.par[1].fixed):
+            n.dh.append(sqrt(s2) * signal.convolve(n1.dh[0], n2.h)[:nf])
+
+        # Partial derivative wrt tau
+        if (set_dh) and not(n.par[2].fixed):
+            n.dh.append(sqrt(s2) * signal.convolve(n1.dh[1], n2.h)[:nf])
+            
+        # Partial derivative wrt a2
+        if (set_dh) and not(n.par[3].fixed):
+            n.dh.append(sqrt(s2) * signal.convolve(n1.h, n2.dh[0])[:nf])
+
+
+
 # model class
 #------------
 class model:
@@ -3628,6 +3820,7 @@ class model:
         add_fn()       : Add flicker noise to model
         add_rw()       : Add random walk to model
         add_ggm()      : Add GGM process to model
+        add_figgm()    : Add FIGGM process to model
         add_jumps()    : Add jumps to specified polynomial and/or sine wave functions of model
         set_x0()       : Set default a priori values for unknown deterministic parameters
         set_x()        : Set values of unknown deterministic parameters
@@ -3776,6 +3969,8 @@ class model:
                     m.add_rw(tn=tn)
                 elif (n == 'ggm'):
                     m.add_ggm(tn=tn)
+                elif (n == 'figgm'):
+                    m.add_figgm(tn=tn)
     
     # Load model instance from pickle file
     #-------------------------------------
@@ -4523,6 +4718,56 @@ class model:
         for d in range(m.nd):
             m[d].n.append(ggm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tn=tn, tunit=m.r.tunit, yunit=m.r.yunit))
 
+    # Add FIGGM process to model
+    #-------------------------
+    def add_figgm(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a1=None, fix_a1=False, tau=None, fix_tau=False, a2=None, fix_a2=False, tn=None):
+
+        """
+        Add GGM process to model
+
+        Parameters
+        ----------
+        dt : float, optional
+            Sampling
+        flow : str, optional
+            Keyword indicating how the noise is assumed to propagate:
+            - '1-way' means that the noise is assumed to start at the beginning of the series
+              and to propagate forward.
+            - '2-way' means that half of the noise is assumed to start at the beginning of the series
+              and to propagate forward, and half of the noise is assumed to start at the end
+              of the series and to propagate backward.
+            Default if '2-way'.
+        s2 : float, optional
+            [A priori] variance factor
+        fix_s2 : bool, optional
+            Whether provided variance factor should be fixed (or only used as a priori).
+            Default is False.
+        a1 : float, optional
+            [A priori] high-frequency spectral index
+        fix_a1 : bool, optional
+            Whether provided high-frequency spectral index should be fixed (or only used as a priori).
+            Default is False.
+        tau : float, optional
+            [A priori] correlation time
+        fix_tau : bool, optional
+            Whether provided correlation time should be fixed (or only used as a priori).
+            Default is False.
+        a2 : float, optional
+            [A priori] low-frequency spectral index
+        fix_a2 : bool, optional
+            Whether provided low-frequency spectral index should be fixed (or only used as a priori).
+            Default is False.
+        tn : float or list, optionnal
+            Float : date of the beginning of the noise
+            List : dates of the beginning and the end of the noise.
+            If missing, the date(s) will correspond to the beginning or the end of the time series.
+            Default is None.
+            
+        """
+        
+        for d in range(m.nd):
+            m[d].n.append(figgm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a1=a1, fix_a1=fix_a1, tau=tau, fix_tau=fix_tau, a2=a2, fix_a2=fix_a2, tn=tn, tunit=m.r.tunit, yunit=m.r.yunit))
+            
     # Add jumps to specified polynomial and/or sine wave functions of model
     #----------------------------------------------------------------------
     def add_jumps(m, t, deg=[], per=[]):
@@ -5173,9 +5418,9 @@ class model:
             
             # Initialize time series values with deterministic model
             if (m.nd > 1):
-                m.r.y[:,d] = m[d].yc
+                m.r.y[:,d] = m[d].yc.copy()
             else:
-                m.r.y = m[d].yc
+                m.r.y = m[d].yc.copy()
             
             # Loop over noise components
             for n in m[d].n:
@@ -5275,7 +5520,7 @@ class model:
                 # Find optimal log-relaxation times
                 ltau = optimize.minimize(logl, ltau, method='Nelder-Mead', tol=1e-5).x
                 
-                # Set optimal log-relaxation times and unfix them
+                # Set optimal log-relaxation times
                 i = -1
                 for f in m.f:
                     if isinstance(f, fexp) or isinstance(f, flog):
@@ -5479,7 +5724,7 @@ class model:
         method : str, optional
             Numerical maximization method to be used in case estimator is either
             'ml' or 'reml': either 'Nelder-Mead', 'Powell', 'CG', 'BFGS' or 'Newton'.
-            Default is 'Newton'.
+            Default is 'BFGS'.
         prefit_x : bool, optional
             Should we start with a first fit of the deterministic parameters
             assuming white noise only?
@@ -6127,7 +6372,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, use_dirac=False, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, use_dirac=False, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, thr_abs=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -6190,6 +6435,8 @@ class model:
         thr_mad : float, optional
             Another threshold for raw residuals: along each component, points outside
             a "running median +/- thr_mad * running MAD" limit will be rejected.
+	thr_abs : array_like, optional
+            List of absolute thresholds for raw residuals (one threshold per component)
         win_mad : float, optional
             Length of the window used to compute running median and MAD
         finalize : bool, optional
@@ -6250,6 +6497,10 @@ class model:
                 if (thr_mad is not None):
                     for d in range(m.nd):
                         ind += np.nonzero(np.abs(m[d].v - vmed[:,d]) > thr_mad*vmad[:,d])[0].tolist()
+                if (thr_abs is not None):
+                    for d in range(m.nd):
+                        ind += np.nonzero(np.abs(m[d].v) > thr_abs[d])[0].tolist()
+
                 ind = list(set(ind))
                 
                 # Handle outliers
@@ -6539,7 +6790,7 @@ class model:
             # Smoothed PSD of residuals
             pv = m[d].pv
             if (smooth is not None):
-                w = signal.gaussian(2*ceil(3*smooth)+1, smooth)
+                w = gaussian(2*ceil(3*smooth)+1, smooth)
                 pv = signal.convolve(pv, w/np.sum(w), mode='same')
 
             # Useful things
