@@ -11,7 +11,7 @@ import sys
 eps = sys.float_info.epsilon
 import copy
 import pickle
-from math import pi, sqrt, exp, log, ceil, factorial, tanh, atanh
+from math import pi, sqrt, exp, log, ceil, factorial, sinh, cosh, tanh, asinh, atanh
 import numpy as np
 from scipy import linalg, optimize, special, signal, sparse
 try:
@@ -1070,7 +1070,7 @@ class pl_index(param):
   
     """
     Sub-class of the param class for for spectral indices of power-law noise,
-    which are internally reparameterized as xr = x + exp(x)
+    which are internally reparameterized as xr = sinh(x)
 
     A pl_index instance is initialized by:
     
@@ -1080,7 +1080,7 @@ class pl_index(param):
         
     Each pl_index instance additionally has the following methods:
 
-        x2xr()   : Compute reparameterized value (xr = x + exp(x)) from original value
+        x2xr()   : Compute reparameterized value (xr = sinh(x)) from original value
         xr2x()   : Compute original value (x = 3-log(1+exp(-xr))) from reparameterized value
         dx_dxr() : Compute partial derivative of original value wrt reparameterized value
         
@@ -1120,17 +1120,17 @@ class pl_index(param):
 
         super().__init__(type=type, t=t, x=x, fixed=fixed, unit=unit, xc=xc, sigc=sigc)
         
-    # Compute reparameterized value (xr = x + exp(x)) from original value
+    # Compute reparameterized value (xr = sinh(x)) from original value
     #------------------------------------------------------------------------
     def x2xr(p, x):
         
         """
-        Compute reparameterized value (xr = x + exp(x)) from original value
+        Compute reparameterized value (xr = sinh(x)) from original value
 
         Returns
         -------
         xr : float
-            Reparameterized value (xr = x + exp(x))
+            Reparameterized value (xr = sinh(x))
         
         Parameter
         ---------
@@ -1139,19 +1139,19 @@ class pl_index(param):
             
         """
         
-        return x + exp(x)
+        return sinh(x)
 
-    # Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
+    # Compute original value (x = asinh(xr)) from reparameterized value
     #------------------------------------------------------------------------
     def xr2x(p, xr):
         
         """
-        Compute original value (x = xr - lambertw(exp(xr))) from reparameterized value
+        Compute original value (x = asinh(xr)) from reparameterized value
 
         Returns
         -------
         x : float
-            Original value (x = xr - lambertw(exp(xr)))
+            Original value (x = asinh(xr))
         
         Parameter
         ---------
@@ -1160,7 +1160,7 @@ class pl_index(param):
             
         """
         
-        return xr - np.real(special.lambertw(exp(xr)))
+        return asinh(xr)
     
     # Compute partial derivative of original value wrt reparameterized value
     #-----------------------------------------------------------------------
@@ -1181,7 +1181,7 @@ class pl_index(param):
             
         """
         
-        return 1 / (1+exp(x))
+        return 1 / cosh(x)
 
 
 
@@ -3433,7 +3433,7 @@ class ggm(noise):
         
         super().__init__(dt=dt, per=per, flow=flow, tn=tn)
         n.par.append(scale_param(type='GGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(pl_index(type='GGM spectral index', x=a, fixed=fix_a))
+        n.par.append(param(type='GGM spectral index', x=a, fixed=fix_a))
         n.par.append(scale_param(type='GGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
         
     # Set default a priori values for unknown parameters
@@ -3612,7 +3612,7 @@ class figgm(noise):
         
         super().__init__(dt=dt, per=per, flow=flow, tn=tn)
         n.par.append(scale_param(type='FIGGM variance factor', x=s2, fixed=fix_s2, unit=yunit+'^2'))
-        n.par.append(pl_index(type='FIGGM high-frequency spectral index', x=a1, fixed=fix_a1))
+        n.par.append(param(type='FIGGM high-frequency spectral index', x=a1, fixed=fix_a1))
         n.par.append(scale_param(type='FIGGM correlation time', x=tau, fixed=fix_tau, unit=tunit))
         n.par.append(pl_index(type='FIGGM low-frequency spectral index', x=a2, fixed=fix_a2))
         
