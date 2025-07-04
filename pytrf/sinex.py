@@ -5353,7 +5353,7 @@ class sinex:
                 stasnx.sta[0].solns = solns[ind].P
             else:
                 r = record()
-                r.soln = 1
+                r.soln = '   1'
                 r.start = '00:000:00000'
                 r.end = '00:000:00000'
                 stasnx.sta[0].solns = [r]
