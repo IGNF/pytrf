@@ -1418,9 +1418,11 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
                 if not(hasattr(sol, 'staout')):
                     sol.staout = []
                     sol.resout = []
+                    sol.resnout = []
                 sol.staout.extend(sol.codeout)
                 sol.resout.extend(sol.vout)
-                
+                sol.resnout.extend(sol.vnout)
+
                 # Re-read input solution if needed
                 if not(store_inputs):
                     read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
