@@ -249,7 +249,7 @@ class sinex:
     # Create sinex instance from SINEX file
     #--------------------------------------
     @classmethod
-    def read(self, file, dont_read=[]):
+    def read(self, file, dont_read=[], gps_pco_freqs=2):
       
         """
         Create sinex instance from SINEX file
@@ -270,7 +270,10 @@ class sinex:
               - 'apriori'  in order not to read a priori information
               - 'metadata' in order not to read receivers, antennas...
               - 'stats' in order not to read SOLUTION/STATISTICS block
-        
+        gps_pco_freqs : int (2 or 3)
+            Number of frequencies to be read in 'SITE/GPS_PHASE_CENTER' block
+              - 2: two frequencies (default)
+              - 3: three frequencies
         """
         
         # Initialization
@@ -548,13 +551,15 @@ class sinex:
                         r.dx[1][1] = line[56:62]
                         r.dx[1][2] = line[63:69]
                         r.model = line[70:80]
-                        line = f.readline()
-                        r.dx[2][0] = line[28:34]
-                        r.dx[2][1] = line[35:41]
-                        r.dx[2][2] = line[42:48]
-                        r.dx[3][0] = line[49:55]
-                        r.dx[3][1] = line[56:62]
-                        r.dx[3][2] = line[63:69]
+                        if (gps_pco_freqs == 3):
+                            line = f.readline()
+                            r.dx[2][0] = line[28:34]
+                            r.dx[2][1] = line[35:41]
+                            r.dx[2][2] = line[42:48]
+                            r.dx[3][0] = line[49:55]
+                            r.dx[3][1] = line[56:62]
+                            r.dx[3][2] = line[63:69]
+                            
                         snx.gpspco.append(r)
                     line = f.readline()
                         
@@ -1255,7 +1260,7 @@ class sinex:
 
     # Write sinex instance into SINEX file
     #-------------------------------------
-    def write(snx, file, dont_write=[]):
+    def write(snx, file, dont_write=[], gps_pco_freqs=2):
       
         """
         Write sinex instance into SINEX file
@@ -1273,6 +1278,10 @@ class sinex:
               - 'metadata' in order not to write receivers, antennas...
               - 'epochs'   in order not to write SOLUTION/EPOCHS block
               - 'stats'    in order not to write SOLUTION/STATISTICS block
+        gps_pco_freqs : int (2 or 3)
+            Number of frequencies to be written in 'SITE/GPS_PHASE_CENTER' block
+              - 2: two frequencies (default)
+              - 3: three frequencies
         
         """
 
@@ -1407,11 +1416,13 @@ class sinex:
                 f.write('*-------------------------------------------------------------------------------\n')
                 f.write('+SITE/GPS_PHASE_CENTER\n')
                 f.write('*                           _______L1_PCO_______ _______L2_PCO_______\n')
-                f.write('*                           _______L5_PCO_______\n')
+                if (gps_pco_freqs == 3):
+                    f.write('*                           _______L5_PCO_______\n')
                 f.write('*____ANTENNA_TYPE____ _S/N_ __UP__ NORTH_ _EAST_ __UP__ NORTH_ _EAST_ ANT_MODEL_\n')
                 for a in snx.gpspco:
                     f.write(' {0.type} {0.serie} {1[0][0]} {1[0][1]} {1[0][2]} {1[1][0]} {1[1][1]} {1[1][2]} {0.model}\n'.format(a, a.dx))
-                    f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
+                    if (gps_pco_freqs == 3):
+                        f.write(' {0.type} {0.serie} {1[2][0]} {1[2][1]} {1[2][2]} {1[3][0]} {1[3][1]} {1[3][2]} {0.model}\n'.format(a, a.dx))
                 f.write('-SITE/GPS_PHASE_CENTER\n')
                 
             # Write SITE/GAL_PHASE_CENTER block
