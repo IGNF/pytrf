@@ -603,7 +603,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
             while (line):
 
                 # New receiver
-                if (re.match('3\.\d+\s+Receiver Type', line, re.I)):
+                if (re.match(r'3\.\d+\s+Receiver Type', line, re.I)):
                     receiver = True
                     antenna = False
                     r = record()
@@ -620,7 +620,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                     rec.append(r)
 
                 # New antenna
-                elif (re.match('4\.\d+\s+Antenna Type', line, re.I)):
+                elif (re.match(r'4\.\d+\s+Antenna Type', line, re.I)):
                     receiver = False
                     antenna = True
                     r = record()
@@ -638,13 +638,13 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                     ant.append(r)
 
                 # Satellite systems
-                elif (re.match('\s*Satellite System.*:', line, re.I) and receiver):
+                elif (re.match(r'\s*Satellite System.*:', line, re.I) and receiver):
                     i = line.index(':')
                     if (line[i+2:].strip()):
                         rec[-1].system = line[i+2:].strip()
 
                 # Serial number
-                elif (re.match('\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
+                elif (re.match(r'\s*Serial Number.*:', line, re.I) and (receiver or antenna)):
                     i = line.index(':')
                     if (line[i+2:].strip()):
                         if not(line[i+2:].strip().split()[0] in ['(A20,', '(A20)']):
@@ -654,14 +654,14 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                                 ant[-1].serie = line[i+2:].strip()
 
                 # Firmware version
-                elif (re.match('\s*Firmware Version.*:', line, re.I) and receiver):
+                elif (re.match(r'\s*Firmware Version.*:', line, re.I) and receiver):
                     i = line.index(':')
                     if (line[i+2:].strip()):
                         if not(line[i+2:].strip().split()[0] in ['(A11,', '(A11)']):
                             rec[-1].firmware = line[i+2:].strip()
 
                 # Cutoff angle
-                elif (re.match('\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
+                elif (re.match(r'\s*Elevation Cutoff Setting.*:', line, re.I) and receiver):
                     i = line.index(':')
                     if (line[i+2:].strip()):
                         tab = line[i+2:].strip().split()
@@ -669,7 +669,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                             rec[-1].cutoff = '{0:>3d}'.format(int(float(tab[0])))
 
                 # Date installed
-                elif (re.match('\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
+                elif (re.match(r'\s*Date Installed.*:', line, re.I) and (receiver or antenna)):
                     i = line.index(':')
                     if (receiver):
                         rec[-1].start = sitelog_date(line[i+2:].strip())
@@ -677,7 +677,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                         ant[-1].start = sitelog_date(line[i+2:].strip())
 
                 # Date removed
-                elif (re.match('\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
+                elif (re.match(r'\s*Date Removed.*:', line, re.I) and (receiver or antenna)):
                     i = line.index(':')
                     if (receiver):
                         rec[-1].end = sitelog_date(line[i+2:].strip())
@@ -685,7 +685,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                         ant[-1].end = sitelog_date(line[i+2:].strip())
 
                 # Up eccentricity
-                elif ((re.match('\s*Antenna Height.*:', line, re.I) or re.match('\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
+                elif ((re.match(r'\s*Antenna Height.*:', line, re.I) or re.match(r'\s*Marker->ARP Up Ecc.*:', line, re.I)) and antenna):
                     i = line.index(':')
                     tab = line[i+2:].strip().split()
                     if (len(tab) > 0):
@@ -694,7 +694,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                             ant[-1].dx[0] = '{0:8.4f}'.format(float(tab[0]))
 
                 # North eccentricity
-                elif (re.match('\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
+                elif (re.match(r'\s*Marker->ARP North Ecc.*:', line, re.I) and antenna):
                     i = line.index(':')
                     tab = line[i+2:].strip().split()
                     if (len(tab) > 0):
@@ -703,7 +703,7 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                             ant[-1].dx[1] = '{0:8.4f}'.format(float(tab[0]))
 
                 # East eccentricity
-                elif (re.match('\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
+                elif (re.match(r'\s*Marker->ARP East Ecc.*:', line, re.I) and antenna):
                     i = line.index(':')
                     tab = line[i+2:].strip().split()
                     if (len(tab) > 0):
@@ -712,14 +712,14 @@ def read_sitelog(file, sinex_formatted=False, start=None, end=None):
                             ant[-1].dx[2] = '{0:8.4f}'.format(float(tab[0]))
 
                 # Radome type
-                elif (re.match('\s*Antenna Radome Type.*:', line, re.I) and antenna):
+                elif (re.match(r'\s*Antenna Radome Type.*:', line, re.I) and antenna):
                     i = line.index(':')
                     rad = line[i+2:].strip()[0:4].strip().upper()
                     if (len(rad) == 4):
                         ant[-1].type = ant[-1].type[0:16] + rad
 
                 # Alignment from true North
-                elif (re.match('\s*Alignment from True N.*:', line, re.I) or re.match('\s*Degree Offset from North.*:', line, re.I)) and (antenna):
+                elif (re.match(r'\s*Alignment from True N.*:', line, re.I) or re.match(r'\s*Degree Offset from North.*:', line, re.I)) and (antenna):
                     i = line.index(':')
                     tab = line[i+2:].strip().split()
                     if (len(tab) > 0):
@@ -913,14 +913,14 @@ def sitelog_date(t):
     months = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec']
     
     # yyyy-mm-ddThh:mm
-    if (re.match('\d{4}.\d{2}.\d{2}.\d{2}.\d{2}', t)):
+    if (re.match(r'\d{4}.\d{2}.\d{2}.\d{2}.\d{2}', t)):
         try:
             return date.from_ymdhms(int(t[0:4]), int(t[5:7]), int(t[8:10]), int(t[11:13]), int(t[14:16])).tsnx()
         except ValueError:
             return '00:000:00000'
     
     # dd-mon-yyyy hh:mm
-    elif (re.match('\d{2}.[a-z]{3}.\d{4}.\d{2}.\d{2}', t, re.I)):
+    elif (re.match(r'\d{2}.[a-z]{3}.\d{4}.\d{2}.\d{2}', t, re.I)):
         try:
             i = months.index(t[3:6].lower())
             return date.from_ymdhms(int(t[7:11]), i+1, int(t[0:2]), int(t[12:14]), int(t[15:17])).tsnx()
@@ -928,14 +928,14 @@ def sitelog_date(t):
             return '00:000:00000'
       
     # yyyy-mm-dd
-    elif (re.match('\d{4}.\d{2}.\d{2}', t)):
+    elif (re.match(r'\d{4}.\d{2}.\d{2}', t)):
         try:
             return date.from_ymdhms(int(t[0:4]), int(t[5:7]), int(t[8:10])).tsnx()
         except ValueError:
             return '00:000:00000'
     
     # dd-mon-yyyy
-    elif (re.match('\d{2}.[a-z]{3}.\d{4}', t, re.I)):
+    elif (re.match(r'\d{2}.[a-z]{3}.\d{4}', t, re.I)):
         try:
             i = months.index(t[3:6].lower())
             return date.from_ymdhms(int(t[7:11]), i+1, int(t[0:2])).tsnx()
@@ -943,14 +943,14 @@ def sitelog_date(t):
             return '00:000:00000'
     
     # dd-mm-yyyy
-    elif (re.match('\d{2}.\d{2}.\d{4}', t)):
+    elif (re.match(r'\d{2}.\d{2}.\d{4}', t)):
         try:
             return date.from_ymdhms(int(t[6:10]), int(t[3:5]), int(t[0:2])).tsnx()
         except ValueError:
             return '00:000:00000'
     
     # yyyy-mm-d
-    elif (re.match('\d{4}.\d{2}.\d{1}', t)):
+    elif (re.match(r'\d{4}.\d{2}.\d{1}', t)):
         try:
             return date.from_ymdhms(int(t[0:4]), int(t[5:7]), int(t[8])).tsnx()
         except ValueError:
