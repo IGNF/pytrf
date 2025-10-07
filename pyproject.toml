@@ -13,6 +13,7 @@ dependencies = [
   'pyyaml',
   'numpy',
   'scipy',
+  'networkx',
   'astropy',
   'matplotlib',
   'cartopy',

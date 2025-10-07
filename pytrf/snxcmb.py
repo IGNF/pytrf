@@ -13,6 +13,7 @@ import pickle
 import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
+import networkx as nx
 
 # Internal imports
 #-----------------
@@ -109,8 +110,9 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, return_neq=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, stack_gc=False, stack_sc=False, return_neq=False,
+            datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
+            update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
 
     """
     Combination of SINEX solutions
@@ -139,6 +141,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     dv_sig : float, optional
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
+    vconst : str or list, optional
+        [YAML file containing] velocity constraints to be applied. Default is None.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -224,6 +228,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if (solns):
         if not(isinstance(solns, list)):
             solns = read_solns(solns)
+
+    # Read velocity constraints if necessary
+    if (vconst):
+        if not(isinstance(vconst, list)):
+            vconst = read_yaml(vconst)
 
     # Read datum if necessary
     if (datum):
@@ -776,31 +785,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if (len(combsnx.isatax+combsnx.isatay+combsnx.isataz) > 0):
         combsnx.content = combsnx.content + 'A '
     combsnx.content = combsnx.content[:-1]
-
-    # Set combsnx.npar, .x0, .sig0, .N, .b and .Nc
-    combsnx.npar = len(combsnx.param)
-    combsnx.x0 = np.array(combsnx.x0)
-    combsnx.sig0 = np.zeros(combsnx.npar)
-    combsnx.b = np.zeros(combsnx.npar)
-    combsnx.N = np.zeros((combsnx.npar, combsnx.npar))
-    combsnx.Nc = np.zeros((combsnx.npar, combsnx.npar))
-    
-    # Change a priori coordinates of reference stations
-    if (datum):
-        combsnx.prior2ref(datum)
-
-    # Change a priori coordinates of reference radiosources
-    if (crf_datum):
-        combsnx.prior2ref(crf_datum)
-
-    # If velocities are going to be estimated, change a priori velocities of solns of RF stations
-    # that are not part of the datum
-    if (datum) and (set_vel):
-        keys = [p.code+p.pt for p in [datum.param[i] for i in datum.iv]]
-        for i in combsnx.iv:
-            if (combsnx.param[i].code+combsnx.param[i].pt in keys) and not(np.any(combsnx.x0[i:i+3])):
-                j = keys.index(combsnx.param[i].code+combsnx.param[i].pt)
-                combsnx.x0[i:i+3] = datum.x[datum.iv[j]:datum.iv[j]+3]
     
     # Sort combsnx.sta
     ind = np.argsort([s.code+s.pt for s in combsnx.sta])
@@ -818,6 +802,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             t2 = date.from_tsnx(soln.dataend).mjd
             soln.datamean = date.from_mjd((t1+t2)/2).tsnx()
 
+    # Set combsnx.npar, .x0 and .sig0
+    combsnx.npar = len(combsnx.param)
+    combsnx.x0 = np.array(combsnx.x0)
+    combsnx.sig0 = np.zeros(combsnx.npar)
+
     # Sort parameters
     combsnx.sort_params()
     
@@ -829,6 +818,77 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     for isol in range(len(inputs)):
         ind = np.nonzero(keys == isol)[0]
         inputs[isol].itrans = [combsnx.itrans[i] for i in ind]
+
+    # Change a priori coordinates of reference stations
+    if (datum):
+        combsnx.prior2ref(datum)
+
+    # Change a priori velocities of stations with absolute velocity constraints, if any
+    if (set_vel) and (vconst):
+        keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iv]]
+        if (datum):
+            keys_datum = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
+        else:
+            keys_datum = []
+
+        # Loop over specified absolute velocity constraints
+        for vc in vconst:
+            if hasattr(vc, 'point'):
+
+                # If specified point actually has an estimated velocity,
+                tab = vc.point.split()
+                sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
+                if (sta in keys):
+                    i = keys.index(sta)
+
+                    # Check that there is no conflict with datum
+                    if (sta in keys_datum):
+                        raise RuntimeError('Absolute velocity constraint not allowed for datum point {0}.'.format(sta))
+
+                    # If not, change a priori value of point velocity to either the specified value, if any,
+                    # or NaN (temporarily)
+                    elif hasattr(vc, 'vref'):
+                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = vc.vref
+                    else:
+                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = np.nan
+
+    # Change a priori coordinates of reference radiosources
+    if (crf_datum):
+        combsnx.prior2ref(crf_datum)
+
+    # If velocities are going to be estimated, and relative velocity constraints are going to be applied,
+    # attribute the same a priori velocity to all the points within each cluster of relative velocity constraints
+    if (set_vel) and (((solns) and (dv_sig)) or (vconst)):
+
+        # Build graph of relative velocity constraints
+        G = combsnx.dvc_graph(solns, dv_sig, vconst)
+        nodes = list(G.nodes())
+
+        # Loop over every connected component of the graph
+        for c in nx.connected_components(G):
+            if (len(c) > 1):
+
+                # Get indices of the nodes in current connected component
+                ind = [nodes.index(s) for s in list(c)]
+
+                # List of non-zero a priori velocities of the points in current connected component
+                v0 = []
+                for i in ind:
+                    if np.any(combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3]):
+                        v0.append(combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3])
+                v0 = np.unique(v0, axis=0)
+
+                # If there are more than one element in this list, then there's a conflict.
+                if (len(v0) > 1):
+                    raise RuntimeError('Relative velocity constraint not allowed between points with different a priori velocities:\n{0}'.format(sorted(list(c))))
+
+                # Else, if there's a single element, attribute this same a priori velocity to all the points in the cluster
+                elif (len(v0) == 1):
+                    for i in ind:
+                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = v0[0]
+
+    # Set remaining "NaN" a priori velocities to zero
+    combsnx.x0[np.isnan(combsnx.x0)] = 0
 
 
 
@@ -842,8 +902,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('    '+str(date())+' : Set up normal equation', file=out)
 
     # Initializations
+    combsnx.b = np.zeros(combsnx.npar)
+    combsnx.N = np.zeros((combsnx.npar, combsnx.npar))
+    combsnx.Nc = np.zeros((combsnx.npar, combsnx.npar))
     A = []
     dy = []
+    lPl = 0
     
 
 
@@ -919,6 +983,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         AtP = A[isol][:,ind].T.dot(P)
         combsnx.N[np.ix_(ind,ind)] += A[isol][:,ind].T.dot(AtP.T)
         combsnx.b[ind] += np.dot(AtP, dy[isol])
+        lPl += np.dot(dy[isol].T, np.dot(P, dy[isol]))
 
         # Make room if needed
         if not(store_inputs):
@@ -962,13 +1027,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 
 
-    # Add constraints between successive station velocities
-    #------------------------------------------------------
-    
-    if (set_vel):
+    # Add velocity constraints
+    #-------------------------
+
+    if (set_vel) and (((solns) and (dv_sig)) or (vconst)):
         if not(quiet):
-            print('        Add constraints between successive station velocities', file=out)
-        nc += combsnx.add_dvc(solns, dv_sig)
+            print('        Add velocity constraints', file=out)
+        nc += combsnx.add_vc(solns, dv_sig, vconst, G)
 
 
 
@@ -981,7 +1046,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('    '+str(date())+' : Solve normal equation', file=out)
 
     # Solve normal equation
-    combsnx.neqinv(clear_neq=clear_neq)
+    xNx = combsnx.neqinv(clear_neq=clear_neq, return_xNx=True)
 
 
 
@@ -995,7 +1060,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
     # Initializations
     dx = combsnx.x - combsnx.x0
-    vPv = 0
+    vPv = lPl - xNx
     ntrans = 0
     
     
@@ -1062,9 +1127,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
         # Weighted squared sum of residuals
         sol.vPv = np.sum(sol.v * np.dot(P, sol.v))
-        
-        # Update total weighted squared sum of residuals
-        vPv += sol.vPv
 
         # Compute solution variance factor
         if not(reduce_trans) and (vce == 'correct'):
@@ -1190,9 +1252,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, stack_gc=False, stack_sc=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None,
-            mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
-            thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, stack_gc=False, stack_sc=False,
+                 datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
+                 update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
+                 thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
 
     """
     Iterative combination of SINEX solutions
@@ -1221,6 +1284,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     dv_sig : float, optional
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
+    vconst : str or list, optional
+        [YAML file containing] velocity constraints to be applied. Default is None.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -1308,7 +1373,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
+        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, vconst, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:

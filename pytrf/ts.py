@@ -6639,7 +6639,7 @@ class model:
         else:
             tunit = m.r.tunit
             fr = m[0].fr
-    
+
         # Frequency unit
         if (tunit == 'd'):
             funit = 'cpd'

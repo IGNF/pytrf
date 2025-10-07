@@ -21,12 +21,13 @@ from scipy import sparse
 import matplotlib.pyplot as pp
 import cartopy.crs as ccrs
 import cartopy.feature as cfeature
+import networkx as nx
 
 # Internal imports
 #-----------------
 from pytrf import date
 from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
-from pytrf.io import get_sitelog, read_sitelog
+from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
 
@@ -156,7 +157,7 @@ class sinex:
         setup_gc()         : Set up geocenter coordinates in a normal equation
         prior2ref()        : Set a priori parameter values to reference values
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
-        add_dvc()          : Add equality constraints between successive velocities to normal matrix of constraints
+        add_vc()           : Add absolute and/or relative velocity constraints to normal matrix of constraints
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -172,6 +173,7 @@ class sinex:
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
         split()            : Split sinex instance into station-specific instances
+        dvc_graph()        : Build graph of relative velocity constraints
         
     """
 
@@ -4041,66 +4043,148 @@ class sinex:
                 
         return A.shape[1]
 
-    # Add equality constraints between successive velocities to normal matrix of constraints
-    #---------------------------------------------------------------------------------------
-    def add_dvc(snx, solns, sigma=1e-6):
+    ## Add equality constraints between successive velocities to normal matrix of constraints
+    ##---------------------------------------------------------------------------------------
+    #def add_dvc(snx, solns, sigma=1e-6):
         
+        #"""
+        #Add equality constraints between successive velocities to normal matrix of constraints
+        
+        #Returns
+        #-------
+        #nc : int
+            #Number of constraints added
+
+        #Parameters
+        #----------
+        #solns : list
+            #Reference discontinuity list (from ioutils.read_solns)
+        #sigma : float, optional
+            #Sigma of velocity equality constraints in m/y. Default is 1e-6.
+            
+        #"""
+        
+        ## Initializations
+        #nc = 0
+        #keys = [s.code+s.pt for s in solns]
+        #keys_v = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
+        
+        ## Loop over stations
+        #for sta in snx.sta:
+
+            ## Index of current station in discontinuity list
+            #if (sta.code+sta.pt in keys):
+                #isoln = keys.index(sta.code+sta.pt)
+
+                ## Loop over solns
+                #for i in range(len(sta.soln)-1):
+                    
+                    ## Get end date of current soln
+                    #ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
+                    #end = solns[isoln].P[ip].end
+                    
+                    ## If current soln should be constrained with the next one,
+                    #if not(end in [v.end for v in solns[isoln].V]):
+                        
+                        ## Get indices of both velocities
+                        #i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
+                        #i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
+                        
+                        ## Add constraints between them
+                        #for k in range(3):
+                            #snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
+                            #snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
+                            #snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
+                            #snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
+                        #nc += 3
+                        
+        #return nc
+
+    # Add absolute and/or relative velocity constraints to normal matrix of constraints
+    #----------------------------------------------------------------------------------
+    def add_vc(snx, solns=None, sigma=1e-6, vconst=None, G=None):
+
         """
-        Add equality constraints between successive velocities to normal matrix of constraints
-        
+        Add absolute and/or relative velocity constraints to normal matrix of constraints
+
         Returns
         -------
-        nc : int
-            Number of constraints added
+        nc : Number of constraints added
 
         Parameters
         ----------
-        solns : list
-            Reference discontinuity list (from ioutils.read_solns)
+        solns : list, optional
+            Discontinuity list (from io.read_solns). Default is None.
         sigma : float, optional
-            Sigma of velocity equality constraints in m/y. Default is 1e-6.
-            
+            Sigma of velocity equality constraints between successive solns of individual stations [m/y].
+            Default is 1e-6.
+        vconst : str or list, optional
+            [YAML file containing] velocity constraints to be applied. Default is None.
+        G : networkx Graph instance, optional
+            Graph of relative velocity constraints constructed by sinex.dvc_graph(). May be provided here
+            to save time if the graph was computed beforehand.
+
         """
-        
+
         # Initializations
         nc = 0
-        keys = [s.code+s.pt for s in solns]
-        keys_v = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
-        
-        # Loop over stations
-        for sta in snx.sta:
+        keys = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
 
-            # Index of current station in discontinuity list
-            if (sta.code+sta.pt in keys):
-                isoln = keys.index(sta.code+sta.pt)
+        # Read custom velocity constraints if necessary
+        if (vconst):
+            if not(isinstance(vconst, list)):
+                vconst = read_yaml(vconst)
 
-                # Loop over solns
-                for i in range(len(sta.soln)-1):
-                    
-                    # Get end date of current soln
-                    ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
-                    end = solns[isoln].P[ip].end
-                    
-                    # If current soln should be constrained with the next one,
-                    if not(end in [v.end for v in solns[isoln].V]):
-                        
-                        # Get indices of both velocities
-                        i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
-                        i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
-                        
-                        # Add constraints between them
+        # 1 - Absolute velocity constraints
+        #----------------------------------
+
+        # Loop over absolute velocity constraints, if any
+        if (vconst):
+            for vc in vconst:
+                if hasattr(vc, 'point'):
+
+                    # If specified point actually has an estimated velocity,
+                    tab = vc.point.split()
+                    sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
+                    if (sta in keys):
+
+                        # Apply constraint
+                        i = keys.index(sta)
                         for k in range(3):
-                            snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
-                            snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
-                            snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
-                            snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
+                            snx.Nc[snx.iv[i]+k,snx.iv[i]+k] += 1 / vc.sigma**2
+                            snx.param[snx.iv[i]+k].const = '0'
                         nc += 3
-                        
+
+        # 2 - Relative velocity constraints
+        #----------------------------------
+
+        # Compute graph of relative velocity constraints if needed
+        if not(G):
+            G = snx.dvc_graph(solns, sigma, vconst)
+
+        # Loop over edges of the graph
+        for e in G.edges:
+
+            # Get indices of both points
+            i1 = keys.index(e[0])
+            i2 = keys.index(e[1])
+
+            # Get weight of the constraint
+            w = G.get_edge_data(*e)['weight']
+
+            # Apply constraint
+            for k in range(3):
+                snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += w
+                snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= w
+                snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= w
+                snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += w
+            nc += 3
+
         return nc
         
     # Invert normal equation
     #-----------------------
-    def neqinv(snx, clear_neq=True):
+    def neqinv(snx, clear_neq=True, return_xNx=False):
 
         """
         Solve normal equation
@@ -4109,18 +4193,26 @@ class sinex:
         ----------        
         clear_neq : bool, optional
             Whether to clear normal equation. Default is True.
+        return_xNx : bool, optional
+            Whether to return (x-x0)^T * N * (x-x0)
 
         """
         
         # Solve normal equation
         snx.Q = invspd(snx.N + snx.Nc)
-        snx.x = snx.x0 + np.dot(snx.Q, snx.b)
+        dx = np.dot(snx.Q, snx.b)
+        snx.x = snx.x0 + dx
         snx.sig = np.sqrt(np.diag(snx.Q))
+        xNx = np.dot(snx.b.T, dx)
 
         # Clear snx.N and snx.b if necessary
         if (clear_neq):
             snx.N = None
             snx.b = None
+
+        # Return xNx if requested
+        if (return_xNx):
+            return xNx
       
     # Helmert comparison between two solutions
     #-----------------------------------------
@@ -5372,3 +5464,105 @@ class sinex:
             # Dump sinex object
             stasnx.set_par_ind()
             stasnx.dump(dir+'/'+s.code+'.snx')
+
+    # Build graph of relative velocity constraints
+    #---------------------------------------------
+    def dvc_graph(snx, solns=None, sigma=1e-6, vconst=None):
+
+        """
+        Build graph of relative velocity constraints from a reference discontinuity list
+        and/or a YAML file
+
+        Returns
+        -------
+        G : networkx Graph instance
+
+        Parameters
+        ----------
+        solns : list, optional
+            Discontinuity list (from io.read_solns). Default is None.
+        sigma : float, optional
+            Sigma of velocity equality constraints between successive solns of individual stations [m/y].
+            Default is 1e-6.
+        vconst : str or list, optional
+            [YAML file containing] velocity constraints to be applied. Default is None.
+
+        """
+
+        # Initializations
+        nodes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
+        G = nx.Graph()
+        G.add_nodes_from(nodes)
+
+        # If a discontinuity list is provided
+        if (solns):
+            keys = [s.code+s.pt for s in solns]
+
+            # Loop over stations
+            for sta in snx.sta:
+
+                # Index of current station in discontinuity list
+                if (sta.code+sta.pt in keys):
+                    isoln = keys.index(sta.code+sta.pt)
+
+                    # Dates of velocity discontinuities
+                    tdv = [date.from_tsnx(v.end).mjd for v in solns[isoln].V[:-1]]
+
+                    # Loop over solns
+                    for i in range(len(sta.soln)-1):
+
+                        # Get end date of current soln and start date of next soln
+                        ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
+                        t1 = date.from_tsnx(solns[isoln].P[ip].end).mjd
+                        ip = [p.soln for p in solns[isoln].P].index(sta.soln[i+1].soln)
+                        t2 = date.from_tsnx(solns[isoln].P[ip].start).mjd
+
+                        # Check whether there is a velocity discontinuity between both dates,
+                        b = False
+                        for t in tdv:
+                            if (t1 <= t) and (t2 >= t):
+                                b = True
+
+                        # If not, add an edge to the graph
+                        if not(b):
+                            G.add_edge(sta.code+sta.pt+sta.soln[i].soln, sta.code+sta.pt+sta.soln[i+1].soln, weight=1/sigma**2)
+
+        # If additional velocity constraints are provided,
+        if (vconst):
+
+            # Read them if necessary
+            if not(isinstance(vconst, list)):
+                vconst = read_yaml(vconst)
+
+            # Loop over clusters of relative velocity constraints
+            for vc in vconst:
+                if hasattr(vc, 'points'):
+
+                    # Get points IDs
+                    sta = []
+                    for i in range(len(vc.points)):
+                        tab = vc.points[i].split()
+                        sta.append(tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2])))
+
+                    # Remove points that are not part of the solution
+                    i = 0
+                    while (i < len(sta)):
+                        if (sta[i] in nodes):
+                            i += 1
+                        else:
+                            sta.pop(i)
+
+                    # Loop over points of the clusters
+                    for i in range(len(sta)-1):
+
+                        # If an edge from current point to next point is already present in the graph,
+                        if G.has_edge(sta[i], sta[i+1]):
+
+                            # Overwrite edge weight
+                            G[sta[i]][sta[i+1]]['weight'] = 1/vc.sigma**2
+
+                        # Else, add an edge to the graph
+                        else:
+                            G.add_edge(sta[i], sta[i+1], weight=1/vc.sigma**2)
+
+        return G
