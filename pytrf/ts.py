@@ -2582,6 +2582,7 @@ class wn(noise):
             n.par[0].x = 1
             n.set_cov(m)
             n.par[0].x = v0 / np.mean(n.Q)
+            n.Q *= n.par[0].x
 
     # Set variance vector [and its partial derivatives]
     #--------------------------------------------------
@@ -2911,6 +2912,7 @@ class ar1(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
+            n.Q *= n.par[0].x
             
     # Compute covariance vector [and its partial derivatives]
     #--------------------------------------------------------
@@ -3109,6 +3111,7 @@ class ar1(noise):
             #n.set_cov(m)
             #v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             #n.par[0].x = v0 / v
+            #n.Q *= n.par[0].x
             
     ## Compute covariance vector [and its partial derivatives]
     ##--------------------------------------------------------
@@ -3306,6 +3309,7 @@ class pl(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
+            n.Q *= n.par[0].x
 
     # Compute coefficients of MA representation [and their partial derivatives]
     #-------------------------------------------------------------------------
@@ -3472,6 +3476,7 @@ class ggm(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
+            n.Q *= n.par[0].x
 
     # Compute coefficients of MA representation [and their partial derivatives]
     #-------------------------------------------------------------------------
@@ -3656,6 +3661,7 @@ class figgm(noise):
             n.set_cov(m)
             v = (np.trace(n.Q)-np.sum(n.Q)/m.r.n) / (m.r.n-1)
             n.par[0].x = v0 / v
+            n.Q *= n.par[0].x
 
     # Compute coefficients of MA representation [and their partial derivatives]
     #-------------------------------------------------------------------------
@@ -5407,7 +5413,13 @@ class model:
             # Set predicted observations and design matrix
             m.set_oeq()
             A = m.A * m.dx_dxr()
-            
+            dy = m.r.y-m.yc
+
+            # Apply whitening filter if any
+            if hasattr(m, 'F'):
+                A = np.dot(m.F, A)
+                dy = np.dot(m.F, dy)
+
             # Set up normal equation
             if (m.Q.ndim == 2) and (m.P is not None):
                 AtP = np.dot(A.T, m.P)
@@ -5416,7 +5428,7 @@ class model:
             else:
                 AtP = A.T/m.Q
             N = np.dot(AtP, A)
-            b = np.dot(AtP, m.r.y-m.yc)
+            b = np.dot(AtP, dy)
 
             # Add constraints if any,
             i = -1
@@ -5456,6 +5468,8 @@ class model:
                 # Update parameter covariance matrix
                 m.set_oeq()
                 A = m.A * m.dx_dxr()
+                if hasattr(m, 'F'):
+                    A = np.dot(m.F, A)
                 if (m.Q.ndim == 2) and (m.P is not None):
                     AtP = np.dot(A.T, m.P)
                 elif (m.Q.ndim == 2):
@@ -5485,7 +5499,7 @@ class model:
                 m.set_oeq()
                 
             # WLSQE transition matrix
-            m.y2x = m.Qx@AtP   
+            m.y2x = m.Qx @ AtP
 
         # Else (no parameter to estimate),
         else:
@@ -5496,6 +5510,8 @@ class model:
         m.set_oeq()
         m.v = m.r.y - m.yc
         m.rms = sqrt(np.mean((m.v)**2))
+        if hasattr(m, 'F'):
+            m.v = np.dot(m.F, m.v)
         
         # Weight matrix * residuals
         if (m.Q.ndim == 2) and (m.P is not None):
@@ -5549,6 +5565,8 @@ class model:
             
         # Log-likelihood
         m.logl = -(m.r.n+c)/2*log(2*pi*m.s2) - m.dQ/2 - dQc/2 - (vPv+vcPcvc)/(2*m.s2)
+        if hasattr(m, 'F'):
+            m.logl += m.dF
         
         # Restricted log-likelihood
         m.loglr = m.logl + m.nx/2*log(2*pi*m.s2) - m.dN/2 + dQc/2
@@ -5561,7 +5579,7 @@ class model:
     
     # Fit deterministic + noise model
     #--------------------------------
-    def fit(m, estimator='reml', method='BFGS', prefit_x=True, prefit_b=False, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit(m, estimator='reml', method='BFGS', prefit_x=True, prefit_b=False, use_mmas=True, hessian='expected', fr=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model
@@ -5606,7 +5624,10 @@ class model:
             assuming white noise only?
         prefit_b : bool, optional
             In case estimator is either 'ml' or 'reml', should we start with a first
-            LS fit of the noise parameters? Default is True.
+            LS fit of the noise parameters? Default is False.
+        use_mmas : bool, optional
+            Whether Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick should be used,
+            when possible. Default is True.
         hessian : str, optional
             Specifies how the hessian matrix of noise parameters should be computed:
             either 'expected' or 'numeric'. Default is 'expected'.
@@ -5681,12 +5702,11 @@ class model:
                 # Set possibly unset a priori noise parameters
                 m[d].set_b0(np.sum(m[d].v**2)/m[d].r.n/len(m[d].n))
                 
-                # In case there's just one noise component, with just one unknown variance factor, and no constraint on any parameter,
+                # In case there's just one noise component, with just one unknown variance factor,
+                # and there are no constraint on any deterministic parameter,
                 # de-activate initial LS fit of noise parameters and switch to Nelder-Mead method,
                 # so that thanks to Williams' trick, no iterations are required.
-                b = True
-                if (len(m[d].n) > 1):
-                    b = False
+                b = (len(m[d].n) == 1)
                 if (b):
                     n = m[d].n[0]
                     if (n.par[0].fixed):
@@ -5703,6 +5723,102 @@ class model:
                 if (b):
                     prefit_b = False
                     method = 'Nelder-Mead'
+
+                # In case there are exactly two noise components with all their parameters fixed except, possibly, their variance factors,
+                # and there are no constraint on any deterministic parameter,
+                # we can make use of Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick.
+                mmas = (len(m[d].n) == 2) * (use_mmas)
+                if (mmas):
+                    for n in m[d].n:
+                        for i in range(1, len(n.par)):
+                            if not(n.par[i].fixed):
+                                mmas = False
+
+                # If Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick may be used,
+                if (mmas):
+
+                    # First get unit covariance matrix of each noise component
+                    if (m[d].n[0].Q is None):
+                        m[d].n[0].set_cov(m[d])
+                    Q1 = m[d].n[0].Q / m[d].n[0].par[0].x
+
+                    if (m[d].n[1].Q is None):
+                        m[d].n[1].set_cov(m[d])
+                    Q2 = m[d].n[1].Q / m[d].n[1].par[0].x
+
+                    # If Q2 is diagonal and Q1 is full, swap the two matrices
+                    swap = False
+                    if (Q1.ndim == 2) and (Q2.ndim == 1):
+                        tmp = Q1
+                        Q1 = Q2
+                        Q2 = tmp
+                        swap = True
+
+                    # If Q2 is full, then Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick is actually beneficial.
+                    if (Q2.ndim == 2):
+                        if not(quiet):
+                            print('    '+str(date())+' : Compute whitening filter', file=out)
+
+                        # Compute the inverse L of the Cholesky factorization of Q1 and the product L^T*Q2*L
+                        if (Q1.ndim == 1):
+                            L = 1 / np.sqrt(Q1)
+                            m[d].dF = np.sum(np.log(L))
+                            Q2 = L*(Q2*L).T
+                        else:
+                            (f, Li) = cholesky(Q1)
+                            (L, info) = linalg.lapack.dtrtri(Li)
+                            Li /= f
+                            L = (f*L.T).T
+                            m[d].dF = np.sum(np.log(np.diag(L)))
+                            Q2 = np.dot(L.T, np.dot(Q2, L))
+
+                        # Compute the eigenvalue decomposition of L^T*Q2*L
+                        (m[d].d, R) = np.linalg.eigh(Q2)
+
+                        # Whitening filter = R^T*L^T
+                        if (Q1.ndim == 1):
+                            m[d].Fi = (R.T/L).T
+                            m[d].F = R.T*L
+                        else:
+                            m[d].Fi = np.dot(Li.T, R)
+                            m[d].F = np.dot(R.T, L.T)
+
+                        # Overwrite set_cov() methods of the two noise components
+                        def set_cov1(n, m, set_dcov=False):
+                            s2 = n.par[0].x
+                            n.Q = s2 * np.ones(m.r.n)
+                            if (set_dcov) and not(n.par[0].fixed):
+                                n.dQ = [np.ones(m.r.n)]
+                            elif (set_dcov):
+                                n.dQ = []
+                            else:
+                                n.dQ = None
+
+                        if (swap):
+                            m[d].n[1].set_cov = set_cov1.__get__(m[d].n[1], type(m[d].n[1]))
+                        else:
+                            m[d].n[0].set_cov = set_cov1.__get__(m[d].n[0], type(m[d].n[0]))
+
+                        def set_cov2(n, m, set_dcov=False):
+                            s2 = n.par[0].x
+                            n.Q = s2 * m.d
+                            if (set_dcov) and not(n.par[0].fixed):
+                                n.dQ = [m.d]
+                            elif (set_dcov):
+                                n.dQ = []
+                            else:
+                                n.dQ = None
+
+                        if (swap):
+                            m[d].n[0].set_cov = set_cov2.__get__(m[d].n[0], type(m[d].n[0]))
+                        else:
+                            m[d].n[1].set_cov = set_cov2.__get__(m[d].n[1], type(m[d].n[1]))
+
+                    # Else, Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick won't actually be used.
+                    else:
+                        mmas = False
+
+
                     
                 # 1st case : [RE]ML estimation of noise parameters
                 #-------------------------------------------------
@@ -5821,11 +5937,15 @@ class model:
                             if (estimator == 'ml') or (m[d].nx == 0):
                                 P = m[d].P
                             else:
+                                if hasattr(m[d], 'F'):
+                                    A = np.dot(m[d].F, m[d].A)
+                                else:
+                                    A = m[d].A
                                 if (m[d].P.ndim == 2):
-                                    AtP = np.dot(m[d].A.T, m[d].P)
+                                    AtP = np.dot(A.T, m[d].P)
                                     P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
                                 else:
-                                    AtP = m[d].A.T * m[d].P
+                                    AtP = A.T * m[d].P
                                     P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
 
                             # Partial derivatives of minus [restricted] log-likelihood wrt reparameterized noise parameters
@@ -5887,11 +6007,15 @@ class model:
                             if (estimator == 'ml') or (m[d].nx == 0):
                                 P = m[d].P
                             else:
+                                if hasattr(m[d], 'F'):
+                                    A = np.dot(m[d].F, m[d].A)
+                                else:
+                                    A = m[d].A
                                 if (m[d].P.ndim == 2):
-                                    AtP = np.dot(m[d].A.T, m[d].P)
+                                    AtP = np.dot(A.T, m[d].P)
                                     P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
                                 else:
-                                    AtP = m[d].A.T * m[d].P
+                                    AtP = A.T * m[d].P
                                     P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
 
                             # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
@@ -5995,8 +6119,17 @@ class model:
                             if (estimator == 'ml') or (m[d].nx == 0):
                                 P = m[d].P
                             else:
-                                AtP = np.dot(m[d].A.T, m[d].P)
-                                P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+                                if hasattr(m[d], 'F'):
+                                    A = np.dot(m[d].F, m[d].A)
+                                else:
+                                    A = m[d].A
+                                AtP = np.dot(A.T, m[d].P)
+                                if (m[d].P.ndim == 2):
+                                    AtP = np.dot(A.T, m[d].P)
+                                    P = m[d].P - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
+                                else:
+                                    AtP = A.T * m[d].P
+                                    P = np.diag(m[d].P) - np.dot(AtP.T, np.dot(m[d].Qx, AtP))
 
                             # Products of partial derivatives of covariance matrix wrt reparameterized noise parameters
                             # with weight matrix
@@ -6102,8 +6235,8 @@ class model:
                         AtP = A.T / m[d].pn**2
                         N = np.dot(AtP, A)
                         
-                        (ll, vv) = linalg.eig(N)
-                        N += np.min(np.real(ll))*np.eye(len(N))
+                        (ll, vv) = linalg.eigh(N)
+                        N += np.min(ll)*np.eye(len(N))
                         
                         b = np.dot(AtP, m[d].pv - m[d].pn)
                         db = linalg.solve(N, b)
@@ -6135,6 +6268,31 @@ class model:
                     (m[d].Qb, m[d].dH) = invspd(N, return_det=True)
                     m[d].set_sigb()
                     
+                # Undo changes made to use Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick
+                #------------------------------------------------------------------------------
+
+                if (mmas):
+
+                    m[d].n[0].set_cov = type(m[d].n[0]).set_cov.__get__(m[d].n[0], type(m[d].n[0]))
+                    m[d].n[1].set_cov = type(m[d].n[1]).set_cov.__get__(m[d].n[1], type(m[d].n[1]))
+                    if (swap):
+                        m[d].n[0].Q = np.dot(m[d].Fi*m[d].n[0].Q, m[d].Fi.T)
+                        m[d].n[1].set_cov(m[d])
+                        m[d].Q = m[d].n[0].Q + np.diag(m[d].n[1].Q)
+                    else:
+                        m[d].n[0].set_cov(m[d])
+                        m[d].n[1].Q = np.dot(m[d].Fi*m[d].n[1].Q, m[d].Fi.T)
+                        m[d].Q = m[d].n[1].Q + np.diag(m[d].n[0].Q)
+                    m[d].v = m[d].r.y - m[d].yc
+                    m[d].P = np.dot(m[d].F.T*m[d].P, m[d].F)
+                    m[d].y2x = np.dot(m[d].y2x, m[d].F)
+
+                    del m[d].d, m[d].F, m[d].Fi, m[d].dF
+                    m[d].Pv = None
+                    m[d].dQ = None
+                    m[d].n[0].dQ = None
+                    m[d].n[1].dQ = None
+
                 # Set some final attributes of the model
                 #---------------------------------------
 
