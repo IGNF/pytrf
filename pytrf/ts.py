@@ -4097,20 +4097,42 @@ class model:
         # If station was found in discontinuity list,
         if (i is not None):
             
-            # Add position discontinuities
+            # Full list of position discontinuities
+            tp = []
             for p in solns[i].P:
                 if (p.end != '00:000:00000'):
                     t = date.from_tsnx(p.end).mjd
                     if (t > tmin) and (t < tmax):
-                        m.add_jumps([t], deg=[0])
+                        tp.append(t)
 
-            # Add velocity discontinuities
+            # Full list of velocity discontinuities
+            tv = []
             for p in solns[i].V:
                 if (p.end != '00:000:00000'):
                     t = date.from_tsnx(p.end).mjd
                     if (t > tmin) and (t < tmax):
-                        m.add_jumps([t], deg=[1])
-        
+                        tv.append(t)
+
+            # Remove unobserved position discontinuities
+            j = 0
+            while (j < len(tp)-1):
+                if (np.sum((r.t >= tp[j]) * (r.t < tp[j+1])) == 0):
+                    tp.pop(j)
+                else:
+                    j += 1
+
+            # Remove unobserved velocity discontinuities
+            j = 0
+            while (j < len(tv)-1):
+                if (np.sum((r.t >= tv[j]) * (r.t < tv[j+1])) == 0):
+                    tv.pop(j)
+                else:
+                    j += 1
+
+            # Add discontinuities to model
+            m.add_jumps(tp, deg=[0])
+            m.add_jumps(tv, deg=[1])
+
         # If a PSD file is provided, add PSD functions to model
         if (psd is not None):
             m.add_psd(psd, code=code, pt=pt, fix_tau=fix_tau, fix_amp=fix_amp, dims=dims)
@@ -6406,7 +6428,7 @@ class model:
 
     # Fit deterministic + noise model and iteratively remove outliers
     #----------------------------------------------------------------
-    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, hessian='expected', fr=None, use_dirac=False, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, thr_abs=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
+    def fit_iter(m, estimator='reml', method='Newton', prefit_x=True, prefit_b=True, use_mmas=True, hessian='expected', fr=None, use_dirac=False, thr_raw=None, thr_norm=None, thr_mad=None, win_mad=None, thr_abs=None, finalize=True, quiet=False, verbose=False, out=sys.stdout):
     
         """
         Fit deterministic + noise model and iteratively remove outliers
@@ -6452,6 +6474,9 @@ class model:
         prefit_b : bool, optional
             In case estimator is either 'ml' or 'reml', should we start with a quick
             LS fit of the noise parameters? Default is True.
+        use_mmas : bool, optional
+            Whether Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick should be used,
+            when possible. Default is True.
         hessian : str, optional
             Specifies how the hessian matrix of noise parameters should be computed:
             either 'expected' or 'numeric'. Default is 'expected'.
@@ -6469,7 +6494,7 @@ class model:
         thr_mad : float, optional
             Another threshold for raw residuals: along each component, points outside
             a "running median +/- thr_mad * running MAD" limit will be rejected.
-	thr_abs : array_like, optional
+        thr_abs : array_like, optional
             List of absolute thresholds for raw residuals (one threshold per component)
         win_mad : float, optional
             Length of the window used to compute running median and MAD
@@ -6499,7 +6524,7 @@ class model:
                     prefit_b = False
                 
                 # Fit model
-                m.fit(estimator=estimator, method=method, prefit_x=prefit_x, prefit_b=prefit_b, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
+                m.fit(estimator=estimator, method=method, prefit_x=prefit_x, prefit_b=prefit_b, use_mmas=use_mmas, hessian=hessian, fr=fr, finalize=finalize, quiet=quiet, verbose=verbose, out=out)
                 
                 # If necessary, compute approximate normalized residuals and WRMS assuming VW only
                 # (This should be removed!)
@@ -6519,7 +6544,7 @@ class model:
                         for d in range(m.nd):
                             vmed[i,d] = np.median(m[d].v[ind])
                             vmad[i,d] = mad(m[d].v[ind])
-                
+
                 # Get outlier indices
                 ind = []
                 if (thr_raw is not None):
@@ -6537,15 +6562,96 @@ class model:
 
                 ind = list(set(ind))
                 
-                # Handle outliers
+                # If any outliers,
                 if (len(ind) > 0):
+
+                    # Either add Dirac functions to model or delete outliers
                     if use_dirac:
                         m.add_dirac(t=m.r.t[ind])
                     else:
                         m.r.del_points(ind)
                         for d in range(m.nd):
                             m[d].r = m.r[d]
-                    
+
+                    # Loop over functions to remove possibly unobserved discontinuities from model
+                    for d in range(m.nd):
+                        for f in m[d].f:
+
+                            # Case of a polynom
+                            if isinstance(f, polynom):
+
+                                # Remove possible discontinuities before first observation
+                                b = False
+                                while not(b):
+                                    if (len(f.t) > 0):
+                                        if (f.t[0] <= m.r.t[0]):
+                                            f.t.pop(0)
+                                            f.par.pop(1)
+                                        else:
+                                            b = True
+                                    else:
+                                        b = True
+
+                                # Remove possible discontinuities after last observation
+                                b = False
+                                while not(b):
+                                    if (len(f.t) > 0):
+                                        if (f.t[-1] > m.r.t[-1]):
+                                            f.t.pop(len(f.t)-1)
+                                            f.par.pop(len(f.t))
+                                        else:
+                                            b = True
+                                    else:
+                                        b = True
+
+                                # Remove possible discontinuities without observation before the next one
+                                k = 0
+                                while (k < len(f.t)-1):
+                                    if (np.sum((m.r.t >= f.t[k]) * (m.r.t < f.t[k+1])) == 0):
+                                        f.t.pop(k)
+                                        f.par.pop(k+1)
+                                    else:
+                                        k += 1
+
+                            # Case of a sine
+                            elif isinstance(f, sine):
+
+                                # Remove possible discontinuities before first observation
+                                b = False
+                                while not(b):
+                                    if (len(f.t) > 0):
+                                        if (f.t[0] <= m.r.t[0]):
+                                            f.t.pop(0)
+                                            f.par.pop(2)
+                                            f.par.pop(2)
+                                        else:
+                                            b = True
+                                    else:
+                                        b = True
+
+                                # Remove possible discontinuities after last observation
+                                b = False
+                                while not(b):
+                                    if (len(f.t) > 0):
+                                        if (f.t[-1] > m.r.t[-1]):
+                                            f.t.pop(len(f.t)-1)
+                                            f.par.pop(2*len(f.t))
+                                            f.par.pop(2*len(f.t))
+                                        else:
+                                            b = True
+                                    else:
+                                        b = True
+
+                                # Remove possible discontinuities with less than 2 observations before the next one
+                                k = 0
+                                while (k < len(f.t)-1):
+                                    if (np.sum((m.r.t >= f.t[k]) * (m.r.t < f.t[k+1])) < 2):
+                                        f.t.pop(k)
+                                        f.par.pop(2*k+2)
+                                        f.par.pop(2*k+2)
+                                    else:
+                                        k += 1
+
                 # Or exit
                 else:
                     end = True

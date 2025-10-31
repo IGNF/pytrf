@@ -1928,10 +1928,17 @@ class sinex:
                 
         # Bound start and end dates in SOLUTION/EPOCHS block
         for s in snx.sta:
-            if earlier(s.soln[0].datastart, tstart):
+            b = False
+            if earlier(s.soln[0].datastart, tstart) or (s.soln[0].datastart == '00:000:00000'):
                 s.soln[0].datastart = tstart
-            if earlier(tend, s.soln[0].dataend):
+                b = True
+            if earlier(tend, s.soln[0].dataend) or (s.soln[0].dataend == '00:000:00000'):
                 s.soln[0].dataend = tend
+                b = True
+            if (b):
+                t1 = date.from_tsnx(s.soln[0].datastart).mjd
+                t2 = date.from_tsnx(s.soln[0].dataend).mjd
+                s.soln[0].datamean = date.from_mjd((t1+t2)/2).tsnx()
                 
         # Bound start and end dates of snx itself
         if (earlier(snx.start, tstart)):
