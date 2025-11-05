@@ -1099,13 +1099,15 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         else:
             P = invspd(Q)
             
-        # If transformation parameters were reduced, project residuals
-        # and update number of reduced transformation parameters
+        # If transformation parameters were reduced, project residuals and update number of reduced transformation parameters.
+        # Store, by the way, transformation parameters, their covariance matrix and formal errors.
         if (reduce_trans):
             H = snx.helmert_partials(sol.params, 'STA')
             HtP = np.dot(H.T, P)
-            HtPHi = invspd(np.dot(HtP, H))
-            sol.v -= np.dot(H, np.dot(HtPHi, np.dot(HtP, sol.v)))
+            sol.QT = invspd(np.dot(HtP, H))
+            sol.sT = np.sqrt(np.diag(sol.QT))
+            sol.T = np.dot(sol.QT, np.dot(HtP, sol.v))
+            sol.v -= np.dot(H, sol.T)
             ntrans += H.shape[1]
             
         # Covariance matrices of predicted observations if needed
