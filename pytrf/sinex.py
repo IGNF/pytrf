@@ -2176,7 +2176,7 @@ class sinex:
             snx.galpco = []
             
             # List of station antenna types + serial numbers
-            ant = np.unique([[a.type+a.serie for a in s.ant] for s in snx.sta])
+            ant = np.unique(sum([[a.type+a.serie for a in s.ant] for s in snx.sta], []))
             
             # Search keys
             meta_gps_ant = [a.type for a in metasnx.gpspco]
