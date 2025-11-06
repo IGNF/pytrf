@@ -4075,11 +4075,7 @@ class model:
         # but there is an obvious problem with argument dims.
         if (psd is not None) and (len(dims) != r.nd):
             raise RuntimeError('Provided argument dims=\''+dims+'\' does not match time series dimension.')
-        
-        # Time series start and end dates
-        tmin = r.t[0]
-        tmax = r.t[-1]
-        
+
         # Get index of station in discontinuity list
         i = None
         if (pt is not None):
@@ -4116,6 +4112,10 @@ class model:
                 r.del_points(ind)
                 for d in range(m.nd):
                     m[d].r = m.r[d]
+
+            # Time series start and end dates
+            tmin = r.t[0]
+            tmax = r.t[-1]
 
             # Full list of position discontinuities
             tp = []
