@@ -226,6 +226,7 @@ def read_solns(file):
                     r.pt = pt
                     r.P = []
                     r.V = []
+                    r.X = []
                     solns.append(r)
 
                 # Position soln?
@@ -245,6 +246,15 @@ def read_solns(file):
                     r.end = line[29:41]
                     r.cause = line[46:].strip()
                     solns[ista].V.append(r)
+
+                # Problematic period?
+                elif (line[42:43] == 'X'):
+                    r = record()
+                    r.soln = line[9:13]
+                    r.start = line[16:28]
+                    r.end = line[29:41]
+                    r.cause = line[46:].strip()
+                    solns[ista].X.append(r)
 
             line = f.readline()
 

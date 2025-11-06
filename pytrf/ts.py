@@ -4097,6 +4097,26 @@ class model:
         # If station was found in discontinuity list,
         if (i is not None):
             
+            # Loop over specified outlier periods
+            for x in solns[i].X:
+
+                # Get start and end MJDs
+                if (x.start == '00:000:00000'):
+                    start = -np.inf
+                else:
+                    start = date.from_tsnx(x.start).mjd
+
+                if (x.end == '00:000:00000'):
+                    end = np.inf
+                else:
+                    end = date.from_tsnx(x.end).mjd
+
+                # Delete observations within current period
+                ind = np.nonzero((r.t >= start) * (r.t <= end))[0]
+                r.del_points(ind)
+                for d in range(m.nd):
+                    m[d].r = m.r[d]
+
             # Full list of position discontinuities
             tp = []
             for p in solns[i].P:

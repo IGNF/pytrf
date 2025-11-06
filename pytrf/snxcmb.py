@@ -1187,6 +1187,13 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         sol.sv *= sqrt(vf)
         sol.vn /= sqrt(vf)
         sol.sigm *= sqrt(vf)
+
+    # Update covariance matrix and standard deviations of transformation parameters
+    # with global variance factor if they were reduced
+    if (reduce_trans):
+        for sol in inputs:
+            sol.QT *= vf
+            sol.sT *= sqrt(vf)
         
     # Update combined solution with global variance factor
     combsnx.Nc /= vf 
