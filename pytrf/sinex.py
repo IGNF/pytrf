@@ -504,7 +504,7 @@ class sinex:
                         r.start = line[16:28]
                         r.end = line[29:41]
                         r.type = line[42:62]
-                        r.serie = line[63:68]
+                        r.serie = '{0:<5s}'.format(line[63:68].strip())
                         if (len(line) > 72):
                             if (isfloat(line[69:])):
                                 r.daz = '{0:4d}'.format(round(float(line[69:])))
