@@ -5252,17 +5252,23 @@ class sinex:
         (lon, lat) = snx.get_lonlat(code)
         station_map(lon, lat, code, write_codes, title, output)
 
-    # Draw station position residual map
-    #-----------------------------------
-    def map_res(snx, v, title=None, output=None):
+    # Draw station position or velocity residual map
+    #-----------------------------------------------
+    def map_res(snx, v, unit='mm', scale=14, legend=5, title=None, output=None):
 
         """
-        Draw station position residual map
+        Draw station position or velocity residual map
 
         Parameters
         ----------
         v : array_like
             Array of residuals
+        unit : str, optional
+            Unit to be printed in the legend. Default is 'mm'.
+        scale : float, optional
+            Controls the length of the arrows in the map. Default is 14.
+        legend : float, optional
+            Value of the residuals to be drawn in the legend. Default is 5.
         title : str, optional
             Map title. Default is None.
         output : str, optional
@@ -5271,7 +5277,7 @@ class sinex:
         """
 
         # Draw basemap
-        pp.figure(figsize=(12, 9))
+        pp.figure(figsize=(12, 6.5))
         ax = pp.axes(projection=ccrs.PlateCarree())
         ax.axis([-180, 180, -90, 90])
         ax.add_feature(cfeature.LAND)
@@ -5296,24 +5302,24 @@ class sinex:
         ax.plot(lon, lat, '.k', markersize=4)
 
         # Plot horizontal residuals
-        ve = v[ix].tolist() + [5, 0, 0]
+        ve = v[ix].tolist() + [legend, 0, 0]
         vn = v[ix+1].tolist() + [0, 0, 0]
-        ax.quiver(lon, lat, ve, vn, units='dots', width=3, scale=7e-2, color='black')
+        ax.quiver(lon, lat, ve, vn, units='dots', width=3, scale=1/scale, color='black')
 
         # Plot vertical residuals
-        vh = v[ix+2].tolist() + [0, -5, 5]
+        vh = v[ix+2].tolist() + [0, -legend, legend]
         for i in range(len(lon)):
             if (vh[i] > 0):
-                ax.plot([lon[i], lon[i]], [lat[i], lat[i]+1.5*vh[i]], linewidth=2, color='red')
+                ax.plot([lon[i], lon[i]], [lat[i], lat[i]+1.5*scale/14*vh[i]], linewidth=2, color='red')
             else:
-                ax.plot([lon[i], lon[i]], [lat[i], lat[i]+1.5*vh[i]], linewidth=2, color='green')
+                ax.plot([lon[i], lon[i]], [lat[i], lat[i]+1.5*scale/14*vh[i]], linewidth=2, color='green')
         
         # Legend box
-        ax.plot([-143, -97, -97, -143, -143], [-36, -36, -62, -62, -36], linewidth=3, color='black')
+        ax.plot([-143, -86, -86, -143, -143], [-36, -36, -62, -62, -36], linewidth=3, color='black')
         
         # Legend text
-        pp.text(-100, -42, '5 mm', ha='right', va='center', fontsize=12)
-        pp.text(-100, -52, r'$\pm$ 5 mm', ha='right', va='center', fontsize=12)
+        pp.text(-89, -42, str(legend)+' '+unit, ha='right', va='center', fontsize=12)
+        pp.text(-89, -52, r'$\pm$ '+str(legend)+' '+unit, ha='right', va='center', fontsize=12)
         
         # Tight layout
         pp.tight_layout()
