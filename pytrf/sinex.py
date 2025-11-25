@@ -733,7 +733,7 @@ class sinex:
 
             # Read SOLUTION/MATRIX_APRIORI block -> snx.Nc
             if ('SOLUTION/MATRIX_APRIORI' in blocks) and not('apriori' in dont_read) and not('matrices' in dont_read):
-                Q = np.zeros((snx.npar, snx.npar))
+                Q = np.zeros((len(snx.prior), len(snx.prior)))
                 f.seek(addresses[blocks.index('SOLUTION/MATRIX_APRIORI')])
                 line = f.readline()
                 while (line[0] != '-'):
@@ -756,7 +756,7 @@ class sinex:
                     # PATCH: if there are parameters with zero a priori variances,
                     if (np.any(np.diag(Q) == 0)):
                         indc = np.nonzero(np.diag(Q))[0]
-                        snx.Nc = np.zeros((snx.npar, snx.npar))
+                        snx.Nc = np.zeros((len(snx.prior), len(snx.prior)))
                         snx.Nc[np.ix_(indc,indc)] = invspd(Q[np.ix_(indc,indc)])
 
                     # Else,

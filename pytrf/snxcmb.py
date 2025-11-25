@@ -14,6 +14,7 @@ import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
 import networkx as nx
+from traceback import print_exc
 
 # Internal imports
 #-----------------
@@ -1045,8 +1046,25 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         print('', file=out)
         print('    '+str(date())+' : Solve normal equation', file=out)
 
-    # Solve normal equation
-    xNx = combsnx.neqinv(clear_neq=clear_neq, return_xNx=True)
+    # Try to solve normal equation
+    try:
+        xNx = combsnx.neqinv(clear_neq=clear_neq, return_xNx=True)
+
+    # If resolution failed, try to pinpoint problematic points
+    except:
+        print_exc()
+
+        codeptsoln = np.array([p.code+p.pt+p.soln for p in combsnx.param])
+        for s in combsnx.sta:
+            for soln in [ss.soln for ss in s.soln]:
+                ind = np.nonzero(codeptsoln == s.code+s.pt+soln)[0]
+                N = combsnx.N[np.ix_(ind,ind)] + combsnx.Nc[np.ix_(ind,ind)]
+                try:
+                    Q = invspd(N)
+                except:
+                    print('It looks like combined coordinates cannot be estimated for:', s.code, s.pt, soln)
+
+        sys.exit()
 
 
 
