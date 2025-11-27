@@ -3812,13 +3812,12 @@ class model:
         
     Each model instance has the following methods:
     
-        add_function() : Add custom function to model
         add_polynom()  : Add polynomial function to model
         add_sine()     : Add sine wave function to model
+        add_poisson()  : Add Poisson function to model
         add_exp()      : Add exponential function to model
         add_log()      : Add logarithmic function to model
         add_psd()      : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
-        add_noise()    : Add custom noise to model
         add_wn()       : Add homogeneous white noise to model
         add_vw()       : Add variable white noise to model
         add_ar1()      : Add AR(1) process to model
@@ -3828,6 +3827,18 @@ class model:
         add_ggm()      : Add GGM process to model
         add_figgm()    : Add FIGGM process to model
         add_jumps()    : Add jumps to specified polynomial and/or sine wave functions of model
+        del_polynom()  : Remove polynomial function from model
+        del_sine()     : Remove sine wave function from model
+        del_poisson()  : Remove Poisson function from model
+        del_exp()      : Remove exponential function from model
+        del_log()      : Remove logarithmic function from model
+        del_wn()       : Remove homogeneous white noise from model
+        del_vw()       : Remove variable white noise from model
+        del_ar1()      : Remove AR(1) process from model
+        del_pl()       : Remove power-law noise from model
+        del_ggm()      : Remove GGM process from model
+        del_figgm()    : Remove FIGGM process from model
+        del_jumps()    : Remove jumps from specified polynomial and/or sine wave functions
         set_x0()       : Set default a priori values for unknown deterministic parameters
         set_x()        : Set values of unknown deterministic parameters
         get_x()        : Get values of unknown deterministic parameters
@@ -4159,21 +4170,21 @@ class model:
             
         return m
         
-    # Add custom function to model
-    #-----------------------------
-    def add_function(m, f):
+    ## Add custom function to model
+    ##-----------------------------
+    #def add_function(m, f):
 
-        """
-        Add custom function to model
+        #"""
+        #Add custom function to model
 
-        Parameters
-        ----------
-            f : function instance
+        #Parameters
+        #----------
+            #f : function instance
             
-        """
+        #"""
         
-        for d in range(m.nd):
-            m[d].f.append(f)
+        #for d in range(m.nd):
+            #m[d].f.append(f)
             
     # Add dirac function to model
     #---------------------------------
@@ -4222,6 +4233,31 @@ class model:
         
         for d in range(m.nd):
             m[d].f.append(polynom(deg, t, x, fix_x, m.r.tunit, m.r.yunit))
+
+    # Remove polynomial function from model
+    #--------------------------------------
+    def del_polynom(m, deg):
+
+        """
+        Remove polynomial function from model
+
+        Parameters
+        ----------
+        deg : int
+            Polynomial degree
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].f)):
+                if isinstance(m[d].f[i], polynom):
+                    if (m[d].f[i].deg == deg):
+                        m[d].f.pop(i)
+                    else:
+                        i += 1
+                else:
+                    i += 1
         
     # Add sine wave function to model
     #--------------------------------
@@ -4233,7 +4269,7 @@ class model:
         Parameters
         ----------
         per : float
-            Period in days
+            Period
         t : list, optional
             List of dates (dates of jumps)
         x : array, optional
@@ -4246,6 +4282,31 @@ class model:
         
         for d in range(m.nd):
             m[d].f.append(sine(per, t, x, fix_x, m.r.yunit))
+
+    # Remove sine wave function from model
+    #-------------------------------------
+    def del_sine(m, per):
+
+        """
+        Remove sine wave function from model
+
+        Parameters
+        ----------
+        per : float
+            Period
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].f)):
+                if isinstance(m[d].f[i], sine):
+                    if (m[d].f[i].per == per):
+                        m[d].f.pop(i)
+                    else:
+                        i += 1
+                else:
+                    i += 1
         
     # Add Poisson function to model
     #------------------------------
@@ -4257,9 +4318,9 @@ class model:
         Parameters
         ----------
         per : float
-            Period in days
+            Period
         deg : int
-            Polynoms degree
+            Polynomial degree
         x : array, optional
             Parameter values. Default is None.
         fix_x : bool or array of bool, optional
@@ -4269,6 +4330,33 @@ class model:
 
         for d in range(m.nd):
             m[d].f.append(poisson(per, deg, x, fix_x, m.r.tunit, m.r.yunit))
+
+    # Remove Poisson function from model
+    #-----------------------------------
+    def del_poisson(m, per, deg):
+
+        """
+        Remove Poisson function from model
+
+        Parameters
+        ----------
+        per : float
+            Period
+        deg : int
+            Polynomial degree
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].f)):
+                if isinstance(m[d].f[i], poisson):
+                    if (m[d].f[i].per == per) and (m[d].f[i].deg == deg):
+                        m[d].f.pop(i)
+                    else:
+                        i += 1
+                else:
+                    i += 1
 
     # Add exponential function to model
     #----------------------------------
@@ -4294,6 +4382,31 @@ class model:
         
         for d in range(m.nd):
             m[d].f.append(fexp(t0, amp, tau, fix_amp, fix_tau, m.r.tunit, m.r.yunit))
+
+    # Remove exponential function from model
+    #---------------------------------------
+    def del_exp(m, t0):
+
+        """
+        Remove exponential function from model
+
+        Parameters
+        ----------
+        t0 : float
+            Start date
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].f)):
+                if isinstance(m[d].f[i], fexp):
+                    if (m[d].f[i].t0 == t0):
+                        m[d].f.pop(i)
+                    else:
+                        i += 1
+                else:
+                    i += 1
     
     # Add logarithmic function to model
     #----------------------------------
@@ -4319,6 +4432,31 @@ class model:
         
         for d in range(m.nd):
             m[d].f.append(flog(t0, amp, tau, fix_amp, fix_tau, m.r.tunit, m.r.yunit))
+
+    # Remove logarithmic function from model
+    #---------------------------------------
+    def del_log(m, t0):
+
+        """
+        Remove logarithmic function from model
+
+        Parameters
+        ----------
+        t0 : float
+            Start date
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].f)):
+                if isinstance(m[d].f[i], flog):
+                    if (m[d].f[i].t0 == t0):
+                        m[d].f.pop(i)
+                    else:
+                        i += 1
+                else:
+                    i += 1
         
     # Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
     #----------------------------------------------------------------------------------------------------
@@ -4385,21 +4523,21 @@ class model:
                 elif (p.type[1:4] == 'LOG'):
                     m[d].add_log(t, amp, tau, fix_amp, fix_tau)
         
-    # Add custom noise to model
-    #-----------------------------
-    def add_noise(m, n):
+    ## Add custom noise to model
+    ##-----------------------------
+    #def add_noise(m, n):
 
-        """
-        Add custom noise to model
+        #"""
+        #Add custom noise to model
 
-        Parameters
-        ----------
-            n : noise instance
+        #Parameters
+        #----------
+            #n : noise instance
             
-        """
+        #"""
         
-        for d in range(m.nd):
-            m[d].n.append(n)
+        #for d in range(m.nd):
+            #m[d].n.append(n)
 
     # Add homogeneous white noise to model
     #-------------------------------------
@@ -4423,6 +4561,23 @@ class model:
         for d in range(m.nd):
             m[d].n.append(wn(dt=dt, s2=s2, fix_s2=fix_s2, yunit=m.r.yunit))
 
+    # Remove homogeneous white noise from model
+    #------------------------------------------
+    def del_wn(m):
+
+        """
+        Remove homogeneous white noise from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], wn):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
+
     # Add variable white noise to model
     #----------------------------------
     def add_vw(m, s2=None, fix_s2=False):
@@ -4442,6 +4597,23 @@ class model:
         
         for d in range(m.nd):
             m[d].n.append(vw(s2=s2, fix_s2=fix_s2))
+
+    # Remove variable white noise from model
+    #---------------------------------------
+    def del_vw(m):
+
+        """
+        Remove homogeneous white noise from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], vw):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
 
     # Add AR(1) process to model
     #---------------------------
@@ -4480,6 +4652,23 @@ class model:
         
         for d in range(m.nd):
             m[d].n.append(ar1(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, tau=tau, fix_tau=fix_tau, tunit=m.r.tunit, yunit=m.r.yunit))
+
+    # Remove AR(1) process from model
+    #--------------------------------
+    def del_ar1(m):
+
+        """
+        Remove AR(1) process from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], ar1):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
 
     # Add power-law noise to model
     #-----------------------------
@@ -4522,6 +4711,24 @@ class model:
         
         for d in range(m.nd):
             m[d].n.append(pl(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tn=tn, yunit=m.r.yunit))
+
+
+    # Remove power-law noise from model
+    #----------------------------------
+    def del_pl(m):
+
+        """
+        Remove power-law noise from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], pl):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
 
     # Add flicker noise to model
     #---------------------------
@@ -4642,6 +4849,23 @@ class model:
         for d in range(m.nd):
             m[d].n.append(ggm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a=a, fix_a=fix_a, tau=tau, fix_tau=fix_tau, tn=tn, tunit=m.r.tunit, yunit=m.r.yunit))
 
+    # Remove GGM process from model
+    #------------------------------
+    def del_ggm(m):
+
+        """
+        Remove GGM process from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], ggm):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
+
     # Add FIGGM process to model
     #-------------------------
     def add_figgm(m, dt=None, per=None, flow='2-way', s2=None, fix_s2=False, a1=None, fix_a1=False, tau=None, fix_tau=False, a2=None, fix_a2=False, tn=None):
@@ -4691,6 +4915,23 @@ class model:
         
         for d in range(m.nd):
             m[d].n.append(figgm(dt=dt, per=per, flow=flow, s2=s2, fix_s2=fix_s2, a1=a1, fix_a1=fix_a1, tau=tau, fix_tau=fix_tau, a2=a2, fix_a2=fix_a2, tn=tn, tunit=m.r.tunit, yunit=m.r.yunit))
+
+    # Remove FIGGM process from model
+    #--------------------------------
+    def del_figgm(m):
+
+        """
+        Remove FIGGM process from model
+
+        """
+
+        for d in range(m.nd):
+            i = 0
+            while (i < len(m[d].n)):
+                if isinstance(m[d].n[i], figgm):
+                    m[d].n.pop(i)
+                else:
+                    i += 1
             
     # Add jumps to specified polynomial and/or sine wave functions of model
     #----------------------------------------------------------------------
@@ -4720,6 +4961,35 @@ class model:
                 elif isinstance(f, sine):
                     if (f.per in per):
                         m[d].f[i] = sine(f.per, sorted(f.t+t))
+
+    # Remove jumps from specified polynomial and/or sine wave functions of model
+    #---------------------------------------------------------------------------
+    def del_jumps(m, t, deg=[], per=[]):
+
+        """
+        Remove jumps from specified polynomial and/or sine wave functions of model
+
+        Parameters
+        ----------
+        t : list
+            Dates of jumps
+        deg : list, optional
+            List of polynomial degrees for which the jump should be removed
+        per : list, optional
+            List of sine wave periods for which the jump should be removed
+
+        """
+
+        # Loop over dimensions and functions
+        for d in range(m.nd):
+            for i in range(len(m[d].f)):
+                f = m[d].f[i]
+                if isinstance(f, polynom):
+                    if (f.deg in deg):
+                        m[d].f[i] = polynom(f.deg, np.setdiff1d(f.t, t).tolist())
+                elif isinstance(f, sine):
+                    if (f.per in per):
+                        m[d].f[i] = sine(f.per, np.setdiff1d(f.t, t).tolist())
 
     # Set default a priori values for unknown deterministic parameters
     #----------------------------------------------------------------
