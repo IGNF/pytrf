@@ -9,6 +9,7 @@ This subpackage contains various useful classes for modeling time series.
 #-----------------
 import sys
 eps = sys.float_info.epsilon
+import warnings
 import copy
 import pickle
 from math import pi, sqrt, exp, log, ceil, factorial, sinh, cosh, tanh, asinh, atanh
@@ -182,6 +183,19 @@ class ts:
                 r.Q = Q.copy()
             else:
                 r.Q = None
+
+            # Sort dates if needed
+            if np.any(r.t[:-1] > r.t[1:]):
+                warnings.warn('Dates automatically sorted while constructing pytrf ts object from unsorted array of dates.')
+                ind = np.argsort(r.t)
+                r.t = r.t[ind]
+                r.y = r.y[ind]
+                if (r.Q is not None):
+                    r.Q = r.Q[ind]
+
+            # Raise a warning if there are duplicate dates
+            if np.any(r.t[:-1] == r.t[1:]):
+                warnings.warn('Constructed pytrf ts object includes duplicate dates.')
             
             # Set integration intervals
             if (T is not None):
