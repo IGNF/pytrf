@@ -13,8 +13,8 @@ import sys
 
 from platformdirs import user_config_dir, user_data_dir
 import os
-from pytrf.io import read_yaml
-import yaml
+from pytrf.io import read_yaml, write_yaml
+
 
 class MyApp(QMainWindow):
 
@@ -28,8 +28,8 @@ class MyApp(QMainWindow):
         print("Répertoire de données :", self.data_dir)
 
     def initUI(self):
-        self.setWindowTitle("Example of PyQt6 App")
-        self.setGeometry(800, 100, 500, 300)
+        self.setWindowTitle("Pytrf")
+        #self.setGeometry(800, 100, 500, 300)
 
         # --- Central widget ---
         central_widget = QWidget()
@@ -123,25 +123,22 @@ class MyApp(QMainWindow):
 
     # --- Actions ---      
     def action_new(self):
-        dialog =  DialogNewProject()
-        result = dialog.exec()
+        dialog =  DialogNewProject('new')
+        dialog.exec()      
         
     def action_modify(self):
-        print("Modify project")
+        dialog =  DialogNewProject('modify')
+        dialog.exec()  
 
     def open_yaml_file(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Ouvrir un fichier YAML", "", "YAML Files (*.yaml *.yml)")
-        if file_path:
-            with open(file_path, "r", encoding="utf-8") as f:
-                try:
-                    print('file_path', file_path)
-                    data = read_yaml(file_path)
-                    self.text_edit.setPlainText(str(data))
-                    print("Contenu YAML :", data)
-                except :
-                    self.text_edit.setPlainText("Erreur lecture YAML")         
-    
-            
+       
+        try:
+            data = read_yaml(file_path)
+            self.text_edit.setPlainText(str(data))
+        except Exception as e:
+            print(e)
+            self.text_edit.setPlainText("Erreur lecture YAML")           
 
 class ComboBoxTS(QComboBox):
     def __init__(self):
@@ -155,11 +152,14 @@ class ComboBoxTS(QComboBox):
 
 class DialogNewProject(QDialog):
     
-    def __init__(self):
+    def __init__(self, mode):
         super().__init__()
         self.setWindowTitle("New Project")
         self.setMinimumWidth(600)
-
+        
+        #mode = 'modify' or 'new'
+        self.mode = mode
+        
         general_layout = QVBoxLayout()
         
         #message
@@ -170,12 +170,15 @@ class DialogNewProject(QDialog):
         btn_and_path_layout = QHBoxLayout()
         
         btn_layout = QVBoxLayout()
+        btn_load_yaml = QPushButton("Load existing project (YAML)")
         btn_ts = QPushButton("Add time serie folder")
         btn_model = QPushButton("Add model")
         btn_sitelogs = QPushButton("Add sitelogs")
         btn_discontinuity = QPushButton("Add discontinuity file")
         btn_psd = QPushButton("Add PSD file")
         
+        btn_layout.addWidget(btn_load_yaml)
+        btn_layout.addSpacing(30)
         btn_layout.addWidget(btn_ts)
         btn_layout.addWidget(btn_model)
         btn_layout.addWidget(btn_sitelogs)
@@ -183,6 +186,7 @@ class DialogNewProject(QDialog):
         btn_layout.addWidget(btn_psd)
         
         # Connect buttons
+        btn_load_yaml.clicked.connect(self.load_yaml_project)
         btn_ts.clicked.connect(self.load_ts)
         btn_model.clicked.connect(self.load_model)
         btn_sitelogs.clicked.connect(self.load_sitelogs)
@@ -191,14 +195,24 @@ class DialogNewProject(QDialog):
         
         btn_and_path_layout.addLayout(btn_layout)
         
+        if self.mode == "new":
+            btn_load_yaml.hide()
+            
+        elif self.mode == "modify":
+            btn_load_yaml.show()
+            self.message.setText("Modify existing project")
+        
         # text
         text_layout = QVBoxLayout()
+        self.label_project_path = QLabel()
+        btn_layout.addSpacing(30)
         self.label_ts_path = QLabel()
         self.label_model_path = QLabel()
         self.label_sitelogs_path = QLabel()
         self.label_discontinuity_path = QLabel()
         self.label_psd_path = QLabel()       
         
+        text_layout.addWidget(self.label_project_path)
         text_layout.addWidget(self.label_ts_path)
         text_layout.addWidget(self.label_model_path)
         text_layout.addWidget(self.label_sitelogs_path)
@@ -210,14 +224,41 @@ class DialogNewProject(QDialog):
         general_layout.addLayout(btn_and_path_layout)
         
         #last button
-        btn_create = QPushButton("Create")
+        if self.mode == "new":
+            btn_create = QPushButton("Create")
+            
+        elif self.mode == "modify":
+            btn_create = QPushButton("Modify")
+            
         general_layout.addWidget(btn_create)
         btn_create.clicked.connect(self.create_project)
         
         self.setLayout(general_layout)
 
-      
+    # --- Actions ---
+    
+    def load_yaml_project(self):
+        file_path, _ = QFileDialog.getOpenFileName(self, "Open project YAML", "", "YAML Files (*.yaml *.yml)")
+    
+        if not file_path:
+            return
+    
+        try:
+            data = read_yaml(file_path)
+    
+            # fill fields
+            self.label_project_path.setText(file_path)
+            self.label_ts_path.setText(data.ts_path)
+            self.label_model_path.setText(data.model_path)
+            self.label_sitelogs_path.setText(data.sitelogs_path)
+            self.label_discontinuity_path.setText(data.discontinuity_path)
+            self.label_psd_path.setText(data.psd_path)
         
+        except Exception as e:
+            print("Erreur lecture YAML:", e)
+            self.message.setText("Error loading YAML file")
+        
+    
     def load_ts(self):
         folder = QFileDialog.getExistingDirectory(self, "Select time series folder")
     
@@ -257,7 +298,7 @@ class DialogNewProject(QDialog):
             'discontinuity_path':self.label_discontinuity_path.text(),
             'psd_path':self.label_psd_path.text()
             }
-        
+       
         
         file_path, _ = QFileDialog.getSaveFileName(self, 
             "Save Project As",
@@ -266,11 +307,12 @@ class DialogNewProject(QDialog):
         )
     
         if file_path: 
-            with open(file_path, "w", encoding="utf-8") as file:
-                yaml.dump(data, file, allow_unicode=True, sort_keys=False)
-         
-        self.accept() #close DialogNewProject()
+            write_yaml(data, file_path)
             
+        self.accept() #close DialogNewProject()
+   
+
+    
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MyApp()
