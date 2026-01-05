@@ -4,6 +4,7 @@ Created on Fri Nov 28 20:29:59 2025
 
 @author: loeva
 """
+import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QApplication, QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QDoubleSpinBox, QFileDialog,
@@ -15,8 +16,12 @@ import sys
 from platformdirs import user_cache_dir
 import os
 from pytrf.io import read_yaml, write_yaml
+from pytrf.ts import ts
 
-import matplotlib
+from matplotlib.backends.backend_qtagg import (
+    FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
+from matplotlib.figure import Figure
+
 
 class MyApp(QMainWindow):
 
@@ -73,7 +78,7 @@ class MyApp(QMainWindow):
         main_layout.addLayout(button_layout)
         
 
-        # ---- Control pannel ----
+        # ---- Control pannel (left pannel)----
         
         self.control_panel = QTabWidget()
 
@@ -108,10 +113,19 @@ class MyApp(QMainWindow):
         
         middle_layout = QVBoxLayout()
         middle_layout.addWidget(self.combobox_ts)
-        middle_layout.addWidget(self.text_edit)
+        
+        # add matplotlib graph
+        self.canvas = MplCanvas(self, width=5, height=6, dpi=100)
+        middle_layout.addWidget(NavigationToolbar(self.canvas, self)) 
+        self.load_ts_graph(r'G:\Mon Drive\AB01_igs.xyz')
+        middle_layout.addWidget(self.canvas)
+        
+        #middle_layout.addWidget(self.text_edit)
         middle_layout.addWidget(self.btn_remove_pts)
         middle_layout.addWidget(self.sbox_seuil)
         
+        
+  
         pannels_layout.addLayout(middle_layout)
         main_layout.addLayout(pannels_layout)
         
@@ -140,11 +154,13 @@ class MyApp(QMainWindow):
     # --- Actions ---      
     def action_new(self):
         dialog =  DialogNewProject('new')
+        dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec() 
         
         
     def action_modify(self):
         dialog =  DialogNewProject('modify')
+        dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec()  
 
     def open_yaml_file(self):
@@ -153,10 +169,27 @@ class MyApp(QMainWindow):
         try:
             data = read_yaml(file_path)
             self.text_edit.setPlainText(str(data))
-            self.combobox_ts.fill_combobox(data.ts_path)
+            #self.combobox_ts.fill_combobox(data.ts_path)
         except Exception as e:
             print(e)
-            self.text_edit.setPlainText("Erreur lecture YAML")         
+            self.text_edit.setPlainText("Erreur lecture YAML")     
+    
+    def load_ts_graph(self, file_path):
+        r = ts.read(
+            file_path,
+            usecols=(2,4,5,6,7,8,9,10,11,12),
+            format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
+            dtrd=1,
+            rotate=True
+        )
+        """
+        pour est : np.sqrt(r.Q[:,0,0])
+        pour nord    np.sqrt(r.Q[:,1,1])
+        mettre les dates au format jj/m/aaaa
+        """
+        self.canvas.plot_data(r)
+
+
             
     
 
@@ -185,11 +218,11 @@ class ComboBoxTS(QComboBox):
 
 
 class DialogNewProject(QDialog):
+    tsPathChanged = pyqtSignal(str)
     
     def __init__(self, mode):
         super().__init__()
         self.setMinimumWidth(600)
-        
         #cache
         self.cache_dir = user_cache_dir("Pytrf", None)
         os.makedirs(self.cache_dir, exist_ok=True)
@@ -299,6 +332,8 @@ class DialogNewProject(QDialog):
             self.label_sitelogs_path.setText(data.sitelogs_path)
             self.label_discontinuity_path.setText(data.discontinuity_path)
             self.label_psd_path.setText(data.psd_path)
+            
+            self.tsPathChanged.emit(data.ts_path)
            
         except Exception as e:
             print("Erreur lecture YAML:", e)
@@ -310,6 +345,7 @@ class DialogNewProject(QDialog):
     
         if folder:
             self.label_ts_path.setText(folder)
+            self.tsPathChanged.emit(folder)
     
     def load_model(self):
         folder = QFileDialog.getExistingDirectory(self, "Select model folder")
@@ -385,7 +421,46 @@ class DialogNewProject(QDialog):
         self.save_cache()
         event.accept()
 
+class TSGraph(FigureCanvas):
+    """
+    graph of the temporal series
+    """
+class MplCanvas(FigureCanvas):
+    def __init__(self, parent=None, width=5, height=6, dpi=100):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        # 3 graphs
+        self.axes = fig.subplots(nrows=3, ncols=1, sharex=False)
+        super().__init__(fig)
+        self.setParent(parent)
+    
+    def plot_data(self, r):
+       x = r.t
+       y = r.y
+       # y doit être un tableau Nx3
+       labels = ['East[m]', 'North[m]',' Up[m]']
+       print(r.Q)
+       for i in range(3):
+           self.axes[i].clear()
+           self.axes[i].grid()
+           #self.axes[i].scatter(x, y[:, i], s=3, c='black', zorder=10)
+           #self.axes[i].errorbar(x, y[:,i], yerr = r.Q[:,i,i])
+           self.axes[i].errorbar(
+                 x, y[:, i], 
+                 yerr=np.sqrt(r.Q[:, i, i]), 
+                 fmt='o',         # 'o' pour marker
+                 ms=2,            # taille du marker
+                 mec='black',     # contour marker
+                 mfc='black',     # remplissage marker
+                 ecolor='black',    # couleur des barres d'erreur
+                 elinewidth=0.5,  # largeur des barres
+                 zorder=10
+             )
+           self.axes[i].set_ylabel(labels[i], fontsize=8)
+           self.axes[i].tick_params(axis='both', labelsize=7)
 
+           
+       self.figure.tight_layout()
+       self.draw()
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)
