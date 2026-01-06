@@ -14,7 +14,9 @@ from PyQt6.QtCore import pyqtSignal
 import sys
 
 from platformdirs import user_cache_dir
+
 import os
+
 from pytrf.io import read_yaml, write_yaml
 from pytrf.ts import ts
 
@@ -22,6 +24,7 @@ from matplotlib.backends.backend_qtagg import (
     FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 
+from datetime import datetime, timedelta
 
 class MyApp(QMainWindow):
 
@@ -182,16 +185,8 @@ class MyApp(QMainWindow):
             dtrd=1,
             rotate=True
         )
-        """
-        pour est : np.sqrt(r.Q[:,0,0])
-        pour nord    np.sqrt(r.Q[:,1,1])
-        mettre les dates au format jj/m/aaaa
-        """
         self.canvas.plot_data(r)
-
-
-            
-    
+        
 
 
 class ComboBoxTS(QComboBox):
@@ -434,11 +429,10 @@ class MplCanvas(FigureCanvas):
         self.setParent(parent)
     
     def plot_data(self, r):
-       x = r.t
-       y = r.y
-       # y doit être un tableau Nx3
-       labels = ['East[m]', 'North[m]',' Up[m]']
-       print(r.Q)
+       #x = r.t
+       x = np.array([MplCanvas.mjd_to_datetime(m) for m in r.t])
+       y = r.y*1e3
+       labels = ['East[mm]', 'North[mm]',' Up[mm]']
        for i in range(3):
            self.axes[i].clear()
            self.axes[i].grid()
@@ -446,21 +440,25 @@ class MplCanvas(FigureCanvas):
            #self.axes[i].errorbar(x, y[:,i], yerr = r.Q[:,i,i])
            self.axes[i].errorbar(
                  x, y[:, i], 
-                 yerr=np.sqrt(r.Q[:, i, i]), 
+                 yerr=np.sqrt(r.Q[:, i, i]*1e6), 
                  fmt='o',         # 'o' pour marker
-                 ms=2,            # taille du marker
+                 ms=1,            # taille du marker
                  mec='black',     # contour marker
                  mfc='black',     # remplissage marker
                  ecolor='black',    # couleur des barres d'erreur
                  elinewidth=0.5,  # largeur des barres
                  zorder=10
              )
+
            self.axes[i].set_ylabel(labels[i], fontsize=8)
            self.axes[i].tick_params(axis='both', labelsize=7)
 
            
        self.figure.tight_layout()
        self.draw()
+   
+    def mjd_to_datetime(mjd):
+          return datetime(1858, 11, 17) + timedelta(days=float(mjd))
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)
