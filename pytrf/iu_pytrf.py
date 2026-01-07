@@ -24,7 +24,6 @@ from matplotlib.backends.backend_qtagg import (
     FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
 
-from datetime import datetime, timedelta
 
 class MyApp(QMainWindow):
 
@@ -32,19 +31,18 @@ class MyApp(QMainWindow):
         super().__init__()
         self.initUI()
         
+        self.ts_path = None
+        
         # Cache utilisateur
-        self.cache_dir = user_cache_dir(
-            appname="Pytrf",
-            appauthor=None
-        )
-        os.makedirs(self.cache_dir, exist_ok=True)
+        #self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
+        #os.makedirs(self.cache_dir, exist_ok=True)
         """
         The temporary file is created at this place : 
         Linux : ~/.cache/Pytrf/
         Windows : C:\ Users\...\AppData\Local\Pytrf\Cache
         """
 
-        print("Cache dir:", self.cache_dir)
+        #print("Cache dir:", self.cache_dir)
         
         # # Répertoire de données avec platformdirs
         # self.data_dir = user_data_dir("MonLogiciel", "MonNom")
@@ -118,9 +116,9 @@ class MyApp(QMainWindow):
         middle_layout.addWidget(self.combobox_ts)
         
         # add matplotlib graph
-        self.canvas = MplCanvas(self, width=5, height=6, dpi=100)
+        self.canvas = TSGraph(self, width=5, height=6, dpi=100)
         middle_layout.addWidget(NavigationToolbar(self.canvas, self)) 
-        self.load_ts_graph(r'G:\Mon Drive\AB01_igs.xyz')
+        self.combobox_ts.currentIndexChanged.connect(self.update_ts_graph)
         middle_layout.addWidget(self.canvas)
         
         #middle_layout.addWidget(self.text_edit)
@@ -172,7 +170,19 @@ class MyApp(QMainWindow):
         try:
             data = read_yaml(file_path)
             self.text_edit.setPlainText(str(data))
-            #self.combobox_ts.fill_combobox(data.ts_path)
+            
+            #fill combobox and draw first ts graph
+            # if hasattr(data, "ts_path"):
+            #     self.combobox_ts.fill_combobox(data.ts_path)
+            #     self.ts_path = data.ts_path
+            if data.ts_path:
+                self.combobox_ts.fill_combobox(data.ts_path)
+                self.ts_path = data.ts_path
+            
+                if self.combobox_ts.count() > 0:
+                    self.update_ts_graph()
+
+
         except Exception as e:
             print(e)
             self.text_edit.setPlainText("Erreur lecture YAML")     
@@ -187,6 +197,17 @@ class MyApp(QMainWindow):
         )
         self.canvas.plot_data(r)
         
+    
+    def update_ts_graph(self):
+        selected_name = self.combobox_ts.currentText()
+        if not selected_name or not self.ts_path:
+            return
+    
+        file_path = os.path.join(self.ts_path, selected_name)
+        if os.path.isfile(file_path):
+            self.load_ts_graph(file_path)
+
+        
 
 
 class ComboBoxTS(QComboBox):
@@ -195,12 +216,6 @@ class ComboBoxTS(QComboBox):
        super().__init__()
        if ts_path:
            self.fill_combobox(ts_path)
-
-    # def fill_combobox(self):
-    #     ts_name = os.listdir(DialogNewProject.label_ts_path)
-        
-    #     for i in ts_name : 
-    #         self.addItem(i)
 
     def fill_combobox(self, ts_path: str):
         self.clear()
@@ -219,13 +234,13 @@ class DialogNewProject(QDialog):
         super().__init__()
         self.setMinimumWidth(600)
         #cache
-        self.cache_dir = user_cache_dir("Pytrf", None)
-        os.makedirs(self.cache_dir, exist_ok=True)
+        # self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
+        # os.makedirs(self.cache_dir, exist_ok=True)
 
-        self.cache_file = os.path.join(
-            self.cache_dir,
-            "dialog_new_project.yaml"
-        )
+        # self.cache_file = os.path.join(
+        #     self.cache_dir,
+        #     "dialog_new_project.yaml"
+        # )
         
         #mode = 'modify' or 'new'
         self.mode = mode
@@ -401,26 +416,23 @@ class DialogNewProject(QDialog):
         
         #self.accept() #close DialogNewProject()
     
-    def save_cache(self):
-        data = {
-            'ts_path': self.label_ts_path.text(),
-            'model_path': self.label_model_path.text(),
-            'sitelogs_path': self.label_sitelogs_path.text(),
-            'discontinuity_path': self.label_discontinuity_path.text(),
-            'psd_path': self.label_psd_path.text(),
-        }
-        write_yaml(data, self.cache_file)
+    # def save_cache(self):
+    #     data = {
+    #         'ts_path': self.label_ts_path.text(),
+    #         'model_path': self.label_model_path.text(),
+    #         'sitelogs_path': self.label_sitelogs_path.text(),
+    #         'discontinuity_path': self.label_discontinuity_path.text(),
+    #         'psd_path': self.label_psd_path.text(),
+    #     }
+    #     write_yaml(data, self.cache_file)
 
     def closeEvent(self, event):
-        print('cache enregistré')
-        self.save_cache()
+        #print('cache enregistré')
+        #self.save_cache()
         event.accept()
 
+
 class TSGraph(FigureCanvas):
-    """
-    graph of the temporal series
-    """
-class MplCanvas(FigureCanvas):
     def __init__(self, parent=None, width=5, height=6, dpi=100):
         fig = Figure(figsize=(width, height), dpi=dpi)
         # 3 graphs
@@ -429,8 +441,7 @@ class MplCanvas(FigureCanvas):
         self.setParent(parent)
     
     def plot_data(self, r):
-       #x = r.t
-       x = np.array([MplCanvas.mjd_to_datetime(m) for m in r.t])
+       x = TSGraph.mjd_to_datetime(r.t)
        y = r.y*1e3
        labels = ['East[mm]', 'North[mm]',' Up[mm]']
        for i in range(3):
@@ -456,9 +467,26 @@ class MplCanvas(FigureCanvas):
            
        self.figure.tight_layout()
        self.draw()
-   
+       
+    @staticmethod
     def mjd_to_datetime(mjd):
-          return datetime(1858, 11, 17) + timedelta(days=float(mjd))
+        """
+        
+
+        Parameters
+        ----------
+        mjd : TYPE np.array
+            DESCRIPTION. days 
+
+        Returns
+        -------
+        x : TYPE ,p.ndarray
+            DESCRIPTION.
+
+        """
+        #x = datetime(1858, 11, 17) + timedelta(days=float(mjd))
+        x = np.datetime64('1858-11-17') + (mjd * np.timedelta64(1, 'D'))
+        return x
     
 if __name__ == "__main__":
     app = QApplication(sys.argv)
