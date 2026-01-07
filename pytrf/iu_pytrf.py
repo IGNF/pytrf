@@ -8,7 +8,7 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QApplication, QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QDoubleSpinBox, QFileDialog,
-    QTextEdit, QDialog, QMessageBox, QGridLayout
+    QTextEdit, QDialog, QMessageBox, QGridLayout, QTableWidget
 )
 from PyQt6.QtCore import pyqtSignal
 import sys
@@ -17,8 +17,8 @@ from platformdirs import user_cache_dir
 
 import os
 
-from pytrf.io import read_yaml, write_yaml
-from pytrf.ts import ts
+from pytrf.io import read_yaml, write_yaml, read_solns
+from pytrf.ts import ts, model
 
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
@@ -32,6 +32,7 @@ class MyApp(QMainWindow):
         self.initUI()
         
         self.ts_path = None
+        self.r = None #object of ts.read
         
         # Cache utilisateur
         #self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
@@ -87,12 +88,26 @@ class MyApp(QMainWindow):
         det_model_tab = QWidget()
         sto_model_tab = QWidget()
 
-        # Deterministic model tab
+        # --- Deterministic model tab ---
         det_model_layout = QVBoxLayout()
-        det_model_layout.addWidget(QLabel("holà"))
-        det_model_tab.setLayout(det_model_layout)
-
-        # Stochastic model tab
+        det_model_tab.setLayout(det_model_layout)  
+        
+        date_table = Tabledate()
+        det_model_layout.addWidget(date_table)
+        
+        btn_add_date = QPushButton('+')
+        det_model_layout.addWidget(btn_add_date)
+        
+        
+        btn_adjust_model = QPushButton('Adjust the model')
+        btn_save = QPushButton('SAVE')
+        btn_save.setStyleSheet("background-color : red")
+        btns_layout = QHBoxLayout()
+        btns_layout.addWidget(btn_adjust_model)
+        btns_layout.addWidget(btn_save)
+        det_model_layout.addLayout(btns_layout)
+        
+        # --- Stochastic model tab ---
         sto_model_layout = QVBoxLayout()
         sto_model_layout.addWidget(QLabel("holà"))
         sto_model_tab.setLayout(sto_model_layout)
@@ -100,14 +115,17 @@ class MyApp(QMainWindow):
         # Add tabs
         self.control_panel.addTab(det_model_tab, "Deterministic model")
         self.control_panel.addTab(sto_model_tab, "Stochastic model")
-
+        
+      
+        
         pannels_layout.addWidget(self.control_panel)
         
         
         # ---- Middle pannel ----
         self.combobox_ts = ComboBoxTS()
+        self.sbox_threshold = QDoubleSpinBox()
         self.btn_remove_pts = QPushButton("Remove points with large errors")
-        self.sbox_seuil = QDoubleSpinBox()
+        self.btn_remove_pts.clicked.connect(self.remove_points)
         
         self.text_edit = QTextEdit()
         self.text_edit.setReadOnly(True)
@@ -121,12 +139,13 @@ class MyApp(QMainWindow):
         self.combobox_ts.currentIndexChanged.connect(self.update_ts_graph)
         middle_layout.addWidget(self.canvas)
         
-        #middle_layout.addWidget(self.text_edit)
-        middle_layout.addWidget(self.btn_remove_pts)
-        middle_layout.addWidget(self.sbox_seuil)
+        middle_layout.addWidget(self.text_edit)
+        threshold_layout = QHBoxLayout()
         
+        threshold_layout.addWidget(self.btn_remove_pts)
+        threshold_layout.addWidget(self.sbox_threshold)      
         
-  
+        middle_layout.addLayout(threshold_layout)
         pannels_layout.addLayout(middle_layout)
         main_layout.addLayout(pannels_layout)
         
@@ -187,14 +206,15 @@ class MyApp(QMainWindow):
             print(e)
             self.text_edit.setPlainText("Erreur lecture YAML")     
     
-    def load_ts_graph(self, file_path):
+    def load_ts_graph(self, ts_file_path):
         r = ts.read(
-            file_path,
+            ts_file_path,
             usecols=(2,4,5,6,7,8,9,10,11,12),
             format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
             dtrd=1,
             rotate=True
         )
+        self.r = r
         self.canvas.plot_data(r)
         
     
@@ -202,11 +222,29 @@ class MyApp(QMainWindow):
         selected_name = self.combobox_ts.currentText()
         if not selected_name or not self.ts_path:
             return
-    
-        file_path = os.path.join(self.ts_path, selected_name)
-        if os.path.isfile(file_path):
-            self.load_ts_graph(file_path)
 
+        ts_file_path = os.path.join(self.ts_path, selected_name)
+        if os.path.isfile(ts_file_path):
+            self.load_ts_graph(ts_file_path)
+            
+            
+    def remove_points(self):
+        if self.r is None:
+            QMessageBox.warning(self, "No series loaded", "Please load a time series first.")
+            return
+    
+    
+        threshold = self.sbox_threshold.value() 
+        print(threshold)
+        
+        try:
+            ts.clean_sigmas(self.r, threshold) 
+            self.canvas.plot_data(self.r) 
+        
+        except Exception as e:
+            QMessageBox.critical(self, "Cleaning error", str(e))
+
+        
         
 
 
@@ -444,6 +482,7 @@ class TSGraph(FigureCanvas):
        x = TSGraph.mjd_to_datetime(r.t)
        y = r.y*1e3
        labels = ['East[mm]', 'North[mm]',' Up[mm]']
+       
        for i in range(3):
            self.axes[i].clear()
            self.axes[i].grid()
@@ -460,10 +499,22 @@ class TSGraph(FigureCanvas):
                  elinewidth=0.5,  # largeur des barres
                  zorder=10
              )
-
            self.axes[i].set_ylabel(labels[i], fontsize=8)
            self.axes[i].tick_params(axis='both', labelsize=7)
+       solns = read_solns(r'C:\Users\loeva\Documents\tests_pytrf\soln.snx')
+       m = model.from_solns(r, solns, code='CKSV',per=[365.25, 182.625],noise=['vw'])
+       m.fit(finalize=False)
+       for d in range(min(3, m.nd)):
+        self.axes[d].plot(x, m[d].yc * 1e3, 'r', linewidth=2, zorder=14)
 
+        if m[d].sc is not None:
+            self.axes[d].fill_between(
+                x,
+                (m[d].yc - m[d].sc) * 1e3,
+                (m[d].yc + m[d].sc) * 1e3,
+                alpha=0.4,
+                zorder=4
+            )  
            
        self.figure.tight_layout()
        self.draw()
@@ -487,7 +538,23 @@ class TSGraph(FigureCanvas):
         #x = datetime(1858, 11, 17) + timedelta(days=float(mjd))
         x = np.datetime64('1858-11-17') + (mjd * np.timedelta64(1, 'D'))
         return x
+
     
+
+class Tabledate(QTableWidget):
+    
+    def __init__(self, sitelog_path=None):
+        super().__init__()
+        
+        self.setColumnCount(6)
+        self.setHorizontalHeaderLabels(["Date", "Position", "Velocity", "Exp", "Log", "Info"])
+
+        
+        if sitelog_path :
+            self.fill_table(sitelog_path)
+        
+
+
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = MyApp()
