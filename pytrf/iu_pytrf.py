@@ -8,7 +8,8 @@ import numpy as np
 from PyQt6.QtWidgets import (
     QWidget, QApplication, QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QDoubleSpinBox, QFileDialog,
-    QTextEdit, QDialog, QMessageBox, QGridLayout, QTableWidget
+    QTextEdit, QDialog, QMessageBox, QGridLayout, QTableWidget, QLineEdit,
+    QTableWidgetItem, QCheckBox
 )
 from PyQt6.QtCore import pyqtSignal
 import sys
@@ -17,8 +18,10 @@ from platformdirs import user_cache_dir
 
 import os
 
-from pytrf.io import read_yaml, write_yaml, read_solns
+from pytrf.io import read_yaml, write_yaml, read_solns, get_sitelog, read_sitelog
 from pytrf.ts import ts, model
+from pytrf import date
+
 
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
@@ -92,11 +95,12 @@ class MyApp(QMainWindow):
         det_model_layout = QVBoxLayout()
         det_model_tab.setLayout(det_model_layout)  
         
-        date_table = Tabledate()
-        det_model_layout.addWidget(date_table)
+        self.date_table = Tabledate()
+        det_model_layout.addWidget(self.date_table)
         
         btn_add_date = QPushButton('+')
         det_model_layout.addWidget(btn_add_date)
+        btn_add_date.clicked.connect(self.add_date)
         
         
         btn_adjust_model = QPushButton('Adjust the model')
@@ -124,6 +128,7 @@ class MyApp(QMainWindow):
         # ---- Middle pannel ----
         self.combobox_ts = ComboBoxTS()
         self.sbox_threshold = QDoubleSpinBox()
+        self.sbox_threshold.setValue(5)
         self.btn_remove_pts = QPushButton("Remove points with large errors")
         self.btn_remove_pts.clicked.connect(self.remove_points)
         
@@ -189,7 +194,7 @@ class MyApp(QMainWindow):
         try:
             data = read_yaml(file_path)
             self.text_edit.setPlainText(str(data))
-            
+            #print(data.__dict__)
             #fill combobox and draw first ts graph
             # if hasattr(data, "ts_path"):
             #     self.combobox_ts.fill_combobox(data.ts_path)
@@ -200,6 +205,19 @@ class MyApp(QMainWindow):
             
                 if self.combobox_ts.count() > 0:
                     self.update_ts_graph()
+                    
+            if data.sitelogs_path : 
+                log_file = read_yaml(data.sitelogs_path)
+                sta_file = get_sitelog('cksv', log_file )
+                data = read_sitelog(sta_file[0])
+                ant, rec = data[0], data[1]
+                
+                for i in range(len(ant)):
+                    self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
+                
+                for i in range(len(rec)):
+                    self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
+                
 
 
         except Exception as e:
@@ -244,8 +262,9 @@ class MyApp(QMainWindow):
         except Exception as e:
             QMessageBox.critical(self, "Cleaning error", str(e))
 
-        
-        
+    def add_date(self):
+        dialog = DialogNewDate(self)
+        dialog.exec() 
 
 
 class ComboBoxTS(QComboBox):
@@ -402,10 +421,11 @@ class DialogNewProject(QDialog):
             self.label_model_path.setText(folder)
     
     def load_sitelogs(self):
-        file, _ = QFileDialog.getOpenFileName(self, "Select sitelog file", "", "YAML Files (*.yaml *.yml)")
-    
+        file, _ = QFileDialog.getOpenFileName(self, "Select sitelog file", "", "OPT Files (*.opt)")
+        
         if file:
             self.label_sitelogs_path.setText(file)
+            
     
     def load_discontinuity(self):
         file, _ = QFileDialog.getOpenFileName(self, "Select soln file", "", "SINEX Files (*.snx)")
@@ -541,19 +561,85 @@ class TSGraph(FigureCanvas):
 
     
 
+# --- discontinuity date list ---
+
 class Tabledate(QTableWidget):
     
     def __init__(self, sitelog_path=None):
         super().__init__()
         
         self.setColumnCount(6)
+        for i in range(1,5):
+            self.setColumnWidth(i,50)
         self.setHorizontalHeaderLabels(["Date", "Position", "Velocity", "Exp", "Log", "Info"])
 
         
         if sitelog_path :
             self.fill_table(sitelog_path)
+            
+    def add_line(self, date_dis, info):
+        row = self.rowCount()
+        self.insertRow(row)
+        print('hola', type(date_dis))
         
+        self.setItem(row, 0, QTableWidgetItem( str(date_dis) ))
+            
+            
+            
+        for i in range(1,5):
+            checkbox = QCheckBox()
+            self.setCellWidget(row, i, checkbox)
+        self.setItem(row, 5, QTableWidgetItem(info))
 
+
+
+class DialogNewDate(QDialog):
+    def __init__(self, parent):
+        super().__init__(parent)
+        self.parent = parent
+        self.setMinimumWidth(400)
+        self.setWindowTitle('Add Discontinuity')
+        
+        #text layout
+        text_layout = QHBoxLayout()
+        txt_date = QLabel('Date')
+        txt_info = QLabel('Info')
+        
+        text_layout.addWidget(txt_date)
+        text_layout.addWidget(txt_info)
+
+        #line edit layout
+        self.line_date = QLineEdit()
+        self.line_date.setPlaceholderText("dd-mm-yyyy hh:mm:ss")
+        self.line_info = QLineEdit()
+        self.line_info.setPlaceholderText("antenna, earthquake, unknown...")
+        lineedit_layout = QHBoxLayout()
+        lineedit_layout.addWidget(self.line_date)
+        lineedit_layout.addWidget(self.line_info)
+        
+        # button ok
+        btn_ok = QPushButton('OK')
+        btn_ok.clicked.connect(self.validate)
+        
+        general_layout = QVBoxLayout()
+        general_layout.addLayout(text_layout)
+        general_layout.addLayout(lineedit_layout)
+        general_layout.addWidget(btn_ok)
+        
+      
+        self.setLayout(general_layout)
+        
+            
+    def validate(self):
+        date = self.line_date.text()
+        info = self.line_info.text()
+    
+        if not date:
+            QMessageBox.warning(self, "Error", "Enter a date and an information")
+            return
+    
+        self.parent.date_table.add_line(date, info)
+        self.accept()
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
