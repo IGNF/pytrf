@@ -26,7 +26,8 @@ from pytrf import date
 from matplotlib.backends.backend_qtagg import (
     FigureCanvas, NavigationToolbar2QT as NavigationToolbar)
 from matplotlib.figure import Figure
-
+import matplotlib.pyplot as plt
+from datetime import datetime
 
 class MyApp(QMainWindow):
 
@@ -34,8 +35,8 @@ class MyApp(QMainWindow):
         super().__init__()
         self.initUI()
         
-        self.ts_path = None
         self.r = None #object of ts.read
+        self.m = None
         
         # Cache utilisateur
         #self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
@@ -71,9 +72,9 @@ class MyApp(QMainWindow):
         btn_open = QPushButton("Open Project")
         btn_modify = QPushButton("Modify Project")
 
-        btn_new.clicked.connect(self.action_new)
-        btn_open.clicked.connect(self.open_yaml_file)
-        btn_modify.clicked.connect(self.action_modify)
+        btn_new.clicked.connect(self.newProject)
+        btn_open.clicked.connect(self.openProject)
+        btn_modify.clicked.connect(self.modifyProject)
 
         button_layout.addWidget(btn_new)
         button_layout.addWidget(btn_open)
@@ -104,6 +105,7 @@ class MyApp(QMainWindow):
         
         
         btn_adjust_model = QPushButton('Adjust the model')
+        btn_adjust_model.clicked.connect(self.adjust_model)
         btn_save = QPushButton('SAVE')
         btn_save.setStyleSheet("background-color : red")
         btns_layout = QHBoxLayout()
@@ -177,73 +179,71 @@ class MyApp(QMainWindow):
         
 
     # --- Actions ---      
-    def action_new(self):
+    def newProject(self):
         dialog =  DialogNewProject('new')
         dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec() 
         
         
-    def action_modify(self):
+    def modifyProject(self):
         dialog =  DialogNewProject('modify')
         dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec()  
 
-    def open_yaml_file(self):
+    def openProject(self):
         file_path, _ = QFileDialog.getOpenFileName(self, "Open Project", "", "YAML Files (*.yaml *.yml)")
        
         try:
-            data = read_yaml(file_path)
-            self.text_edit.setPlainText(str(data))
-            #print(data.__dict__)
-            #fill combobox and draw first ts graph
-            # if hasattr(data, "ts_path"):
-            #     self.combobox_ts.fill_combobox(data.ts_path)
-            #     self.ts_path = data.ts_path
-            if data.ts_path:
-                self.combobox_ts.fill_combobox(data.ts_path)
-                self.ts_path = data.ts_path
+            self.data = read_yaml(file_path)
             
-                if self.combobox_ts.count() > 0:
-                    self.update_ts_graph()
-                    
-            if data.sitelogs_path : 
-                log_file = read_yaml(data.sitelogs_path)
-                sta_file = get_sitelog('cksv', log_file )
-                data = read_sitelog(sta_file[0])
-                ant, rec = data[0], data[1]
+            self.text_edit.setPlainText(str(self.data))
+           
+            if self.data.ts_path:
+                self.combobox_ts.fill_combobox(self.data.ts_path)
                 
-                for i in range(len(ant)):
-                    self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
-                
-                for i in range(len(rec)):
-                    self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
-                
-
+            if self.data.sitelogs_path : 
+               self.update_log_table('cksv')   
+               
+            self.update_ts_graph()
 
         except Exception as e:
             print(e)
             self.text_edit.setPlainText("Erreur lecture YAML")     
-    
-    def load_ts_graph(self, ts_file_path):
-        r = ts.read(
-            ts_file_path,
-            usecols=(2,4,5,6,7,8,9,10,11,12),
-            format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
-            dtrd=1,
-            rotate=True
-        )
-        self.r = r
-        self.canvas.plot_data(r)
-        
-    
-    def update_ts_graph(self):
-        selected_name = self.combobox_ts.currentText()
-        if not selected_name or not self.ts_path:
-            return
 
-        ts_file_path = os.path.join(self.ts_path, selected_name)
+    def update_log_table(self, station:str):
+        
+        log_file = read_yaml(self.data.sitelogs_path)
+        sta_file = get_sitelog(station, log_file )
+        data = read_sitelog(sta_file[0])
+        ant, rec = data[0], data[1]
+        
+        for i in range(len(ant)):
+            self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
+        
+        for i in range(len(rec)):
+            self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
+        
+        
+        
+    def update_ts_graph(self): 
+        selected_name = self.combobox_ts.currentText()
+        # if not selected_name or not data.ts_path : #self.ts_path:
+        #     return
+
+        ts_file_path = os.path.join(self.data.ts_path, selected_name)
         if os.path.isfile(ts_file_path):
-            self.load_ts_graph(ts_file_path)
+            discontinuities = self.date_table.get_dates()
+            #self.load_ts_graph(ts_file_path, discontinuities)
+            
+            r = ts.read(
+                ts_file_path,
+                usecols=(2,4,5,6,7,8,9,10,11,12),
+                format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
+                dtrd=1,
+                rotate=True
+            )
+            self.r = r
+            self.canvas.plot_data(self.r, discontinuities, self.m)
             
             
     def remove_points(self):
@@ -265,7 +265,30 @@ class MyApp(QMainWindow):
     def add_date(self):
         dialog = DialogNewDate(self)
         dialog.exec() 
-
+        
+        
+    def adjust_model(self):
+        if self.r is None:
+            return
+    
+        if self.data.discontinuity_path:
+            solns = read_solns(self.data.discontinuity_path)
+            self.m = model.from_solns(
+                self.r,
+                solns,
+                code='CKSV',
+                per=[365.25, 182.625],
+                noise=['vw']
+            )
+            
+       
+        else:
+            self.m = model(self.r)
+    
+        self.m.fit(finalize=True)
+        self.update_ts_graph()
+    
+    
 
 class ComboBoxTS(QComboBox):
     
@@ -289,6 +312,7 @@ class DialogNewProject(QDialog):
     
     def __init__(self, mode):
         super().__init__()
+        
         self.setMinimumWidth(600)
         #cache
         # self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
@@ -497,17 +521,17 @@ class TSGraph(FigureCanvas):
         self.axes = fig.subplots(nrows=3, ncols=1, sharex=False)
         super().__init__(fig)
         self.setParent(parent)
+        
     
-    def plot_data(self, r):
+    def plot_data(self, r, discontinuities=None, model= None):
        x = TSGraph.mjd_to_datetime(r.t)
+       print('x', x)
        y = r.y*1e3
        labels = ['East[mm]', 'North[mm]',' Up[mm]']
        
        for i in range(3):
            self.axes[i].clear()
-           self.axes[i].grid()
-           #self.axes[i].scatter(x, y[:, i], s=3, c='black', zorder=10)
-           #self.axes[i].errorbar(x, y[:,i], yerr = r.Q[:,i,i])
+           print(f'coucou {i}')
            self.axes[i].errorbar(
                  x, y[:, i], 
                  yerr=np.sqrt(r.Q[:, i, i]*1e6), 
@@ -519,26 +543,64 @@ class TSGraph(FigureCanvas):
                  elinewidth=0.5,  # largeur des barres
                  zorder=10
              )
+           
+           self.axes[i].grid()
            self.axes[i].set_ylabel(labels[i], fontsize=8)
            self.axes[i].tick_params(axis='both', labelsize=7)
-       solns = read_solns(r'C:\Users\loeva\Documents\tests_pytrf\soln.snx')
-       m = model.from_solns(r, solns, code='CKSV',per=[365.25, 182.625],noise=['vw'])
-       m.fit(finalize=False)
-       for d in range(min(3, m.nd)):
-        self.axes[d].plot(x, m[d].yc * 1e3, 'r', linewidth=2, zorder=14)
-
-        if m[d].sc is not None:
-            self.axes[d].fill_between(
-                x,
-                (m[d].yc - m[d].sc) * 1e3,
-                (m[d].yc + m[d].sc) * 1e3,
-                alpha=0.4,
-                zorder=4
-            )  
-           
+       # solns = read_solns(r'C:\Users\loeva\Documents\tests_pytrf\soln.snx')
+       # m = model.from_solns(r, solns, code='CKSV',per=[365.25, 182.625],noise=['vw'])
+       # m.fit(finalize=False)
+       # print('heyyyyyyyyyy', m[0].f[0].t)
+       
+       if model is not None :
+           for d in range(min(3, model.nd)):
+             print('rrrrrrrrrrr',model[d].yc )
+             self.axes[d].plot(x, model[d].yc * 1e3, 'r', linewidth=2, zorder=14)
+    
+             if model[d].sc is not None:
+                 self.axes[d].fill_between(
+                     x,
+                     (model[d].yc - model[d].sc) * 1e3,
+                     (model[d].yc + model[d].sc) * 1e3,
+                     alpha=0.4,
+                     zorder=4)  
+      
+       if discontinuities:
+           for ax in self.axes:
+               for d in discontinuities:
+                   if d[1] == 'antenna change':
+                       color = 'blue'
+                   elif d[1] == 'receptor change':
+                       color = 'cyan'
+                   elif d[1] == 'earthquake':
+                       color = 'orange'
+                   else :
+                       color = 'red'
+                   
+                   ax.axvline(
+                     d[0],
+                     color=color,
+                     linestyle='-',
+                     linewidth=1,
+                     alpha=0.7,
+                     zorder=20)
+       
+       # cmap = plt.cm.get_cmap('tab20')
+       
+       # if discontinuities:
+       #     for ax in self.axes:
+       #         for i, d in enumerate(discontinuities):
+       #             color = cmap(i % 20)  #reapeat the colors
+       #             ax.axvline(
+       #                 d[0],
+       #                 color=color,
+       #                 linestyle='-',
+       #                 linewidth=1,
+       #                 alpha=0.7,
+       #                 zorder=20)
        self.figure.tight_layout()
        self.draw()
-       
+        
     @staticmethod
     def mjd_to_datetime(mjd):
         """
@@ -569,28 +631,83 @@ class Tabledate(QTableWidget):
         super().__init__()
         
         self.setColumnCount(6)
-        for i in range(1,5):
-            self.setColumnWidth(i,50)
-        self.setHorizontalHeaderLabels(["Date", "Position", "Velocity", "Exp", "Log", "Info"])
-
+        # for i in range(1,5):
+        #     self.setColumnWidth(i,50)
         
-        if sitelog_path :
-            self.fill_table(sitelog_path)
+        self.setColumnWidth(1,30)
+        self.setColumnWidth(2,30)
+        self.setColumnWidth(3,100)
+        self.setColumnWidth(4,100)
+        self.setHorizontalHeaderLabels(["Date", "Pos", "Vel", "Exp", "Log", "Info"])
+        
+        self.setColumnWidth(0,80)    
+        
             
     def add_line(self, date_dis, info):
         row = self.rowCount()
         self.insertRow(row)
-        print('hola', type(date_dis))
-        
         self.setItem(row, 0, QTableWidgetItem( str(date_dis) ))
-            
-            
-            
-        for i in range(1,5):
+        for i in range(1,3):
             checkbox = QCheckBox()
             self.setCellWidget(row, i, checkbox)
+     
+        cell_exp = QWidget()
+        cell_exp_layout = QHBoxLayout(cell_exp)
+        cell_log = QWidget()
+        cell_log_layout = QHBoxLayout(cell_log)
+           
+        for i in range(3):
+            checkbox_exp = QCheckBox()
+            checkbox_log = QCheckBox()
+            cell_exp_layout.addWidget(checkbox_exp)
+            cell_log_layout.addWidget(checkbox_log)
+
+        self.setCellWidget(row, 3, cell_exp)
+        self.setCellWidget(row, 4, cell_log)
+     
+        
         self.setItem(row, 5, QTableWidgetItem(info))
 
+    def get_dates(self):
+        dates = []
+
+        for row in range(self.rowCount()):
+            item = self.item(row, 0)
+            info = self.item(row, 5).text()
+            
+            if item is None:
+                continue
+
+            txt = item.text().strip()
+            try:
+                dt = datetime.strptime(txt, "%Y-%m-%d %H:%M:%S")
+                dates.append([np.datetime64(dt), info])
+            except ValueError:
+                print(f"ignored date : {txt}")
+        print(dates)
+        return dates
+    
+    
+    # def get_dates(self):
+    #     dates = {"pos": [], "vel": [], "exp": [], "log":[]}
+    
+    #     for row in range(self.rowCount()):
+    #         item = self.item(row, 0)
+    #         if item is None:
+    #             continue
+    
+    #         try:
+    #             t = np.datetime64(item.text())
+    #         except Exception:
+    #             print(f"ignored date : {t}")
+    
+    #         if self.cellWidget(row, 1).isChecked():
+    #             dates["pos"].append(t)
+    
+    #         if self.cellWidget(row, 2).isChecked():
+    #             dates["vel"].append(t)
+    
+    #     return dates
 
 
 class DialogNewDate(QDialog):
@@ -610,7 +727,7 @@ class DialogNewDate(QDialog):
 
         #line edit layout
         self.line_date = QLineEdit()
-        self.line_date.setPlaceholderText("dd-mm-yyyy hh:mm:ss")
+        self.line_date.setPlaceholderText("yyyy-mm-dd hh:mm:ss")
         self.line_info = QLineEdit()
         self.line_info.setPlaceholderText("antenna, earthquake, unknown...")
         lineedit_layout = QHBoxLayout()
@@ -639,6 +756,7 @@ class DialogNewDate(QDialog):
             return
     
         self.parent.date_table.add_line(date, info)
+        self.parent.update_ts_graph()
         self.accept()
 
 if __name__ == "__main__":
