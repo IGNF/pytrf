@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Fri Jan 16 14:09:06 2026
+
+@author: loeva
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Fri Nov 28 20:29:59 2025
 
 @author: loeva
@@ -9,7 +16,7 @@ from PyQt6.QtWidgets import (
     QWidget, QApplication, QMainWindow, QTabWidget, QVBoxLayout, QHBoxLayout,
     QLabel, QPushButton, QComboBox, QDoubleSpinBox, QFileDialog,
     QTextEdit, QDialog, QMessageBox, QGridLayout, QTableWidget, QLineEdit,
-    QTableWidgetItem, QCheckBox
+    QTableWidgetItem, QCheckBox, QRadioButton
 )
 from PyQt6.QtCore import pyqtSignal
 import sys
@@ -159,24 +166,93 @@ class MyApp(QMainWindow):
         
         # ---- Right pannel ----
         
-        self.right_pannel = QTabWidget()
+        # self.right_pannel = QTabWidget()
+        # # Create tabs
+        # residuals_tab = QWidget()
+        # periodogram_tab = QWidget()
+        # model_tab = QWidget()
+        # sitelog_tab = QWidget()
+        # map_tab = QWidget()
+        # # self.text_edit = QTextEdit()
+        # # self.text_edit.setReadOnly(True)
+        
+        # #residual graph
+        # residual_layout = QVBoxLayout()
+        # self.residuals_tab.setLayout(residual_layout)  
+        
+        # self.residual_btn_layout = QHBoxLayout()
+        # self.raw_residuals_btn = QRadioButton()
+        # self.norm_residuals_btn = QRadioButton()
+        # self.residual_btn_layout.addWidget(self.raw_residuals_btn)
+        # self.residual_btn_layout.addWidget(self.norm_residuals_btn)
+        
+        
+        # self.residual_graph = Graph(self, width=5, height=6, dpi=100)
+        # self.residual_graph.addWidget(NavigationToolbar(self.residual_graph, self)) 
+        
+        # self.residual_btn_layout.addWidget(self.residual_graph)
+        # residual_layout.addWidget(self.residual_graph)
+        
+        # #layouts
+        # self.right_pannel.addTab(residuals_tab, 'Residuals')
+        # self.right_pannel.addTab(periodogram_tab, 'Periodogram')
+        # self.right_pannel.addTab(model_tab, 'Model')
+        # self.right_pannel.addTab(sitelog_tab, 'Sitelog')
+        # self.right_pannel.addTab(map_tab, 'Map and Links')
+        
+        # pannels_layout.addWidget(self.right_pannel)
+                
+        # ---- Right panel ----
+        self.right_panel = QTabWidget()
+        
         # Create tabs
         residuals_tab = QWidget()
         periodogram_tab = QWidget()
         model_tab = QWidget()
         sitelog_tab = QWidget()
         map_tab = QWidget()
-        # self.text_edit = QTextEdit()
-        # self.text_edit.setReadOnly(True)
         
-        self.right_pannel.addTab(residuals_tab, 'Residuals')
-        self.right_pannel.addTab(periodogram_tab, 'Periodogram')
-        self.right_pannel.addTab(model_tab, 'Model')
-        self.right_pannel.addTab(sitelog_tab, 'Sitelog')
-        self.right_pannel.addTab(map_tab, 'Map and Links')
+        # ----- Residuals tab -----
+        residual_layout = QVBoxLayout()
+        residuals_tab.setLayout(residual_layout)
         
-        pannels_layout.addWidget(self.right_pannel)
+        # Radio buttons
+        self.residual_btn_layout = QHBoxLayout()
+        self.raw_residuals_btn = QRadioButton("Raw residuals")
+        self.norm_residuals_btn = QRadioButton("Normalized residuals")
         
+        self.residual_btn_layout.addWidget(self.raw_residuals_btn)
+        self.residual_btn_layout.addWidget(self.norm_residuals_btn)
+        self.residual_btn_layout.addStretch()
+        
+        residual_layout.addLayout(self.residual_btn_layout)
+        
+        # Graph
+        self.residual_graph = Graph(self, width=5, height=6, dpi=80)
+        toolbar = NavigationToolbar(self.residual_graph, self)
+        
+        residual_layout.addWidget(toolbar)
+        residual_layout.addWidget(self.residual_graph)
+        
+        # ----- Periodogram tab -----
+        periodogram_layout = QVBoxLayout()
+        periodogram_tab.setLayout(periodogram_layout)
+        
+        self.periodogram_graph = Graph(self, width=5, height=6, dpi=80)
+        toolbar = NavigationToolbar(self.periodogram_graph, self)
+        
+        periodogram_layout.addWidget(toolbar)
+        periodogram_layout.addWidget(self.periodogram_graph)
+        
+        
+        # Tabs
+        self.right_panel.addTab(residuals_tab, 'Residuals')
+        self.right_panel.addTab(periodogram_tab, 'Periodogram')
+        self.right_panel.addTab(model_tab, 'Model')
+        self.right_panel.addTab(sitelog_tab, 'Sitelog')
+        self.right_panel.addTab(map_tab, 'Map and Links')
+        
+        pannels_layout.addWidget(self.right_panel)
 
     # --- Actions ---      
     def newProject(self):
@@ -201,10 +277,12 @@ class MyApp(QMainWindow):
             if self.data.ts_path:
                 self.combobox_ts.fill_combobox(self.data.ts_path)
                 
-            if self.data.sitelogs_path : 
-               self.update_log_table('cksv')   
-               
+            if self.data.sitelogs_path :
+                self.name_sta = self.combobox_ts.currentText()[0:4]
+                self.update_log_table(self.name_sta)  
             self.update_ts_graph()
+            
+           
 
         except Exception as e:
             print(e)
@@ -212,6 +290,7 @@ class MyApp(QMainWindow):
 
     def update_log_table(self, station:str):
         
+        self.date_table.setRowCount(0)
         log_file = read_yaml(self.data.sitelogs_path)
         sta_file = get_sitelog(station, log_file )
         data = read_sitelog(sta_file[0])
@@ -225,15 +304,39 @@ class MyApp(QMainWindow):
         
         
         
+    # def update_ts_graph(self): 
+    #     selected_name = self.combobox_ts.currentText()
+    #     # if not selected_name or not data.ts_path : #self.ts_path:
+    #     #     return
+
+    #     ts_file_path = os.path.join(self.data.ts_path, selected_name)
+    #     if os.path.isfile(ts_file_path):
+    #         discontinuities = self.date_table.get_dates()
+    #         #self.load_ts_graph(ts_file_path, discontinuities)
+            
+    #         r = ts.read(
+    #             ts_file_path,
+    #             usecols=(2,4,5,6,7,8,9,10,11,12),
+    #             format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
+    #             dtrd=1,
+    #             rotate=True
+    #         )
+    #         self.r = r
+    #         self.canvas.plot_data(self.r, discontinuities, self.m)
+     
     def update_ts_graph(self): 
         selected_name = self.combobox_ts.currentText()
         # if not selected_name or not data.ts_path : #self.ts_path:
         #     return
-
+      
         ts_file_path = os.path.join(self.data.ts_path, selected_name)
         if os.path.isfile(ts_file_path):
-            discontinuities = self.date_table.get_dates()
-            #self.load_ts_graph(ts_file_path, discontinuities)
+            if self.data.discontinuity_path :   
+                self.update_log_table(selected_name[0:4])
+                discontinuities = self.date_table.get_dates()
+                print(ts_file_path, selected_name[0:4] )
+            else : 
+                discontinuities = []
             
             r = ts.read(
                 ts_file_path,
@@ -243,8 +346,8 @@ class MyApp(QMainWindow):
                 rotate=True
             )
             self.r = r
-            self.canvas.plot_data(self.r, discontinuities, self.m)
-            
+            self.canvas.plot_data(self.r, discontinuities, model = self.m)
+               
             
     def remove_points(self):
         if self.r is None:
@@ -253,7 +356,6 @@ class MyApp(QMainWindow):
     
     
         threshold = self.sbox_threshold.value() 
-        print(threshold)
         
         try:
             ts.clean_sigmas(self.r, threshold) 
@@ -276,16 +378,17 @@ class MyApp(QMainWindow):
             self.m = model.from_solns(
                 self.r,
                 solns,
-                code='CKSV',
+                code=self.name_sta,
                 per=[365.25, 182.625],
                 noise=['vw']
             )
-            
        
         else:
             self.m = model(self.r)
     
         self.m.fit(finalize=True)
+        # self.residual_graph.plot_res(self.m)
+        
         self.update_ts_graph()
     
     
@@ -525,13 +628,11 @@ class TSGraph(FigureCanvas):
     
     def plot_data(self, r, discontinuities=None, model= None):
        x = TSGraph.mjd_to_datetime(r.t)
-       print('x', x)
        y = r.y*1e3
        labels = ['East[mm]', 'North[mm]',' Up[mm]']
        
        for i in range(3):
            self.axes[i].clear()
-           print(f'coucou {i}')
            self.axes[i].errorbar(
                  x, y[:, i], 
                  yerr=np.sqrt(r.Q[:, i, i]*1e6), 
@@ -621,7 +722,84 @@ class TSGraph(FigureCanvas):
         x = np.datetime64('1858-11-17') + (mjd * np.timedelta64(1, 'D'))
         return x
 
+class Graph(FigureCanvas):
+    def __init__(self, parent=None, width=5, height=6, dpi=80):
+        fig = Figure(figsize=(width, height), dpi=dpi)
+        # 3 graphs
+        self.axes = fig.subplots(nrows=3, ncols=1, sharex=False)
+        super().__init__(fig)
+        self.setParent(parent)
+     
+    def plot_res(self, m, thr_raw=None, tunit=None, dims=None, title=None):
+        """
+        adapted from ts.plot_res
+        """
+        
+        if m is None or m.r is None:
+            return
     
+        # ---- Time ----
+        if (tunit is None) or (tunit == m.r.tunit):
+            tunit = m.r.tunit
+            t = m.r.t
+        elif (m.r.tunit == 'd') and (tunit == 'y'):
+            t = np.array([date.from_mjd(d).ydec() for d in m.r.t])
+        else:
+            tunit = m.r.tunit
+            t = m.r.t
+    
+        # ---- Component names ----
+        if dims is None:
+            dims = m.r.dims
+        if dims is None:
+            dims = [f'Component {d+1}' for d in range(m.nd)]
+        if isinstance(dims, str):
+            dims = [dims]
+    
+        # ---- Plot ----
+        for d in range(m.nd):
+            ax = self.axes[d]
+            ax.clear()
+            ax.margins(0.01, 0.01)
+            ax.grid(zorder=0)
+    
+            ax.set_ylabel(f"{dims[d]} residuals [{m.r.yunit}]")
+    
+            ax.errorbar(
+                t,
+                m[d].v,
+                yerr=m[d].sv,
+                fmt='.k',
+                ecolor='gray',
+                zorder=3
+            )
+    
+            # ---- Threshold ----
+            if thr_raw is not None:
+                thr = thr_raw * m[d].wrms
+                ind = np.nonzero(np.abs(m[d].v) > thr)[0]
+    
+                if len(ind) > 0:
+                    ax.errorbar(
+                        t[ind],
+                        m[d].v[ind],
+                        yerr=m[d].sv[ind],
+                        fmt='.r',
+                        ecolor='orange',
+                        zorder=4
+                    )
+    
+                ax.plot([t[0], t[-1]], [thr, thr], '--r', linewidth=2)
+                ax.plot([t[0], t[-1]], [-thr, -thr], '--r', linewidth=2)
+    
+        self.axes[-1].set_xlabel(f"Time [{tunit}]")
+    
+        if title:
+            self.figure.suptitle(title)
+    
+        self.figure.tight_layout()
+        self.draw()
+
 
 # --- discontinuity date list ---
 
@@ -647,9 +825,12 @@ class Tabledate(QTableWidget):
         row = self.rowCount()
         self.insertRow(row)
         self.setItem(row, 0, QTableWidgetItem( str(date_dis) ))
-        for i in range(1,3):
-            checkbox = QCheckBox()
-            self.setCellWidget(row, i, checkbox)
+        #for i in range(1,3):
+        checkbox_pos = QCheckBox()
+        checkbox_vel = QCheckBox()
+        self.setCellWidget(row, 1, checkbox_pos)
+        self.setCellWidget(row, 2, checkbox_vel)
+        
      
         cell_exp = QWidget()
         cell_exp_layout = QHBoxLayout(cell_exp)
@@ -684,10 +865,9 @@ class Tabledate(QTableWidget):
                 dates.append([np.datetime64(dt), info])
             except ValueError:
                 print(f"ignored date : {txt}")
-        print(dates)
         return dates
-    
-    
+
+
     # def get_dates(self):
     #     dates = {"pos": [], "vel": [], "exp": [], "log":[]}
     
