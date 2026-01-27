@@ -63,7 +63,6 @@ class MyApp(QMainWindow):
 
     def initUI(self):
         self.setWindowTitle("Pytrf")
-        #self.setGeometry(800, 100, 500, 300)
 
         # --- Central widget ---
         central_widget = QWidget()
@@ -277,18 +276,35 @@ class MyApp(QMainWindow):
             if self.data.ts_path:
                 self.combobox_ts.fill_combobox(self.data.ts_path)
                 
-            if self.data.sitelogs_path :
-                self.name_sta = self.combobox_ts.currentText()[0:4]
-                self.update_log_table(self.name_sta)  
-            self.update_ts_graph()
+            if self.data.discontinuity_path:
+                self.solns = read_solns(self.data.discontinuity_path)
+                
+            # if self.data.sitelogs_path :
+            #     self.name_sta = self.combobox_ts.currentText()[0:4]
+            #     self.update_log_table(self.name_sta)  
             
-           
+            
+            self.update_ts_graph()
 
         except Exception as e:
             print(e)
             self.text_edit.setPlainText("Erreur lecture YAML")     
 
     def update_log_table(self, station:str):
+        """
+        rempli le tableau des logs avec une liste d'évènements pouvant être des 
+        discontinuitées.'
+
+        Parameters
+        ----------
+        station : str
+            DESCRIPTION.
+
+        Returns
+        -------
+        None.
+
+        """
         
         self.date_table.setRowCount(0)
         log_file = read_yaml(self.data.sitelogs_path)
@@ -330,14 +346,8 @@ class MyApp(QMainWindow):
         #     return
       
         ts_file_path = os.path.join(self.data.ts_path, selected_name)
+        
         if os.path.isfile(ts_file_path):
-            if self.data.discontinuity_path :   
-                self.update_log_table(selected_name[0:4])
-                discontinuities = self.date_table.get_dates()
-                print(ts_file_path, selected_name[0:4] )
-            else : 
-                discontinuities = []
-            
             r = ts.read(
                 ts_file_path,
                 usecols=(2,4,5,6,7,8,9,10,11,12),
@@ -346,6 +356,15 @@ class MyApp(QMainWindow):
                 rotate=True
             )
             self.r = r
+            
+            if self.data.discontinuity_path :   
+                self.update_log_table(selected_name[0:4])
+                discontinuities = self.date_table.get_dates()
+                print(ts_file_path, selected_name[0:4] )
+            else : 
+                discontinuities = []
+            
+            
             self.canvas.plot_data(self.r, discontinuities, model = self.m)
                
             
@@ -369,28 +388,71 @@ class MyApp(QMainWindow):
         dialog.exec() 
         
         
+    # def adjust_model(self):
+    #     if self.r is None:
+    #         return
+    
+    #     if self.data.discontinuity_path:
+    #         solns = read_solns(self.data.discontinuity_path)
+    #         self.m = model.from_solns(
+    #             self.r,
+    #             solns,
+    #             code=self.name_sta,
+    #             per=[365.25, 182.625],
+    #             noise=['vw']
+    #         )
+       
+    #     else:
+    #         self.m = model(self.r)
+    
+    #     self.m.fit(finalize=True)
+    #     #self.residual_graph.plot_res(self.m)
+    #     self.update_ts_graph()
+    
     def adjust_model(self):
         if self.r is None:
             return
     
-        if self.data.discontinuity_path:
-            solns = read_solns(self.data.discontinuity_path)
-            self.m = model.from_solns(
-                self.r,
-                solns,
-                code=self.name_sta,
-                per=[365.25, 182.625],
-                noise=['vw']
-            )
-       
-        else:
-            self.m = model(self.r)
+        events = self.date_table.get_model_events()
+        print('events modele', events)
     
-        self.m.fit(finalize=True)
-        # self.residual_graph.plot_res(self.m)
+        # station code
+        sta = self.combobox_ts.currentText()[:4]
+    
+        # modèle vide
+        m = model(self.r)
+        m.add_polynom(deg=0, t=[56028.36,57423.83])
+        m.add_polynom(deg=1)
+        m.add_sine(per=365.25)
+        m.add_sine(per=182.625)
+        m.add_vw()
         
-        self.update_ts_graph()
+        # if self.data.discontinuity_path:
+        #         solns = read_solns(self.data.discontinuity_path)
+        #         self.m = model.from_solns(
+        #             self.r,
+        #             solns,
+        #             code=sta,
+        #             per=[365.25, 182.625],
+        #             noise=['vw']
+        #         )
     
+        # # périodiques
+        # m.add_per(period=365.25)
+        # m.add_per(period=182.625)
+    
+        # discontinuités
+        for e in events:
+            if e["pos"]:
+                m.add_jumps(e["time"], deg=[0])
+            if e["vel"]:
+                m.add_jumps(e["time"], deg=[1])
+    
+        self.m = m
+        self.m.fit(finalize=True)
+    
+        self.update_ts_graph()
+
     
 
 class ComboBoxTS(QComboBox):
@@ -655,7 +717,7 @@ class TSGraph(FigureCanvas):
        
        if model is not None :
            for d in range(min(3, model.nd)):
-             print('rrrrrrrrrrr',model[d].yc )
+             #print('rrrrrrrrrrr',model[d].yc )
              self.axes[d].plot(x, model[d].yc * 1e3, 'r', linewidth=2, zorder=14)
     
              if model[d].sc is not None:
@@ -676,7 +738,7 @@ class TSGraph(FigureCanvas):
                    elif d[1] == 'earthquake':
                        color = 'orange'
                    else :
-                       color = 'red'
+                       color = 'green'
                    
                    ax.axvline(
                      d[0],
@@ -686,19 +748,7 @@ class TSGraph(FigureCanvas):
                      alpha=0.7,
                      zorder=20)
        
-       # cmap = plt.cm.get_cmap('tab20')
-       
-       # if discontinuities:
-       #     for ax in self.axes:
-       #         for i, d in enumerate(discontinuities):
-       #             color = cmap(i % 20)  #reapeat the colors
-       #             ax.axvline(
-       #                 d[0],
-       #                 color=color,
-       #                 linestyle='-',
-       #                 linewidth=1,
-       #                 alpha=0.7,
-       #                 zorder=20)
+  
        self.figure.tight_layout()
        self.draw()
         
@@ -764,7 +814,7 @@ class Graph(FigureCanvas):
             ax.grid(zorder=0)
     
             ax.set_ylabel(f"{dims[d]} residuals [{m.r.yunit}]")
-    
+            print(len(t), len(m[d].v))
             ax.errorbar(
                 t,
                 m[d].v,
@@ -812,24 +862,26 @@ class Tabledate(QTableWidget):
         # for i in range(1,5):
         #     self.setColumnWidth(i,50)
         
-        self.setColumnWidth(1,30)
+        self.setColumnWidth(0,80)  
+        self.setColumnWidth(1,100)
         self.setColumnWidth(2,30)
-        self.setColumnWidth(3,100)
+        self.setColumnWidth(3,30)
         self.setColumnWidth(4,100)
-        self.setHorizontalHeaderLabels(["Date", "Pos", "Vel", "Exp", "Log", "Info"])
+        self.setHorizontalHeaderLabels(["Date", "Info", "Pos", "Vel", "Exp", "Log"])
         
-        self.setColumnWidth(0,80)    
+          
         
             
     def add_line(self, date_dis, info):
         row = self.rowCount()
         self.insertRow(row)
         self.setItem(row, 0, QTableWidgetItem( str(date_dis) ))
-        #for i in range(1,3):
+        self.setItem(row, 1, QTableWidgetItem(info))
+        
         checkbox_pos = QCheckBox()
         checkbox_vel = QCheckBox()
-        self.setCellWidget(row, 1, checkbox_pos)
-        self.setCellWidget(row, 2, checkbox_vel)
+        self.setCellWidget(row, 2, checkbox_pos)
+        self.setCellWidget(row, 3, checkbox_vel)
         
      
         cell_exp = QWidget()
@@ -843,18 +895,20 @@ class Tabledate(QTableWidget):
             cell_exp_layout.addWidget(checkbox_exp)
             cell_log_layout.addWidget(checkbox_log)
 
-        self.setCellWidget(row, 3, cell_exp)
-        self.setCellWidget(row, 4, cell_log)
+        self.setCellWidget(row, 4, cell_exp)
+        self.setCellWidget(row, 5, cell_log)
      
-        
-        self.setItem(row, 5, QTableWidgetItem(info))
 
     def get_dates(self):
+        """
+        pour tracer les lignes verticales
+        
+        """
         dates = []
 
         for row in range(self.rowCount()):
             item = self.item(row, 0)
-            info = self.item(row, 5).text()
+            info = self.item(row, 1).text()
             
             if item is None:
                 continue
@@ -866,6 +920,34 @@ class Tabledate(QTableWidget):
             except ValueError:
                 print(f"ignored date : {txt}")
         return dates
+
+    def get_model_events(self):
+        events = []
+    
+        for row in range(self.rowCount()):
+            date_item = self.item(row, 0)
+            info_item = self.item(row, 1)
+    
+            if date_item is None:
+                continue
+    
+            pos = self.cellWidget(row, 2).isChecked()
+            vel = self.cellWidget(row, 3).isChecked()
+            
+            if not (pos or vel):
+                continue
+            t = np.datetime64(date_item.text())
+    
+            events.append({
+                "time": t,
+                "info": info_item.text(),
+                "pos": pos,
+                "vel": vel,
+            })
+    
+        return events
+
+
 
 
     # def get_dates(self):
