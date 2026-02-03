@@ -139,8 +139,8 @@ class MyApp(QMainWindow):
         self.btn_remove_pts = QPushButton("Remove points with large errors")
         self.btn_remove_pts.clicked.connect(self.remove_points)
         
-        self.text_edit = QTextEdit()
-        self.text_edit.setReadOnly(True)
+        # self.text_edit = QTextEdit()
+        # self.text_edit.setReadOnly(True)
         
         middle_layout = QVBoxLayout()
         middle_layout.addWidget(self.combobox_ts)
@@ -151,7 +151,7 @@ class MyApp(QMainWindow):
         self.combobox_ts.currentIndexChanged.connect(self.update_ts_graph)
         middle_layout.addWidget(self.canvas)
         
-        middle_layout.addWidget(self.text_edit)
+        # middle_layout.addWidget(self.text_edit)
         threshold_layout = QHBoxLayout()
         
         threshold_layout.addWidget(self.btn_remove_pts)
@@ -233,7 +233,7 @@ class MyApp(QMainWindow):
         try:
             self.data = read_yaml(file_path)
             print('fichier lu')
-            self.text_edit.setPlainText(str(self.data))
+            # self.text_edit.setPlainText(str(self.data))
            
             if self.data.ts_path:
                 
@@ -276,7 +276,7 @@ class MyApp(QMainWindow):
 
         except Exception as e:
             print(e)
-            self.text_edit.setPlainText("Erreur lecture YAML")     
+            #self.text_edit.setPlainText("Erreur lecture YAML")     
 
     def update_log_table(self, station:str):
         """
@@ -449,13 +449,13 @@ class MyApp(QMainWindow):
         # discontinuités
         for e in events:
             if e["pos"]:
-                print(e["time"])
+                print('time pos', e["time"])
                 #m.add_jumps(e["time"], deg=[0])
             if e["vel"]:
-                print(e["time"])
+                print('time vel', e["time"])
                 #m.add_jumps(e["time"], deg=[1])
     
-        self.m.fit(finalize=True)
+        self.m.fit_iter(finalize=True)
         
         self.update_ts_graph()
         self.residual_graph.plot_res(self.m)
@@ -725,7 +725,7 @@ class TSGraph(FigureCanvas):
        # m.fit(finalize=False)
        # print('heyyyyyyyyyy', m[0].f[0].t)
        print("jusqu'ici tout va bien 3")
-       print(model[0].yc)
+       print('model[0].yc', model[0].yc)
        if model is not None :
            for d in range(min(3, model.nd)):
              self.axes[d].plot(x, model[d].yc * 1e3, 'r', linewidth=2, zorder=14)
@@ -824,8 +824,6 @@ class Graph(FigureCanvas):
             ax.grid(zorder=0)
     
             ax.set_ylabel(f"{dims[d]} residuals [{m.r.yunit}]")
-            print(len(t))
-            print(len(m[d].v))
             ax.errorbar(
                 t,
                 m[d].v,
@@ -1029,7 +1027,6 @@ class DialogNewDate(QDialog):
             return
     
         self.parent.date_table.add_line(date, info)
-        self.parent.update_ts_graph()
         self.accept()
 
 if __name__ == "__main__":
