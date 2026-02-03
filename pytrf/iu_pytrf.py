@@ -44,7 +44,6 @@ class MyApp(QMainWindow):
         
         self.r = None #object of ts.read
         self.m = None
-        
         # Cache utilisateur
         #self.cache_dir = user_cache_dir(appname="Pytrf",appauthor=None)
         #os.makedirs(self.cache_dir, exist_ok=True)
@@ -163,44 +162,6 @@ class MyApp(QMainWindow):
         main_layout.addLayout(pannels_layout)
         
         
-        # ---- Right pannel ----
-        
-        # self.right_pannel = QTabWidget()
-        # # Create tabs
-        # residuals_tab = QWidget()
-        # periodogram_tab = QWidget()
-        # model_tab = QWidget()
-        # sitelog_tab = QWidget()
-        # map_tab = QWidget()
-        # # self.text_edit = QTextEdit()
-        # # self.text_edit.setReadOnly(True)
-        
-        # #residual graph
-        # residual_layout = QVBoxLayout()
-        # self.residuals_tab.setLayout(residual_layout)  
-        
-        # self.residual_btn_layout = QHBoxLayout()
-        # self.raw_residuals_btn = QRadioButton()
-        # self.norm_residuals_btn = QRadioButton()
-        # self.residual_btn_layout.addWidget(self.raw_residuals_btn)
-        # self.residual_btn_layout.addWidget(self.norm_residuals_btn)
-        
-        
-        # self.residual_graph = Graph(self, width=5, height=6, dpi=100)
-        # self.residual_graph.addWidget(NavigationToolbar(self.residual_graph, self)) 
-        
-        # self.residual_btn_layout.addWidget(self.residual_graph)
-        # residual_layout.addWidget(self.residual_graph)
-        
-        # #layouts
-        # self.right_pannel.addTab(residuals_tab, 'Residuals')
-        # self.right_pannel.addTab(periodogram_tab, 'Periodogram')
-        # self.right_pannel.addTab(model_tab, 'Model')
-        # self.right_pannel.addTab(sitelog_tab, 'Sitelog')
-        # self.right_pannel.addTab(map_tab, 'Map and Links')
-        
-        # pannels_layout.addWidget(self.right_pannel)
-                
         # ---- Right panel ----
         self.right_panel = QTabWidget()
         
@@ -218,6 +179,7 @@ class MyApp(QMainWindow):
         # Radio buttons
         self.residual_btn_layout = QHBoxLayout()
         self.raw_residuals_btn = QRadioButton("Raw residuals")
+        self.raw_residuals_btn.setChecked(True)
         self.norm_residuals_btn = QRadioButton("Normalized residuals")
         
         self.residual_btn_layout.addWidget(self.raw_residuals_btn)
@@ -270,21 +232,47 @@ class MyApp(QMainWindow):
        
         try:
             self.data = read_yaml(file_path)
-            
+            print('fichier lu')
             self.text_edit.setPlainText(str(self.data))
            
             if self.data.ts_path:
-                self.combobox_ts.fill_combobox(self.data.ts_path)
                 
-            if self.data.discontinuity_path:
-                self.solns = read_solns(self.data.discontinuity_path)
+                self.combobox_ts.fill_combobox(self.data.ts_path)
+
+                self.name_sta = self.combobox_ts.currentText()[0:4]
+                ts_file_path = os.path.join(self.data.ts_path, self.name_sta + '_igs.xyz' )
+           
+                self.r = ts.read(
+                    ts_file_path,
+                    usecols=(2,4,5,6,7,8,9,10,11,12),
+                    format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
+                    dtrd=1,
+                    rotate=True
+                )
+                
+                m = model(self.r)
+                m.add_polynom(deg=0)
+                m.add_polynom(deg=1)
+                m.add_sine(per=365.25)
+                m.add_sine(per=182.625)
+                m.add_vw()
+                self.m = m
+                print('modele créé')
+                print( self.m[0].f[:])
+                
+                if self.data.discontinuity_path:
+                    solns = read_solns(self.data.discontinuity_path)
+                    
+                    self.m = model.from_solns(self.r, solns, code=self.name_sta, per=[365.25, 182.625],noise=['vw'])
+                
+                self.m.fit()
                 
             # if self.data.sitelogs_path :
             #     self.name_sta = self.combobox_ts.currentText()[0:4]
             #     self.update_log_table(self.name_sta)  
             
-            
             self.update_ts_graph()
+            self.residual_graph.plot_res(self.m)
 
         except Exception as e:
             print(e)
@@ -310,15 +298,56 @@ class MyApp(QMainWindow):
         log_file = read_yaml(self.data.sitelogs_path)
         sta_file = get_sitelog(station, log_file )
         data = read_sitelog(sta_file[0])
-        ant, rec = data[0], data[1]
+        ant, rec = data[1], data[0]
         
+        # chg_vel = self.first_model[0].f[1].t
+        #chg_pos_mjd = [56028.36015046296, 57423.831562499996, 59840.280706018515]
+        #chg_pos = ['2009-10-15 20:00:00']
+        
+        chg_pos = []
+        chg_vel = []
+        chg_pos_mjd = []
+        chg_vel_mjd = []
+        
+        if self.m :
+            chg_pos_mjd = self.m[0].f[0].t
+            chg_vel_mjd = self.m[0].f[1].t
+            
+        for i in range(len(chg_pos_mjd)):
+            d_1 = date.from_mjd(chg_pos_mjd[i])
+            chg_pos.append(str(d_1))
+            
+        for i in range(len(chg_vel_mjd)):
+            d_2 = date.from_mjd(chg_vel_mjd[i])
+            chg_vel.append(str(d_2))
+        
+            
         for i in range(len(ant)):
             self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
-        
+            last_row = self.date_table.rowCount() - 1
+            
+            if str(date.from_tsnx(ant[i].start)) in chg_pos :
+                self.date_table.cellWidget(last_row, 2).setChecked(True)
+            
+            if str(date.from_tsnx(ant[i].start)) in chg_vel :
+                self.date_table.cellWidget(last_row, 3).setChecked(True)
+                    
+                
         for i in range(len(rec)):
             self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
+            last_row = self.date_table.rowCount() - 1
         
+            if str(date.from_tsnx(rec[i].start)) in chg_pos :
+                self.date_table.cellWidget(last_row, 2).setChecked(True)
+             
+            if str(date.from_tsnx(rec[i].start)) in chg_vel :
+                self.date_table.cellWidget(last_row, 3).setChecked(True)
+                    
         
+
+            
+            
+            
         
     # def update_ts_graph(self): 
     #     selected_name = self.combobox_ts.currentText()
@@ -341,21 +370,23 @@ class MyApp(QMainWindow):
     #         self.canvas.plot_data(self.r, discontinuities, self.m)
      
     def update_ts_graph(self): 
+       
         selected_name = self.combobox_ts.currentText()
+        
         # if not selected_name or not data.ts_path : #self.ts_path:
         #     return
-      
+        
         ts_file_path = os.path.join(self.data.ts_path, selected_name)
         
         if os.path.isfile(ts_file_path):
-            r = ts.read(
+            
+            self.r = ts.read(
                 ts_file_path,
                 usecols=(2,4,5,6,7,8,9,10,11,12),
                 format=('t','x','y','z','sx','sy','sz','cxy','cxz','cyz'),
                 dtrd=1,
                 rotate=True
             )
-            self.r = r
             
             if self.data.discontinuity_path :   
                 self.update_log_table(selected_name[0:4])
@@ -363,7 +394,6 @@ class MyApp(QMainWindow):
                 print(ts_file_path, selected_name[0:4] )
             else : 
                 discontinuities = []
-            
             
             self.canvas.plot_data(self.r, discontinuities, model = self.m)
                
@@ -415,43 +445,20 @@ class MyApp(QMainWindow):
     
         events = self.date_table.get_model_events()
         print('events modele', events)
-    
-        # station code
-        sta = self.combobox_ts.currentText()[:4]
-    
-        # modèle vide
-        m = model(self.r)
-        m.add_polynom(deg=0, t=[56028.36,57423.83])
-        m.add_polynom(deg=1)
-        m.add_sine(per=365.25)
-        m.add_sine(per=182.625)
-        m.add_vw()
-        
-        # if self.data.discontinuity_path:
-        #         solns = read_solns(self.data.discontinuity_path)
-        #         self.m = model.from_solns(
-        #             self.r,
-        #             solns,
-        #             code=sta,
-        #             per=[365.25, 182.625],
-        #             noise=['vw']
-        #         )
-    
-        # # périodiques
-        # m.add_per(period=365.25)
-        # m.add_per(period=182.625)
-    
+         
         # discontinuités
         for e in events:
             if e["pos"]:
-                m.add_jumps(e["time"], deg=[0])
+                print(e["time"])
+                #m.add_jumps(e["time"], deg=[0])
             if e["vel"]:
-                m.add_jumps(e["time"], deg=[1])
+                print(e["time"])
+                #m.add_jumps(e["time"], deg=[1])
     
-        self.m = m
         self.m.fit(finalize=True)
-    
+        
         self.update_ts_graph()
+        self.residual_graph.plot_res(self.m)
 
     
 
@@ -463,13 +470,16 @@ class ComboBoxTS(QComboBox):
            self.fill_combobox(ts_path)
 
     def fill_combobox(self, ts_path: str):
+        self.blockSignals(True)
         self.clear()
 
         if not ts_path or not os.path.isdir(ts_path):
+            self.blockSignals(False) 
             return
-
+        
         for name in sorted(os.listdir(ts_path)):
             self.addItem(name)
+        self.blockSignals(False)    
 
 
 class DialogNewProject(QDialog):
@@ -692,18 +702,18 @@ class TSGraph(FigureCanvas):
        x = TSGraph.mjd_to_datetime(r.t)
        y = r.y*1e3
        labels = ['East[mm]', 'North[mm]',' Up[mm]']
-       
+       print("jusqu'ici tout va bien 2")
        for i in range(3):
            self.axes[i].clear()
            self.axes[i].errorbar(
                  x, y[:, i], 
                  yerr=np.sqrt(r.Q[:, i, i]*1e6), 
-                 fmt='o',         # 'o' pour marker
-                 ms=1,            # taille du marker
-                 mec='black',     # contour marker
-                 mfc='black',     # remplissage marker
-                 ecolor='black',    # couleur des barres d'erreur
-                 elinewidth=0.5,  # largeur des barres
+                 fmt = '.',
+                 ms=1,            # marker size
+                 mec='black',     # outline marker
+                 mfc='black',     # fill marker
+                 ecolor='black',  # error bar color
+                 elinewidth=0.5,  # bar width
                  zorder=10
              )
            
@@ -714,12 +724,12 @@ class TSGraph(FigureCanvas):
        # m = model.from_solns(r, solns, code='CKSV',per=[365.25, 182.625],noise=['vw'])
        # m.fit(finalize=False)
        # print('heyyyyyyyyyy', m[0].f[0].t)
-       
+       print("jusqu'ici tout va bien 3")
+       print(model[0].yc)
        if model is not None :
            for d in range(min(3, model.nd)):
-             #print('rrrrrrrrrrr',model[d].yc )
              self.axes[d].plot(x, model[d].yc * 1e3, 'r', linewidth=2, zorder=14)
-    
+             print("jusqu'ici tout va bien 3.1")
              if model[d].sc is not None:
                  self.axes[d].fill_between(
                      x,
@@ -727,7 +737,7 @@ class TSGraph(FigureCanvas):
                      (model[d].yc + model[d].sc) * 1e3,
                      alpha=0.4,
                      zorder=4)  
-      
+       print("jusqu'ici tout va bien 4")
        if discontinuities:
            for ax in self.axes:
                for d in discontinuities:
@@ -748,7 +758,7 @@ class TSGraph(FigureCanvas):
                      alpha=0.7,
                      zorder=20)
        
-  
+        
        self.figure.tight_layout()
        self.draw()
         
@@ -814,7 +824,8 @@ class Graph(FigureCanvas):
             ax.grid(zorder=0)
     
             ax.set_ylabel(f"{dims[d]} residuals [{m.r.yunit}]")
-            print(len(t), len(m[d].v))
+            print(len(t))
+            print(len(m[d].v))
             ax.errorbar(
                 t,
                 m[d].v,
