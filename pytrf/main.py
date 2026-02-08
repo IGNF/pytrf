@@ -134,6 +134,7 @@ class MyApp(QMainWindow):
         btn_adjust_model = QPushButton('Adjust the model')
         btn_adjust_model.clicked.connect(self.adjust_model)
         btn_save = QPushButton('SAVE')
+        btn_save.clicked.connect(self.save_model)
         btn_save.setStyleSheet("background-color : red")
         
         btns_layout = QHBoxLayout()
@@ -362,6 +363,7 @@ class MyApp(QMainWindow):
     def update_ts_graph(self): 
         """Met à jour le graphique de série temporelle"""
         selected_name = self.combobox_ts.currentText()
+        self.name_sta = selected_name[0:4]
         
         if not selected_name or not self.data or not self.data.ts_path:
             return
@@ -398,49 +400,6 @@ class MyApp(QMainWindow):
         
         self.periodogram_graph.plot_psd(self.ts_manager.m)
         
-    
-    # def update_log_table(self, station: str):
-    #     """Met à jour le tableau des logs"""
-    #     self.date_table.setRowCount(0)
-    #     log_file = read_yaml(self.data.sitelogs_path)
-    #     sta_file = get_sitelog(station, log_file)
-    #     data = read_sitelog(sta_file[0])
-    #     ant, rec = data[1], data[0]
-        
-    #     chg_pos = []
-    #     chg_vel = []
-        
-    #     if self.ts_manager.m:
-    #         chg_pos_mjd = self.ts_manager.m[0].f[0].t
-    #         chg_vel_mjd = self.ts_manager.m[0].f[1].t
-            
-    #         for i in range(len(chg_pos_mjd)):
-    #             d_1 = date.from_mjd(chg_pos_mjd[i])
-    #             chg_pos.append(str(d_1))
-                
-    #         for i in range(len(chg_vel_mjd)):
-    #             d_2 = date.from_mjd(chg_vel_mjd[i])
-    #             chg_vel.append(str(d_2))
-        
-    #     for i in range(len(ant)):
-    #         self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
-    #         last_row = self.date_table.rowCount() - 1
-            
-    #         if str(date.from_tsnx(ant[i].start)) in chg_pos:
-    #             self.date_table.cellWidget(last_row, 2).setChecked(True)
-            
-    #         if str(date.from_tsnx(ant[i].start)) in chg_vel:
-    #             self.date_table.cellWidget(last_row, 3).setChecked(True)
-        
-    #     for i in range(len(rec)):
-    #         self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
-    #         last_row = self.date_table.rowCount() - 1
-        
-    #         if str(date.from_tsnx(rec[i].start)) in chg_pos:
-    #             self.date_table.cellWidget(last_row, 2).setChecked(True)
-             
-    #         if str(date.from_tsnx(rec[i].start)) in chg_vel:
-    #             self.date_table.cellWidget(last_row, 3).setChecked(True)
     def update_log_table(self, station: str):
        """Met à jour le tableau des logs"""
        # Sauvegarder l'état actuel du tableau
@@ -594,11 +553,9 @@ class MyApp(QMainWindow):
         #events = self.date_table.get_model_events()
         dates, infos, pos_checked, vel_checked = self.date_table.get_model_events()
   
-        print('avant le try')
         try:
-            print('dans le try')
             self.ts_manager.fit_model_iterative(dates, pos_checked, vel_checked)
-            print('après le fit iter')
+           
             
             if self.data.discontinuity_path:   
                 discontinuities = self.date_table.get_dates()
@@ -621,6 +578,45 @@ class MyApp(QMainWindow):
             self.model_label.setText(str(self.ts_manager.m))
         except Exception as e:
             QMessageBox.critical(self, "Model error", str(e))
+            
+
+    def save_model(self):
+        """SAve model in pickel file"""
+        if self.ts_manager.m is None:
+            QMessageBox.warning(
+                self,
+                "No model to save",
+                "Please fit a model before saving."
+            )
+            return
+        
+        # open file explorer
+        file_path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Model",
+            f"{self.name_sta}.pkl" if self.name_sta else "model.pkl",
+            "Pickle Files (*.pkl);;All Files (*)"
+        )
+        
+        if not file_path:
+            # save aborted 
+            return
+        
+        try:
+            # save model
+            self.ts_manager.m.clean()
+            self.ts_manager.m.dump(file_path)
+            QMessageBox.information(
+                self,
+                "Success",
+                f"Model successfully saved to:\n{file_path}"
+            )
+        except Exception as e:
+            QMessageBox.critical(
+                self,
+                "Save error",
+                f"Error saving model:\n{str(e)}"
+            )
 
 
 if __name__ == "__main__":
