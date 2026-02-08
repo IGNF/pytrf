@@ -15,7 +15,45 @@ from pytrf.io import read_yaml, write_yaml
 
 
 class DialogNewProject(QDialog):
-    """Dialogue pour créer/modifier un projet"""
+    """
+    Dialog for creating or modifying a project.
+    
+    This dialog allows creating a new project or modifying an existing one
+    by specifying paths to various required files and folders (time series,
+    models, sitelogs, etc.).
+    
+    Parameters
+    ----------
+    mode : str
+        Dialog operation mode. Accepted values:
+        - 'new' : Create a new project
+        - 'modify' : Modify an existing project
+    
+    Attributes
+    ----------
+    mode : str
+        Current operation mode
+    message : QLabel
+        Label displaying a message to the user
+    label_project_path : QLabel
+        Path of the loaded project file
+    label_ts_path : QLabel
+        Path to the time series folder
+    label_model_path : QLabel
+        Path to the models folder
+    label_sitelogs_path : QLabel
+        Path to the sitelogs file
+    label_discontinuity_path : QLabel
+        Path to the discontinuities file
+    label_psd_path : QLabel
+        Path to the PSD file
+    
+    Signals
+    -------
+    tsPathChanged : pyqtSignal(str)
+        Signal emitted when the time series path changes
+    
+    """
     
     tsPathChanged = pyqtSignal(str)
     
@@ -81,7 +119,7 @@ class DialogNewProject(QDialog):
         
         general_layout.addLayout(grid)
         
-        # Bouton créer/modifier
+        # Button create/modify
         if self.mode == "new":
             btn_create = QPushButton("Create")
         elif self.mode == "modify":
@@ -93,7 +131,25 @@ class DialogNewProject(QDialog):
         self.setLayout(general_layout)
     
     def load_yaml_project(self):
-        """Charge un projet YAML existant"""
+        """
+        Load an existing YAML project.
+        
+        Opens a file dialog allowing the user to select a project YAML file.
+        The project information is then loaded and displayed in the corresponding labels.
+        
+        Raises
+        ------
+        Exception
+            If an error occurs while reading the YAML file, an error
+            message is displayed in the message label.
+        
+        Notes
+        -----
+        Emits the tsPathChanged signal with the time series path
+        if loading succeeds
+        """
+        
+        
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open project YAML", "", "YAML Files (*.yaml *.yml)"
         )
@@ -118,20 +174,38 @@ class DialogNewProject(QDialog):
             self.message.setText("Error loading YAML file")
     
     def load_ts(self):
-        """Sélectionne le dossier de séries temporelles"""
+        """
+        Opens a file dialog allowing the user to select the folder containing
+        time series files. The selected path is displayed in the corresponding
+        label.
+        
+        Notes
+        -----
+        Emits the tsPathChanged signal with the selected path.
+        """
         folder = QFileDialog.getExistingDirectory(self, "Select time series folder")
         if folder:
             self.label_ts_path.setText(folder)
             self.tsPathChanged.emit(folder)
     
     def load_model(self):
-        """Sélectionne le dossier de modèle"""
+        """
+        Select the model folder.
+        
+        Opens a file dialog allowing the user to select the folder containing
+        model files. The selected path is displayed in the corresponding label.
+        """
         folder = QFileDialog.getExistingDirectory(self, "Select model folder")
         if folder:
             self.label_model_path.setText(folder)
     
     def load_sitelogs(self):
-        """Sélectionne le fichier sitelog"""
+        """
+        Select the sitelog file.
+        
+        Opens a file dialog allowing the user to select a sitelog file (.opt).
+        The selected path is displayed in the corresponding label.
+        """
         file, _ = QFileDialog.getOpenFileName(
             self, "Select sitelog file", "", "OPT Files (*.opt)"
         )
@@ -139,7 +213,13 @@ class DialogNewProject(QDialog):
             self.label_sitelogs_path.setText(file)
     
     def load_discontinuity(self):
-        """Sélectionne le fichier de discontinuités"""
+        """
+       Select the discontinuities file.
+       
+       Opens a file dialog allowing the user to select a discontinuities
+       file in SINEX format (.snx). The selected path is displayed in
+       the corresponding label.
+       """
         file, _ = QFileDialog.getOpenFileName(
             self, "Select soln file", "", "SINEX Files (*.snx)"
         )
@@ -147,7 +227,12 @@ class DialogNewProject(QDialog):
             self.label_discontinuity_path.setText(file)
     
     def load_psd(self):
-        """Sélectionne le fichier PSD"""
+        """
+       Select the PSD file.
+       
+       Opens a file dialog allowing the user to select a PSD file in
+       SINEX format (.snx). The selected path is displayed in the corresponding label.
+       """
         file, _ = QFileDialog.getOpenFileName(
             self, "Select PSD file", "", "SINEX Files (*.snx)"
         )
@@ -155,7 +240,22 @@ class DialogNewProject(QDialog):
             self.label_psd_path.setText(file)
     
     def create_project(self):
-        """Crée/sauvegarde le projet"""
+        """
+        Create or save the project.
+        
+        Collects all file and folder paths specified in the interface and
+        saves them to a YAML project file. Validates that mandatory fields
+        (time series and model folder) are filled before saving.
+        
+        Returns
+        -------
+        None
+        
+        Notes
+        -----
+        Displays an error dialog if mandatory fields are not filled.
+        Closes the dialog after successful save.
+        """
         data = {
             'ts_path': self.label_ts_path.text(),
             'model_path': self.label_model_path.text(),
@@ -189,7 +289,28 @@ class DialogNewProject(QDialog):
 
 
 class DialogNewDate(QDialog):
-    """Dialogue pour ajouter une discontinuité"""
+    """
+    Dialog for manually adding a discontinuity.
+    
+    This dialog allows the user to add a new discontinuity by specifying
+    a date and a description (info).
+    
+    Parameters
+    ----------
+    parent : QWidget
+        Parent widget, typically the main window containing the
+        discontinuities table (date_table)
+    
+    Attributes
+    ----------
+    parent : QWidget
+        Reference to the parent widget
+    line_date : QLineEdit
+        Input field for the date (format: yyyy-mm-dd hh:mm:ss)
+    line_info : QLineEdit
+        Input field for the discontinuity description
+    
+    """
     
     def __init__(self, parent):
         super().__init__(parent)
@@ -227,7 +348,23 @@ class DialogNewDate(QDialog):
         self.setLayout(general_layout)
     
     def validate(self):
-        """Valide et ajoute la date"""
+        """
+        Validate and add the date to the table.
+        
+        Checks that input fields are not empty, then adds a new row to
+        the parent's discontinuities table with the entered date and
+        information. Fields are then cleared to allow adding another
+        discontinuity.
+        
+        Returns
+        -------
+        None
+        
+        Notes
+        -----
+        Displays a warning if the date field is empty. Calls accept()
+        to close the dialog after successful addition.
+        """
         date = self.line_date.text()
         info = self.line_info.text()
     
@@ -243,6 +380,17 @@ class DialogNewDate(QDialog):
         self.accept()
     
     def closeEvent(self, event):
+        """
+        Handle dialog closing.
+        
+        Cleans up resources by explicitly deleting QLineEdit widgets
+        before closing the dialog.
+        
+        Parameters
+        ----------
+        event : QCloseEvent
+            Qt close event
+        """
         self.line_date.deleteLater()
         self.line_info.deleteLater()
         super().closeEvent(event)

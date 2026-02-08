@@ -12,15 +12,47 @@ from datetime import datetime
 
 
 class ComboBoxTS(QComboBox):
-    """Combobox pour sélectionner une série temporelle"""
+    """
+    Custom QComboBox for selecting time series files from a directory.
+    
+    Parameters
+    ----------
+    ts_path : str, optional
+        Path to the directory containing time series files. If provided, the combobox 
+        is automatically populated with files from this directory.
+    """
     
     def __init__(self, ts_path=None):
+        """
+        Initialize the ComboBoxTS widget.
+        
+        Parameters
+        ----------
+        ts_path : str, optional
+            Path to the directory containing time series files.
+        """
+        
         super().__init__()
         if ts_path:
             self.fill_combobox(ts_path)
     
     def fill_combobox(self, ts_path: str):
-        """Remplit la combobox avec les fichiers du dossier"""
+        """
+        Populate the combobox with sorted filenames from the specified directory.
+        
+        Parameters
+        ----------
+        ts_path : str
+            Path to the directory to scan for files. If the path is None or invalid,
+            the combobox is cleared.
+        
+        Notes
+        -----
+        Blocks signals during population to prevent unwanted triggers
+        Files are sorted alphabetically
+        Clears existing items before populating
+
+        """
         self.blockSignals(True)
         self.clear()
         if not ts_path or not os.path.isdir(ts_path):
@@ -33,9 +65,19 @@ class ComboBoxTS(QComboBox):
 
 
 class Tabledate(QTableWidget):
-    """Tableau pour gérer les dates de discontinuités"""
+    """
+    Table widget for managing discontinuity dates with associated flags and checkboxes.
+    """
     
-    def __init__(self, sitelog_path=None):
+    def __init__(self):
+        """
+        Initialize the Tabledate widget with predefined columns and headers.
+
+        Returns
+        -------
+        None.
+
+        """
         super().__init__()
         
         self.setColumnCount(6)
@@ -47,7 +89,27 @@ class Tabledate(QTableWidget):
         self.setHorizontalHeaderLabels(["Date", "Info", "Pos", "Vel", "Exp", "Log"])
     
     def add_line(self, date_dis, info):
-        """Ajoute une ligne au tableau"""
+        """
+        Add a new row to the table with the specified date and information.
+        
+        Parameters
+        ----------
+        date_dis : str or datetime
+            Discontinuity date to be displayed in the first column.
+        
+        info : str
+            Information or description associated with the discontinuity.
+        
+        Returns
+        -------
+        None
+        
+        Notes
+        -----
+        Creates Position (Pos) and Velocity (Vel) checkboxes
+        Vel checkbox is initially disabled and only enabled when Pos is checked
+        """
+        
         row = self.rowCount()
         self.insertRow(row)
         self.setItem(row, 0, QTableWidgetItem(str(date_dis)))
@@ -57,7 +119,7 @@ class Tabledate(QTableWidget):
         checkbox_vel = QCheckBox()
         
         checkbox_vel.setEnabled(False)
-        # Connecter le signal de checkbox_pos pour activer/désactiver vel
+        # Connect signal of checkbox_pos to activate/desactivate vel
         checkbox_pos.stateChanged.connect(
             lambda state, r=row: self._on_pos_changed(r, state)
         )
@@ -78,27 +140,31 @@ class Tabledate(QTableWidget):
         
         self.setCellWidget(row, 4, cell_exp)
         self.setCellWidget(row, 5, cell_log)
-    
-    # def get_dates(self):
-    #     """Récupère les dates pour tracer les lignes verticales"""
-    #     dates = []
-    #     for row in range(self.rowCount()):
-    #         item = self.item(row, 0)
-    #         info = self.item(row, 1).text()
-            
-    #         if item is None:
-    #             continue
-    #         txt = item.text().strip()
-    #         try:
-    #             dt = datetime.strptime(txt, "%Y-%m-%d %H:%M:%S")
-    #             dates.append([np.datetime64(dt), info])
-    #         except ValueError:
-    #             print(f"ignored date : {txt}")
-    #     return dates
-    
+
     def get_dates(self):
-        """Récupère les dates pour tracer les lignes verticales
-        Retourne: liste de [datetime64, info, pos_checked, vel_checked]
+        """
+        Retrieve all dates from the table with their associated information and checkbox states.
+        
+        Parameters
+        ----------
+        None
+        
+        Returns
+        --------
+        dates : list of list
+            List where each element contains:
+            - [0] : numpy.datetime64
+            Parsed date
+            - [1] : str
+            Information text
+            - [2] : bool
+            Position checkbox state
+            - [3] : bool
+            Velocity checkbox state
+            
+        Notes
+        ------
+        Dates must be in format: "YYYY-MM-DD HH:MM:SS"
         """
         dates = []
         for row in range(self.rowCount()):
@@ -111,7 +177,7 @@ class Tabledate(QTableWidget):
             txt = item.text().strip()
             info = info_item.text()
             
-            # Récupérer l'état des checkboxes
+            # get checkbox status
             pos_widget = self.cellWidget(row, 2)
             vel_widget = self.cellWidget(row, 3)
             
@@ -126,7 +192,20 @@ class Tabledate(QTableWidget):
         return dates
     
     def _on_pos_changed(self, row, state):
-        """Enable the 'Vel' case when 'Pos' is Checked"""
+        """
+        Internal callback to handle Position checkbox state changes.
+        
+        Parameters
+        ----------
+        row : int
+            Row index of the changed checkbox.
+        state : int
+            Qt CheckState value (2 for checked, 0 for unchecked).
+        
+        Returns
+        --------
+        None
+        """
         checkbox_vel = self.cellWidget(row, 3)
         if checkbox_vel:
             if state == 2:  # Qt.CheckState.Checked
@@ -137,9 +216,32 @@ class Tabledate(QTableWidget):
     
     
     def get_model_events(self):
-        """Récupère les événements pour le modèle
-        Retourne: [dates, infos, pos_flags, vel_flags] où chaque élément est une liste/array
         """
+        Retrieve discontinuity events formatted for model processing.
+        
+        Parameters
+        ----------
+        None
+        
+        Returns
+        --------
+        events : list of arrays
+            List containing 4 elements:
+            - [0] : numpy.ndarray of datetime64
+            Array of event dates (empty array if no events)
+            - [1] : list of str
+            List of information strings
+            - [2] : numpy.ndarray of bool
+            Array of position flags
+            - [3] : numpy.ndarray of bool
+            Array of velocity flags
+            
+        Notes
+        ------
+        Only includes rows where at least one checkbox (Pos or Vel) is checked
+        Returns empty arrays if no events are selected
+        """
+        
         dates = []
         infos = []
         pos_flags = []
@@ -169,12 +271,27 @@ class Tabledate(QTableWidget):
             np.array(pos_flags, dtype=bool) if pos_flags else np.array([], dtype=bool),
             np.array(vel_flags, dtype=bool) if vel_flags else np.array([], dtype=bool)
         ]
+        print('events', events)
         return events
 
 class TableOutliner(QTableWidget):
-    """Tableau pour gérer les dates de discontinuités"""
+    """
+    Table widget for configuring outlier detection methods and parameters.
+    """
     
     def __init__(self, sitelog_path=None):
+        """
+        Initialize the TableOutliner widget with predefined outlier detection methods.
+        
+        Parameters
+        ----------
+        sitelog_path : str, optional
+            Path to sitelog file (reserved for future use).
+        
+        Returns
+        --------
+        None
+        """
         super().__init__()
     
         self.setRowCount(4)

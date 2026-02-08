@@ -37,11 +37,17 @@ class MyApp(QMainWindow):
     """Fenêtre principale de l'application"""
     
     def __init__(self):
+        """
+        Initialize the main application widget
+    
+        This constructor initializes the user interface and sets up the time 
+        series manager and project-related attributes
+        """
         super().__init__()
         self.initUI()
         
         
-        #self.cache = CacheManager()
+        #self.cache = CacheManager() #not finished
         
         self.ts_manager = TimeSeriesManager()
         
@@ -50,7 +56,20 @@ class MyApp(QMainWindow):
         self.name_sta = None
     
     def initUI(self):
-        """Initialise l'interface utilisateur"""
+        """"
+        Initialize the graphical user interface
+    
+        This method builds and organizes all graphical components of the main
+        window, including menus, control panels, plots, and interaction widgets. 
+        It sets up the layout structure, initializes widgets, and
+        connects user actions to their corresponding callbacks.
+    
+        The interface is divided into three main panels:
+        - Left panel: deterministic and stochastic model configuration
+        - Middle panel: time series visualization and data filtering
+        - Right panel: residuals, periodogram, model display, and auxiliary views
+    
+        """
         self.setWindowTitle("Pytrf")
         
         # central widget 
@@ -82,7 +101,7 @@ class MyApp(QMainWindow):
         
         # Determinist model tab
         
-        #table
+        #date table
         det_model_tab = QWidget()
         det_model_layout = QVBoxLayout()
         det_model_tab.setLayout(det_model_layout)  
@@ -145,7 +164,7 @@ class MyApp(QMainWindow):
         # Stochastic model tab
         sto_model_tab = QWidget()
         sto_model_layout = QVBoxLayout()
-        sto_model_layout.addWidget(QLabel("holà"))
+        sto_model_layout.addWidget(QLabel("To implement"))
         sto_model_tab.setLayout(sto_model_layout)
         
         control_panel.addTab(det_model_tab, "Deterministic model")
@@ -216,49 +235,36 @@ class MyApp(QMainWindow):
         periodogram_layout.addWidget(self.periodogram_graph)
         
         # Model Tab
-        #model_tab = QWidget()
-        # model_layout = QHBoxLayout() 
-        # model_tab.setLayout(model_layout) 
-        # self.model_label = QLabel() 
-        # self.model_label.setText('Rien à afficher') 
-        # model_layout.addWidget(self.model_label)
-        
-        # Model Tab
         model_tab = QWidget()
         model_layout = QVBoxLayout()
         model_tab.setLayout(model_layout)
         
-        # Créer une zone de défilement
+        # create scroll area
         scroll_area = QScrollArea()
         scroll_area.setWidgetResizable(True)
-        
-        # Créer un widget conteneur pour le label
+      
         scroll_content = QWidget()
         scroll_content_layout = QVBoxLayout()
         scroll_content.setLayout(scroll_content_layout)
         
-        # Créer le label
+        # Create label
         self.model_label = QLabel()
-        self.model_label.setText('Rien à afficher')
+        self.model_label.setText('No model, no informations')
         self.model_label.setWordWrap(True)
         self.model_label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
         
-        # Ajouter le label au conteneur
         scroll_content_layout.addWidget(self.model_label)
         scroll_content_layout.addStretch()
-        
-        # Ajouter le conteneur à la zone de défilement
         scroll_area.setWidget(scroll_content)
-        
-        # Ajouter la zone de défilement au layout
         model_layout.addWidget(scroll_area)
 
-        
         # Sitelog Tab
         sitelog_tab = QWidget()
+        #to do...
         
         # Map and links Tab
         map_tab = QWidget()
+        #to do...
         
         self.right_panel.addTab(residuals_tab, 'Residuals')
         self.right_panel.addTab(periodogram_tab, 'Periodogram')
@@ -271,26 +277,55 @@ class MyApp(QMainWindow):
     # === Actions ===
     
     def newProject(self):
-        """Crée un nouveau projet"""
+        """
+        Create a new project
+
+        This method opens the new project dialog, allowing the user to define a 
+        new project configuration. When the time series path is updated, the 
+        time series selector is refreshed accordingly.
+        """
+        
         dialog = DialogNewProject('new')
         dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec() 
     
     def modifyProject(self):
-        """Modifie un projet existant"""
+        """
+        Modify an existing project
+    
+        This method opens the project modification dialog, allowing the user to 
+        update the configuration of the current project. When the time series
+        path is changed, the time series selector is refreshed accordingly.
+        """
+        
         dialog = DialogNewProject('modify')
         dialog.tsPathChanged.connect(self.combobox_ts.fill_combobox)
         dialog.exec()  
     
     def openProject(self):
-        """Ouvre un projet"""
+        """
+        Open an existing project
+    
+        This method opens a file selection dialog to load a project 
+        configuration from a YAML file. It initializes the project data, loads 
+        the associated time series, and restores the corresponding model if available.
+    
+        Depending on the project content, the model is either loaded from a 
+        previously saved file, reconstructed from discontinuity solutions,
+        or initialized with a default configuration. The method then updates
+        all graphical components, including time series plots, residuals,
+        periodogram, and model display.
+    
+        In case of an error during loading, an error message is displayed to the user.
+        """
+
         file_path, _ = QFileDialog.getOpenFileName(
             self, "Open Project", "", "YAML Files (*.yaml *.yml)"
         )
        
         try:
             self.data = read_yaml(file_path)
-            print('fichier lu')
+            print('file read')
             
                 
             if self.data.ts_path:
@@ -302,18 +337,15 @@ class MyApp(QMainWindow):
                 )
            
                 self.ts_manager.load_time_series(ts_file_path, auto_fit=False)
-                print('je regarde si il y a un model')
                 model_file_path = os.path.join(
                     self.data.model_path, 
                     self.name_sta + '.pkl'
                 )
-                print(f'model_file_path : {model_file_path}')
                 
                 if os.path.isfile(model_file_path):
                     print('model computed from pkl')
                     self.ts_manager.m = model.load(model_file_path)
                     self.ts_manager.r = self.ts_manager.m.r
-                    #t = [date.from_mjd(d).ydec() for d in r.t]
                     #normalement pas besoin mais quand je ne le mets pas j'ai 'volume and kernel should have the same dimensionality'
                     self.ts_manager.fit_model()
                    
@@ -326,19 +358,12 @@ class MyApp(QMainWindow):
                         )
                         
                     else:
-                        print('chargement d un model par defaut')
+                        print('model created by default')
                         self.ts_manager._initialize_base_model()
                     
                     self.ts_manager.fit_model()
                 
                 
-                # if self.data.discontinuity_path:
-                #     self.ts_manager.load_model_from_solns(
-                #         self.data.discontinuity_path, 
-                #         self.name_sta
-                #     )
-                
-                # self.ts_manager.fit_model()
             #instead of update_ts_graph
             if self.data.discontinuity_path:   
                 self.update_log_table(self.name_sta)
@@ -361,7 +386,18 @@ class MyApp(QMainWindow):
             QMessageBox.critical(self, "Error", f"Error loading project: {e}")
     
     def update_ts_graph(self): 
-        """Met à jour le graphique de série temporelle"""
+        """
+        Update the time series plot
+    
+        This method updates the displayed time series according to the
+        currently selected item in the time series combobox. It loads the
+        corresponding data file, applies discontinuities if available, and
+        refreshes the main time series plot.
+    
+        If no valid project or time series path is defined, the method
+        returns without action.
+    
+        """
         selected_name = self.combobox_ts.currentText()
         self.name_sta = selected_name[0:4]
         
@@ -384,8 +420,19 @@ class MyApp(QMainWindow):
                 discontinuities, 
                 model=self.ts_manager.m
             )
+            
     def update_residual_graph(self):
-        """Update graph depending on the radio button checked"""
+        """
+        Update the residuals plot
+    
+        This method updates the residuals graph based on the selected
+        display mode. Raw or normalized residuals are plotted depending
+        on the state of the corresponding radio buttons.
+         
+        If no model is available, the method returns without action.
+         
+        """
+        
         if self.ts_manager.m is None:
             return
         
@@ -395,162 +442,245 @@ class MyApp(QMainWindow):
             self.residual_graph.plot_norm_res(self.ts_manager.m)
     
     def update_psd(self):
+        """
+        Update the periodogram plot
+    
+        This method updates the PSD plot using the current model.
+        If no model is available, the method returns
+        without action.
+    
+        """
         if self.ts_manager.m is None:
             return
         
         self.periodogram_graph.plot_psd(self.ts_manager.m)
         
     def update_log_table(self, station: str):
-       """Met à jour le tableau des logs"""
-       # Sauvegarder l'état actuel du tableau
-       saved_rows = []
-       for row in range(self.date_table.rowCount()):
-           date_item = self.date_table.item(row, 0)
-           info_item = self.date_table.item(row, 1)
-           
-           if date_item is None or info_item is None:
-               continue
-           
-           pos_checked = self.date_table.cellWidget(row, 2).isChecked()
-           vel_checked = self.date_table.cellWidget(row, 3).isChecked()
-           
-           saved_rows.append([
-               date_item.text(),
-               info_item.text(),
-               pos_checked,
-               vel_checked
-           ])
+        """
+        Update the sitelog table (not optimized)
+        
+        This method updates the table of discontinuities using information
+        extracted from the station sitelog file. Existing user selections
+        are preserved whenever possible. Antenna and receiver changes are
+        automatically added, and their association with position and
+        velocity offsets is restored from the current model or previous
+        user input.
+        
+        Parameters
+        ----------
+        station : str
+            Station identifier used to select the corresponding sitelog
+            information.
+        
+        """
+        # save current state of the table
+        saved_rows = []
+        for row in range(self.date_table.rowCount()):
+            date_item = self.date_table.item(row, 0)
+            info_item = self.date_table.item(row, 1)
+            
+            if date_item is None or info_item is None:
+                continue
+            
+            pos_checked = self.date_table.cellWidget(row, 2).isChecked()
+            vel_checked = self.date_table.cellWidget(row, 3).isChecked()
+            
+            saved_rows.append([
+                date_item.text(),
+                info_item.text(),
+                pos_checked,
+                vel_checked
+            ])
+        
+        # reinitialize table to update it
+        self.date_table.setRowCount(0)
        
-       # Réinitialiser le tableau
-       self.date_table.setRowCount(0)
+        log_file = read_yaml(self.data.sitelogs_path)
+        sta_file = get_sitelog(station, log_file)
+        data = read_sitelog(sta_file[0])
+        ant, rec = data[1], data[0]
+        
+        chg_pos = []
+        chg_vel = []
        
-       log_file = read_yaml(self.data.sitelogs_path)
-       sta_file = get_sitelog(station, log_file)
-       data = read_sitelog(sta_file[0])
-       ant, rec = data[1], data[0]
+        if self.ts_manager.m:
+            chg_pos_mjd = self.ts_manager.m[0].f[0].t
+            chg_vel_mjd = self.ts_manager.m[0].f[1].t
+            
+            for i in range(len(chg_pos_mjd)):
+                d_1 = date.from_mjd(chg_pos_mjd[i])
+                chg_pos.append(str(d_1))
+                
+            for i in range(len(chg_vel_mjd)):
+                d_2 = date.from_mjd(chg_vel_mjd[i])
+                chg_vel.append(str(d_2))
        
-       chg_pos = []
-       chg_vel = []
+      
+        sitelog_dates = []
+        
+        # add antenna changes
+        for i in range(len(ant)):
+            date_str = str(date.from_tsnx(ant[i].start))
+            info_str = 'antenna change'
+            sitelog_dates.append([date_str, info_str])
+            
+            self.date_table.add_line(date_str, info_str)
+            last_row = self.date_table.rowCount() - 1
+            
+            # look if this date was saved
+            found = False
+            for saved_row in saved_rows:
+                if saved_row[0] == date_str and saved_row[1] == info_str:
+                    # Restaurer l'état sauvegardé
+                    if saved_row[2]:  # pos
+                        self.date_table.cellWidget(last_row, 2).setChecked(True)
+                    if saved_row[3]:  # vel
+                        self.date_table.cellWidget(last_row, 3).setChecked(True)
+                    found = True
+                    break
+            
+            if not found:
+                if date_str in chg_pos:
+                    self.date_table.cellWidget(last_row, 2).setChecked(True)
+                if date_str in chg_vel:
+                    self.date_table.cellWidget(last_row, 3).setChecked(True)
+
+        # add receptor change
+        for i in range(len(rec)):
+            date_str = str(date.from_tsnx(rec[i].start))
+            info_str = 'receptor change'
+            sitelog_dates.append([date_str, info_str])
+            
+            self.date_table.add_line(date_str, info_str)
+            last_row = self.date_table.rowCount() - 1
+            
+            # look if this date was saved
+            found = False
+            for saved_row in saved_rows:
+                if saved_row[0] == date_str and saved_row[1] == info_str:
+                    # Restore previous state
+                    if saved_row[2]:  # pos
+                        self.date_table.cellWidget(last_row, 2).setChecked(True)
+                    if saved_row[3]:  # vel
+                        self.date_table.cellWidget(last_row, 3).setChecked(True)
+                    found = True
+                    break
+
+            if not found:
+                if date_str in chg_pos:
+                    self.date_table.cellWidget(last_row, 2).setChecked(True)
+                if date_str in chg_vel:
+                    self.date_table.cellWidget(last_row, 3).setChecked(True)
        
-       if self.ts_manager.m:
-           chg_pos_mjd = self.ts_manager.m[0].f[0].t
-           chg_vel_mjd = self.ts_manager.m[0].f[1].t
+        # Restore added lines
+        for saved_row in saved_rows:
+            is_sitelog = False
+            for sitelog_row in sitelog_dates:
+                if saved_row[0] == sitelog_row[0] and saved_row[1] == sitelog_row[1]:
+                    is_sitelog = True
+                    break
            
-           for i in range(len(chg_pos_mjd)):
-               d_1 = date.from_mjd(chg_pos_mjd[i])
-               chg_pos.append(str(d_1))
-               
-           for i in range(len(chg_vel_mjd)):
-               d_2 = date.from_mjd(chg_vel_mjd[i])
-               chg_vel.append(str(d_2))
-       
-       # Liste des dates du sitelog
-       sitelog_dates = []
-       
-       # Ajouter les antennes
-       for i in range(len(ant)):
-           date_str = str(date.from_tsnx(ant[i].start))
-           info_str = 'antenna change'
-           sitelog_dates.append([date_str, info_str])
-           
-           self.date_table.add_line(date_str, info_str)
-           last_row = self.date_table.rowCount() - 1
-           
-           # Chercher si cette date était sauvegardée
-           found = False
-           for saved_row in saved_rows:
-               if saved_row[0] == date_str and saved_row[1] == info_str:
-                   # Restaurer l'état sauvegardé
-                   if saved_row[2]:  # pos
-                       self.date_table.cellWidget(last_row, 2).setChecked(True)
-                   if saved_row[3]:  # vel
-                       self.date_table.cellWidget(last_row, 3).setChecked(True)
-                   found = True
-                   break
-           
-           if not found:
-               # Utiliser l'ancienne logique du modèle
-               if date_str in chg_pos:
-                   self.date_table.cellWidget(last_row, 2).setChecked(True)
-               if date_str in chg_vel:
-                   self.date_table.cellWidget(last_row, 3).setChecked(True)
-       
-       # Ajouter les récepteurs
-       for i in range(len(rec)):
-           date_str = str(date.from_tsnx(rec[i].start))
-           info_str = 'receptor change'
-           sitelog_dates.append([date_str, info_str])
-           
-           self.date_table.add_line(date_str, info_str)
-           last_row = self.date_table.rowCount() - 1
-           
-           # Chercher si cette date était sauvegardée
-           found = False
-           for saved_row in saved_rows:
-               if saved_row[0] == date_str and saved_row[1] == info_str:
-                   # Restaurer l'état sauvegardé
-                   if saved_row[2]:  # pos
-                       self.date_table.cellWidget(last_row, 2).setChecked(True)
-                   if saved_row[3]:  # vel
-                       self.date_table.cellWidget(last_row, 3).setChecked(True)
-                   found = True
-                   break
-           
-           if not found:
-               # Utiliser l'ancienne logique du modèle
-               if date_str in chg_pos:
-                   self.date_table.cellWidget(last_row, 2).setChecked(True)
-               if date_str in chg_vel:
-                   self.date_table.cellWidget(last_row, 3).setChecked(True)
-       
-       # Restaurer les lignes qui ne sont pas dans le sitelog (ajoutées manuellement)
-       for saved_row in saved_rows:
-           # Vérifier si cette ligne est dans le sitelog
-           is_sitelog = False
-           for sitelog_row in sitelog_dates:
-               if saved_row[0] == sitelog_row[0] and saved_row[1] == sitelog_row[1]:
-                   is_sitelog = True
-                   break
-           
-           # Si pas dans le sitelog, c'est une ligne manuelle à restaurer
-           if not is_sitelog:
-               self.date_table.add_line(saved_row[0], saved_row[1])
-               last_row = self.date_table.rowCount() - 1
-               
-               if saved_row[2]:  # pos
-                   self.date_table.cellWidget(last_row, 2).setChecked(True)
-               if saved_row[3]:  # vel
-                   self.date_table.cellWidget(last_row, 3).setChecked(True)
+            if not is_sitelog:
+                self.date_table.add_line(saved_row[0], saved_row[1])
+                last_row = self.date_table.rowCount() - 1
+                
+                if saved_row[2]:  # pos
+                    self.date_table.cellWidget(last_row, 2).setChecked(True)
+                if saved_row[3]:  # vel
+                    self.date_table.cellWidget(last_row, 3).setChecked(True)
    
+    # def remove_points(self):
+    #     if self.ts_manager.r is None:
+    #         QMessageBox.warning(
+    #             self, 
+    #             "No series loaded", 
+    #             "Please load a time series first."
+    #         )
+    #         return
+        
+    #     threshold = self.sbox_threshold.value() 
+        
+    #     try:
+    #         self.ts_manager.clean_time_series(threshold)
+    #         self.update_ts_graph()
+    #     except Exception as e:
+    #         QMessageBox.critical(self, "Cleaning error", str(e))
+    
     def remove_points(self):
-        """Supprime les points aberrants"""
+        """
+        (not working)
+        Remove points with large error
+        
+        This method removes observations with large errors using a user-defined 
+        threshold (by default 5). After cleaning, the model is re-fitted and all 
+        relevant graphical components (time series, residuals, periodogram, and model 
+        display) are updated.
+        
+        If no time series is loaded, a warning message is displayed.
+        """
         if self.ts_manager.r is None:
             QMessageBox.warning(
                 self, 
                 "No series loaded", 
                 "Please load a time series first."
             )
-            return
         
         threshold = self.sbox_threshold.value() 
-        
+
         try:
             self.ts_manager.clean_time_series(threshold)
-            self.update_ts_graph()
+            
+            # fit model after cleaning
+            if self.ts_manager.m is not None:
+                self.ts_manager.fit_model()
+            # update ts_graph without re-loading the time serie
+            if self.data and self.data.discontinuity_path:   
+                discontinuities = self.date_table.get_dates()
+            else: 
+                discontinuities = []
+            self.canvas.plot_data(
+                self.ts_manager.r, 
+                discontinuities, 
+                model=self.ts_manager.m
+            )
+            
+            # update residuals graph and psd graph
+            if self.ts_manager.m is not None:
+                if self.raw_residuals_btn.isChecked():
+                    self.residual_graph.plot_raw_res(self.ts_manager.m)
+                else:
+                    self.residual_graph.plot_norm_res(self.ts_manager.m)
+                self.periodogram_graph.plot_psd(self.ts_manager.m)
+                self.model_label.setText(str(self.ts_manager.m))
+            
         except Exception as e:
             QMessageBox.critical(self, "Cleaning error", str(e))
+
     
     def add_date(self):
-        """Ajoute une date de discontinuité"""
+        """
+        Add a date in the table
+
+        This method opens a dialog allowing the user to add a new
+        date to the deterministic model configuration.
+        """
         dialog = DialogNewDate(self)
         dialog.exec() 
     
     def adjust_model(self):
-        """Ajuste le modèle"""
+        """
+        Fit the deterministic model
+        
+        This method fits or refines the deterministic model using the information 
+        defined in the date table. The model is adjusted iteratively and all 
+        graphical components are updated accordingly.
+        
+        If no time series is loaded, the method returns without action.
+        """
+        
         if self.ts_manager.r is None:
             return
         
-        #events = self.date_table.get_model_events()
         dates, infos, pos_checked, vel_checked = self.date_table.get_model_events()
   
         try:
@@ -561,7 +691,6 @@ class MyApp(QMainWindow):
                 discontinuities = self.date_table.get_dates()
             else: 
                 discontinuities = []
-            print('avant le plot')
             self.canvas.plot_data(
                 self.ts_manager.r, 
                 discontinuities, 
@@ -576,12 +705,24 @@ class MyApp(QMainWindow):
             
             self.periodogram_graph.plot_psd(self.ts_manager.m)
             self.model_label.setText(str(self.ts_manager.m))
+            
+            # #save model in cache
+            # if self.name_sta:
+            #     self.cache.save_model(self.ts_manager.m, self.name_sta)
+                
         except Exception as e:
             QMessageBox.critical(self, "Model error", str(e))
             
 
     def save_model(self):
-        """SAve model in pickel file"""
+        """
+        Save the current model to a file
+         
+        This method saves the currently fitted model to a pickle file
+        selected by the user. If no model is available, a warning message
+        is displayed.
+        """
+        
         if self.ts_manager.m is None:
             QMessageBox.warning(
                 self,
