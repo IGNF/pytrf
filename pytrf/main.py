@@ -31,7 +31,7 @@ from cache import CacheManager
 from matplotlib.backends.backend_qtagg import NavigationToolbar2QT as NavigationToolbar
 from pytrf.io import read_yaml, get_sitelog, read_sitelog
 from pytrf import date
-
+from pytrf.ts import model
 
 class MyApp(QMainWindow):
     """Fenêtre principale de l'application"""
@@ -78,7 +78,7 @@ class MyApp(QMainWindow):
         main_layout.addLayout(button_layout)
         
         # === Left pannel ===
-        self.control_panel = QTabWidget()
+        control_panel = QTabWidget()
         
         # Determinist model tab
         
@@ -147,10 +147,10 @@ class MyApp(QMainWindow):
         sto_model_layout.addWidget(QLabel("holà"))
         sto_model_tab.setLayout(sto_model_layout)
         
-        self.control_panel.addTab(det_model_tab, "Deterministic model")
-        self.control_panel.addTab(sto_model_tab, "Stochastic model")
+        control_panel.addTab(det_model_tab, "Deterministic model")
+        control_panel.addTab(sto_model_tab, "Stochastic model")
         
-        pannels_layout.addWidget(self.control_panel)
+        pannels_layout.addWidget(control_panel)
         
         # === Middle pannel ===
         self.combobox_ts = ComboBoxTS()
@@ -290,7 +290,8 @@ class MyApp(QMainWindow):
         try:
             self.data = read_yaml(file_path)
             print('fichier lu')
-           
+            
+                
             if self.data.ts_path:
                 self.combobox_ts.fill_combobox(self.data.ts_path)
                 self.name_sta = self.combobox_ts.currentText()[0:4]
@@ -299,17 +300,57 @@ class MyApp(QMainWindow):
                     self.name_sta + '_igs.xyz'
                 )
            
-                self.ts_manager.load_time_series(ts_file_path)
+                self.ts_manager.load_time_series(ts_file_path, auto_fit=False)
+                print('je regarde si il y a un model')
+                model_file_path = os.path.join(
+                    self.data.model_path, 
+                    self.name_sta + '.pkl'
+                )
+                print(f'model_file_path : {model_file_path}')
                 
-                if self.data.discontinuity_path:
-                    self.ts_manager.load_model_from_solns(
-                        self.data.discontinuity_path, 
-                        self.name_sta
-                    )
+                if os.path.isfile(model_file_path):
+                    print('model computed from pkl')
+                    self.ts_manager.m = model.load(model_file_path)
+                    self.ts_manager.r = self.ts_manager.m.r
+                    #t = [date.from_mjd(d).ydec() for d in r.t]
+                    #normalement pas besoin mais quand je ne le mets pas j'ai 'volume and kernel should have the same dimensionality'
+                    self.ts_manager.fit_model()
+                   
+                else:
+                    if self.data.discontinuity_path:
+                        print('model computed from snx')
+                        self.ts_manager.load_model_from_solns(
+                            self.data.discontinuity_path, 
+                            self.name_sta
+                        )
+                        
+                    else:
+                        print('chargement d un model par defaut')
+                        self.ts_manager._initialize_base_model()
+                    
+                    self.ts_manager.fit_model()
                 
-                self.ts_manager.fit_model()
+                
+                # if self.data.discontinuity_path:
+                #     self.ts_manager.load_model_from_solns(
+                #         self.data.discontinuity_path, 
+                #         self.name_sta
+                #     )
+                
+                # self.ts_manager.fit_model()
+            #instead of update_ts_graph
+            if self.data.discontinuity_path:   
+                self.update_log_table(self.name_sta)
+                discontinuities = self.date_table.get_dates()
+            else: 
+                discontinuities = []
             
-            self.update_ts_graph()
+            self.canvas.plot_data(
+                self.ts_manager.r, 
+                discontinuities, 
+                model=self.ts_manager.m
+            )
+            
             self.update_residual_graph()
             self.update_psd()
             self.model_label.setText(str(self.ts_manager.m))
@@ -358,49 +399,170 @@ class MyApp(QMainWindow):
         self.periodogram_graph.plot_psd(self.ts_manager.m)
         
     
-    def update_log_table(self, station: str):
-        """Met à jour le tableau des logs"""
-        self.date_table.setRowCount(0)
-        log_file = read_yaml(self.data.sitelogs_path)
-        sta_file = get_sitelog(station, log_file)
-        data = read_sitelog(sta_file[0])
-        ant, rec = data[1], data[0]
+    # def update_log_table(self, station: str):
+    #     """Met à jour le tableau des logs"""
+    #     self.date_table.setRowCount(0)
+    #     log_file = read_yaml(self.data.sitelogs_path)
+    #     sta_file = get_sitelog(station, log_file)
+    #     data = read_sitelog(sta_file[0])
+    #     ant, rec = data[1], data[0]
         
-        chg_pos = []
-        chg_vel = []
+    #     chg_pos = []
+    #     chg_vel = []
         
-        if self.ts_manager.m:
-            chg_pos_mjd = self.ts_manager.m[0].f[0].t
-            chg_vel_mjd = self.ts_manager.m[0].f[1].t
+    #     if self.ts_manager.m:
+    #         chg_pos_mjd = self.ts_manager.m[0].f[0].t
+    #         chg_vel_mjd = self.ts_manager.m[0].f[1].t
             
-            for i in range(len(chg_pos_mjd)):
-                d_1 = date.from_mjd(chg_pos_mjd[i])
-                chg_pos.append(str(d_1))
+    #         for i in range(len(chg_pos_mjd)):
+    #             d_1 = date.from_mjd(chg_pos_mjd[i])
+    #             chg_pos.append(str(d_1))
                 
-            for i in range(len(chg_vel_mjd)):
-                d_2 = date.from_mjd(chg_vel_mjd[i])
-                chg_vel.append(str(d_2))
+    #         for i in range(len(chg_vel_mjd)):
+    #             d_2 = date.from_mjd(chg_vel_mjd[i])
+    #             chg_vel.append(str(d_2))
         
-        for i in range(len(ant)):
-            self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
-            last_row = self.date_table.rowCount() - 1
+    #     for i in range(len(ant)):
+    #         self.date_table.add_line(date.from_tsnx(ant[i].start), 'antenna change')
+    #         last_row = self.date_table.rowCount() - 1
             
-            if str(date.from_tsnx(ant[i].start)) in chg_pos:
-                self.date_table.cellWidget(last_row, 2).setChecked(True)
+    #         if str(date.from_tsnx(ant[i].start)) in chg_pos:
+    #             self.date_table.cellWidget(last_row, 2).setChecked(True)
             
-            if str(date.from_tsnx(ant[i].start)) in chg_vel:
-                self.date_table.cellWidget(last_row, 3).setChecked(True)
+    #         if str(date.from_tsnx(ant[i].start)) in chg_vel:
+    #             self.date_table.cellWidget(last_row, 3).setChecked(True)
         
-        for i in range(len(rec)):
-            self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
-            last_row = self.date_table.rowCount() - 1
+    #     for i in range(len(rec)):
+    #         self.date_table.add_line(date.from_tsnx(rec[i].start), 'receptor change')
+    #         last_row = self.date_table.rowCount() - 1
         
-            if str(date.from_tsnx(rec[i].start)) in chg_pos:
-                self.date_table.cellWidget(last_row, 2).setChecked(True)
+    #         if str(date.from_tsnx(rec[i].start)) in chg_pos:
+    #             self.date_table.cellWidget(last_row, 2).setChecked(True)
              
-            if str(date.from_tsnx(rec[i].start)) in chg_vel:
-                self.date_table.cellWidget(last_row, 3).setChecked(True)
-    
+    #         if str(date.from_tsnx(rec[i].start)) in chg_vel:
+    #             self.date_table.cellWidget(last_row, 3).setChecked(True)
+    def update_log_table(self, station: str):
+       """Met à jour le tableau des logs"""
+       # Sauvegarder l'état actuel du tableau
+       saved_rows = []
+       for row in range(self.date_table.rowCount()):
+           date_item = self.date_table.item(row, 0)
+           info_item = self.date_table.item(row, 1)
+           
+           if date_item is None or info_item is None:
+               continue
+           
+           pos_checked = self.date_table.cellWidget(row, 2).isChecked()
+           vel_checked = self.date_table.cellWidget(row, 3).isChecked()
+           
+           saved_rows.append([
+               date_item.text(),
+               info_item.text(),
+               pos_checked,
+               vel_checked
+           ])
+       
+       # Réinitialiser le tableau
+       self.date_table.setRowCount(0)
+       
+       log_file = read_yaml(self.data.sitelogs_path)
+       sta_file = get_sitelog(station, log_file)
+       data = read_sitelog(sta_file[0])
+       ant, rec = data[1], data[0]
+       
+       chg_pos = []
+       chg_vel = []
+       
+       if self.ts_manager.m:
+           chg_pos_mjd = self.ts_manager.m[0].f[0].t
+           chg_vel_mjd = self.ts_manager.m[0].f[1].t
+           
+           for i in range(len(chg_pos_mjd)):
+               d_1 = date.from_mjd(chg_pos_mjd[i])
+               chg_pos.append(str(d_1))
+               
+           for i in range(len(chg_vel_mjd)):
+               d_2 = date.from_mjd(chg_vel_mjd[i])
+               chg_vel.append(str(d_2))
+       
+       # Liste des dates du sitelog
+       sitelog_dates = []
+       
+       # Ajouter les antennes
+       for i in range(len(ant)):
+           date_str = str(date.from_tsnx(ant[i].start))
+           info_str = 'antenna change'
+           sitelog_dates.append([date_str, info_str])
+           
+           self.date_table.add_line(date_str, info_str)
+           last_row = self.date_table.rowCount() - 1
+           
+           # Chercher si cette date était sauvegardée
+           found = False
+           for saved_row in saved_rows:
+               if saved_row[0] == date_str and saved_row[1] == info_str:
+                   # Restaurer l'état sauvegardé
+                   if saved_row[2]:  # pos
+                       self.date_table.cellWidget(last_row, 2).setChecked(True)
+                   if saved_row[3]:  # vel
+                       self.date_table.cellWidget(last_row, 3).setChecked(True)
+                   found = True
+                   break
+           
+           if not found:
+               # Utiliser l'ancienne logique du modèle
+               if date_str in chg_pos:
+                   self.date_table.cellWidget(last_row, 2).setChecked(True)
+               if date_str in chg_vel:
+                   self.date_table.cellWidget(last_row, 3).setChecked(True)
+       
+       # Ajouter les récepteurs
+       for i in range(len(rec)):
+           date_str = str(date.from_tsnx(rec[i].start))
+           info_str = 'receptor change'
+           sitelog_dates.append([date_str, info_str])
+           
+           self.date_table.add_line(date_str, info_str)
+           last_row = self.date_table.rowCount() - 1
+           
+           # Chercher si cette date était sauvegardée
+           found = False
+           for saved_row in saved_rows:
+               if saved_row[0] == date_str and saved_row[1] == info_str:
+                   # Restaurer l'état sauvegardé
+                   if saved_row[2]:  # pos
+                       self.date_table.cellWidget(last_row, 2).setChecked(True)
+                   if saved_row[3]:  # vel
+                       self.date_table.cellWidget(last_row, 3).setChecked(True)
+                   found = True
+                   break
+           
+           if not found:
+               # Utiliser l'ancienne logique du modèle
+               if date_str in chg_pos:
+                   self.date_table.cellWidget(last_row, 2).setChecked(True)
+               if date_str in chg_vel:
+                   self.date_table.cellWidget(last_row, 3).setChecked(True)
+       
+       # Restaurer les lignes qui ne sont pas dans le sitelog (ajoutées manuellement)
+       for saved_row in saved_rows:
+           # Vérifier si cette ligne est dans le sitelog
+           is_sitelog = False
+           for sitelog_row in sitelog_dates:
+               if saved_row[0] == sitelog_row[0] and saved_row[1] == sitelog_row[1]:
+                   is_sitelog = True
+                   break
+           
+           # Si pas dans le sitelog, c'est une ligne manuelle à restaurer
+           if not is_sitelog:
+               self.date_table.add_line(saved_row[0], saved_row[1])
+               last_row = self.date_table.rowCount() - 1
+               
+               if saved_row[2]:  # pos
+                   self.date_table.cellWidget(last_row, 2).setChecked(True)
+               if saved_row[3]:  # vel
+                   self.date_table.cellWidget(last_row, 3).setChecked(True)
+   
     def remove_points(self):
         """Supprime les points aberrants"""
         if self.ts_manager.r is None:
@@ -429,13 +591,34 @@ class MyApp(QMainWindow):
         if self.ts_manager.r is None:
             return
         
-        events = self.date_table.get_model_events()
-        print('events modele', events)
-        
+        #events = self.date_table.get_model_events()
+        dates, infos, pos_checked, vel_checked = self.date_table.get_model_events()
+  
+        print('avant le try')
         try:
-            self.ts_manager.fit_model_iterative(events)
-            self.update_ts_graph()
-            self.residual_graph.plot_res(self.ts_manager.m)
+            print('dans le try')
+            self.ts_manager.fit_model_iterative(dates, pos_checked, vel_checked)
+            print('après le fit iter')
+            
+            if self.data.discontinuity_path:   
+                discontinuities = self.date_table.get_dates()
+            else: 
+                discontinuities = []
+            print('avant le plot')
+            self.canvas.plot_data(
+                self.ts_manager.r, 
+                discontinuities, 
+                model=self.ts_manager.m
+            )
+            
+            # update graph
+            if self.raw_residuals_btn.isChecked():
+                self.residual_graph.plot_raw_res(self.ts_manager.m)
+            else:
+                self.residual_graph.plot_norm_res(self.ts_manager.m)
+            
+            self.periodogram_graph.plot_psd(self.ts_manager.m)
+            self.model_label.setText(str(self.ts_manager.m))
         except Exception as e:
             QMessageBox.critical(self, "Model error", str(e))
 

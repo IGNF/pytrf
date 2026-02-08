@@ -236,4 +236,13 @@ class DialogNewDate(QDialog):
             return
     
         self.parent.date_table.add_line(date, info)
+        
+        self.line_date.clear()
+        self.line_info.clear()
+        
         self.accept()
+    
+    def closeEvent(self, event):
+        self.line_date.deleteLater()
+        self.line_info.deleteLater()
+        super().closeEvent(event)

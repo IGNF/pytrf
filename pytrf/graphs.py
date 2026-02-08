@@ -29,6 +29,12 @@ class TSGraph(FigureCanvas):
     
     def plot_data(self, r, discontinuities=None, model=None):
         """Trace les données"""
+        
+        #delete previous graph
+        for ax in self.axes:
+            ax.clear()
+            ax.cla() 
+            
         x = TSGraph.mjd_to_datetime(r.t)
         y = r.y * 1e3
         labels = ['East[mm]', 'North[mm]', 'Up[mm]']
@@ -66,29 +72,59 @@ class TSGraph(FigureCanvas):
                     )
         
         # Tracer les discontinuités
+        # if discontinuities:
+        #     for ax in self.axes:
+        #         for d in discontinuities:
+        #             if d[1] == 'antenna change':
+        #                 color = 'blue'
+        #             elif d[1] == 'receptor change':
+        #                 color = 'cyan'
+        #             elif d[1] == 'earthquake':
+        #                 color = 'orange'
+        #             else:
+        #                 color = 'green'
+                    
+        #             ax.axvline(
+        #                 d[0],
+        #                 color=color,
+        #                 linestyle='-',
+        #                 linewidth=1,
+        #                 alpha=0.7,
+        #                 zorder=20
+        #             )
+        
         if discontinuities:
             for ax in self.axes:
                 for d in discontinuities:
-                    if d[1] == 'antenna change':
-                        color = 'blue'
-                    elif d[1] == 'receptor change':
-                        color = 'cyan'
-                    elif d[1] == 'earthquake':
-                        color = 'orange'
+                    # d[0] = date, d[1] = info, d[2] = pos_checked, d[3] = vel_checked
+                    
+                    if len(d) >= 4 and (d[2] or d[3]):
+                        color = 'red'
+                        linewidth = 1.5
                     else:
-                        color = 'green'
+                        # Sinon, couleur selon le type
+                        if d[1] == 'antenna change':
+                            color = 'blue'
+                        elif d[1] == 'receptor change':
+                            color = 'cyan'
+                        elif d[1] == 'earthquake':
+                            color = 'orange'
+                        else:
+                            color = 'green'
+                        linewidth = 1
                     
                     ax.axvline(
                         d[0],
                         color=color,
                         linestyle='-',
-                        linewidth=1,
+                        linewidth=linewidth,
                         alpha=0.7,
                         zorder=20
                     )
-        
+                
         self.figure.tight_layout()
         self.draw()
+        self.figure.canvas.flush_events()
     
     @staticmethod
     def mjd_to_datetime(mjd):
@@ -110,7 +146,11 @@ class Graph(FigureCanvas):
         """Adapted from pytrf.ts.plot_res"""
         if m is None or m.r is None:
             return
-    
+        
+        #delete previous graph
+        for ax in self.axes:
+            ax.clear()
+            
         # Time
         if (tunit is None) or (tunit == m.r.tunit):
             tunit = m.r.tunit
@@ -131,6 +171,7 @@ class Graph(FigureCanvas):
             dims = [dims]
     
         # Tracé
+        
         for d in range(m.nd):
             ax = self.axes[d]
             ax.clear()
@@ -172,6 +213,7 @@ class Graph(FigureCanvas):
     
         self.figure.tight_layout()
         self.draw()
+        self.figure.canvas.flush_events()
         
     def plot_norm_res(self, m, thr_norm=None, tunit=None, dims=None, title=None):
 
@@ -180,7 +222,11 @@ class Graph(FigureCanvas):
         """
         if m is None or m.r is None:
              return
- 
+         
+        #delete previous graph
+        for ax in self.axes:
+             ax.clear()
+             
         # Time
         if (tunit is None) or (tunit == m.r.tunit):
             tunit = m.r.tunit
@@ -221,6 +267,7 @@ class Graph(FigureCanvas):
      
         self.figure.tight_layout()
         self.draw()
+        self.figure.canvas.flush_events()
         
     def plot_psd(self, m, smooth=1, figsize=None, tunit=None, dims=None, title=None, output=None, show=True):
 
@@ -231,7 +278,10 @@ class Graph(FigureCanvas):
 
         if m is None or m.r is None:
              return
- 
+         
+        #delete previous graph
+        for ax in self.axes:
+            ax.clear()
 
         # Time unit and frequencies
         if (tunit is None) or (tunit == m.r.tunit):
@@ -307,4 +357,5 @@ class Graph(FigureCanvas):
      
         self.figure.tight_layout()
         self.draw()
+        self.figure.canvas.flush_events()
        
