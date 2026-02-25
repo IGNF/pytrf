@@ -26,7 +26,7 @@ import networkx as nx
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
+from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr, plate_rotations
 from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
@@ -3151,6 +3151,9 @@ class sinex:
                 snx.Q = snx.Q[np.ix_(indk, indk)]
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
+                if (snx.x0 is not None):
+                    snx.x0 = snx.x0[indk]
+                    snx.sig0 = snx.sig0[indk]
                 
             # 5th case: no matrix at all
             else:
@@ -5579,3 +5582,90 @@ class sinex:
                             G.add_edge(sta[i], sta[i+1], weight=1/vc.sigma**2)
 
         return G
+
+    # Estimate tectonic plate rotation vectors from station velocities
+    #-----------------------------------------------------------------
+    def plate_rotations(snx, plate_geom, weighting='full', set_dT=True, quiet=False, out=sys.stdout):
+
+        """
+        Estimate tectonic plate rotation vectors from station velocities
+
+        Returns
+        -------
+        stats : record
+            stats.nplates : Number of plates with an estimated rotation vector
+            stats.nsta    : Overall number of stations used in the estimation
+            stats.vf      : Overall variance factor
+            stats.wrms    : WRMS of [East, North] velocity residuals (mm/yr)
+        plates : list of records
+            plate[i].name      : Plate name
+            plate[i].nsta      : Number of stations on the plate
+            plate[i].wrms      : WRMS of [East, North] velocity residuals (mm/yr)
+            plate[i].omega     : XYZ components of estimated plate rotation vector (mas/yr)
+            plate[i].var_omega : Their covariance matrix (mas²/yr²)
+            plate[i].pole      : Longitude, latitude and rotation speed (deg, deg, mas/yr)
+            plate[i].var_pole  : Corresponding covariance matrix
+        dT : (3,) array_like or None
+            XYZ components of estimated translation rate (mm/yr)
+        var_dT : (3,) array_like or None
+            Their covariance matrix (mm²/yr²)
+        x : (3*p,) or (3*p+3,) array_like
+            Vector of all estimated parameters (mas/yr and mm/yr)
+            (plate rotation vectors possibly followed by translation rate)
+        Qx : (3*p,3*p) or (3*p+3,3*p+3) array_like
+            Covariance matrix of estimated parameters (mas²/yr² and mm²/yr²)
+        code : list
+            4-char IDs of stations effectively used in the estimation
+        v : (n,2)
+            Station velocity residuals (along the East and North directions, in mm/yr)
+        vn : (n,2)
+            Station velocity normalized residuals
+
+        Parameters
+        ----------
+        plate_geom : str
+            Path to a GeoJSON file containing plate boundaries. Should be of type "FeatureCollection",
+            with each feature having a "PlateName" and a geometry of type "Polygon".
+            You can use for instance this file, which contains the plate boundaries from Bird (2003):
+            https://github.com/fraxen/tectonicplates/blob/master/GeoJSON/PB2002_plates.json
+        weighting : str, optional
+            Keyword indicating which covariance matrix should be used for station velocities in the estimation.
+            It can take the following values :
+            - 'identity' to use an identity covariance matrix
+            - 'diagonal' to use a diagonal covariance matrix (diag(snx.Q))
+            - 'full' to use a full covariance matrix (snx.Q)
+            Default is 'full'.
+        set_dT : bool
+            Whether or not to estimate a global translation rate together with the plate rotation vectors.
+            Default is True.
+        quiet : bool, optional
+            Whether not to print output messages. Default is False.
+        out : file-like, optional
+            Log file. Default is sys.stdout.
+        """
+
+        # Number, IDs and coordinates of stations with velocity estimates
+        n = len(snx.iv)
+        code = [snx.param[i].code for i in snx.iv]
+        X = snx.get_xyz(code)
+
+        # Compute East/North velocities and their covariance matrix or vector
+        R = xyz2enh(X)
+        V = np.zeros((n, 2))
+        for i in range(n):
+            V[i] = np.dot(R[i,:2], snx.x[snx.iv[i]:snx.iv[i]+3]) * 1000
+
+        if (weighting == 'identity'):
+            Q = None
+        elif (weighting == 'diagonal'):
+            Q = np.zeros(2*n)
+            for i in range(n):
+                Q[2*i:2*i+2] = np.diag(np.dot(R[i,:2], np.dot(snx.Q[snx.iv[i]:snx.iv[i]+3,snx.iv[i]:snx.iv[i]+3], R[i,:2].T))) * 1e6
+        else:
+            Q = np.zeros((2*n, 2*n))
+            for i in range(n):
+                for j in range(n):
+                    Q[2*i:2*i+2,2*j:2*j+2] = np.dot(R[i,:2], np.dot(snx.Q[snx.iv[i]:snx.iv[i]+3,snx.iv[j]:snx.iv[j]+3], R[j,:2].T)) * 1e6
+
+        # Call math.plate_rotations
+        return plate_rotations(code, X, V, plate_geom, Q=Q, set_dT=set_dT, quiet=quiet, out=out)

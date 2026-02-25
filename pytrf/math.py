@@ -12,14 +12,16 @@ This subpackage contains several useful math routines.
 import sys
 #import mkl
 #mkl.set_num_threads(1)
+from math import pi, cos, sin, tan, atan, atan2, sqrt, log, log10, exp, ceil
 import numpy as np
 from scipy import linalg, signal, special, sparse
 from astropy.timeseries import LombScargle
-from math import pi, cos, sin, tan, atan, atan2, sqrt, log, log10, exp, ceil
+import geopandas
 
 # Internal imports
 #-----------------
-from pytrf.const import ae, ee, fe
+from pytrf.utils import record
+from pytrf.const import ae, ee, fe, mas2rad
 
 
 
@@ -591,6 +593,302 @@ def cov2corr(Q):
     f = 1. / np.sqrt(np.diag(Q))
 
     return f*(Q*f).T
+
+# Estimate tectonic plate rotation vectors from station velocity field
+#---------------------------------------------------------------------
+def plate_rotations(code, X, V, plate_geom, Q=None, set_dT=True, quiet=False, out=sys.stdout):
+
+    """
+    Estimate tectonic plate rotation vectors from station velocity field
+
+    Returns
+    -------
+    stats : record
+        stats.nplates : Number of plates with an estimated rotation vector
+        stats.nsta    : Overall number of stations used in the estimation
+        stats.vf      : Overall variance factor
+        stats.wrms    : WRMS of [East, North] velocity residuals (mm/yr)
+    plates : list of records
+        plate[i].name      : Plate name
+        plate[i].nsta      : Number of stations on the plate
+        plate[i].wrms      : WRMS of [East, North] velocity residuals (mm/yr)
+        plate[i].omega     : XYZ components of estimated plate rotation vector (mas/yr)
+        plate[i].var_omega : Their covariance matrix (mas²/yr²)
+        plate[i].pole      : Longitude, latitude and rotation speed (deg, deg, mas/yr)
+        plate[i].var_pole  : Corresponding covariance matrix
+    dT : (3,) array_like or None
+        XYZ components of estimated translation rate (mm/yr)
+    var_dT : (3,) array_like or None
+        Their covariance matrix (mm²/yr²)
+    x : (3*p,) or (3*p+3,) array_like
+        Vector of all estimated parameters (mas/yr and mm/yr)
+        (plate rotation vectors possibly followed by translation rate)
+    Qx : (3*p,3*p) or (3*p+3,3*p+3) array_like
+        Covariance matrix of estimated parameters (mas²/yr² and mm²/yr²)
+    code : list
+        4-char IDs of stations effectively used in the estimation
+    v : (n,2)
+        Station velocity residuals (along the East and North directions, in mm/yr)
+    vn : (n,2)
+        Station velocity normalized residuals
+
+    Parameters
+    ----------
+    code : (n,) list
+        Station 4-char IDs
+    X : (n,3) array_like
+        (Approximate) station positions (geocentric XYZ coordinates in m)
+    V : (n,2) array_like
+        Station velocities (along the East and North directions, in mm/yr)
+    plate_geom : str
+        Path to a GeoJSON file containing plate boundaries. Should be of type "FeatureCollection",
+        with each feature having a "PlateName" and a geometry of type "Polygon".
+        You can use for instance this file, which contains the plate boundaries from Bird (2003):
+        https://github.com/fraxen/tectonicplates/blob/master/GeoJSON/PB2002_plates.json
+    Q : (2*n,2*n) array_like, or (2*n,) array_like, or None
+        Covariance matrix of station velocities (in mm²/yr²), or variances of individual velocities (in mm²/yr²), or None.
+        Depending on what is provided as Q, either a full, diagonal, or identity weight matrix will be used
+        for the estimation of the tectonic plate rotation vectors. Default is None.
+    set_dT : bool
+        Whether or not to estimate a global translation rate together with the plate rotation vectors.
+        Default is True.
+    quiet : bool, optional
+        Whether not to print output messages. Default is False.
+    out : file-like, optional
+        Log file. Default is sys.stdout.
+    """
+
+    # Read plate geometries
+    plate_geom = geopandas.read_file(plate_geom)
+    plate_geom.sort_values(by=['PlateName'], inplace=True, ignore_index=True)
+    plate_names = np.unique(plate_geom['PlateName']).tolist()
+
+    # Compute station geographical coordinates and XYZ->ENH rotation matrices
+    (phi, lam, h) = cart2geo(X)
+    lat = 180/pi*phi
+    lon = 180/pi*lam
+    R = xyz2enh(X)
+
+    # Associate every station to its plate
+    sta = geopandas.GeoDataFrame(geometry=geopandas.points_from_xy(lon, lat), crs=plate_geom.crs)
+    sta_plates = np.array(geopandas.sjoin(sta, plate_geom[['PlateName', 'geometry']], how='left', predicate='within')['PlateName'])
+
+    ## !!! EXCEPTIONS !!!
+    #sta_plates[code.index('DRBA')] = 'Africa'
+    #sta_plates[code.index('DRBN')] = 'Africa'
+    #sta_plates[code.index('RBAY')] = 'Africa'
+    #sta_plates[code.index('ULDI')] = 'Africa'
+
+    # Number of stations per plate
+    nsta = [np.sum(sta_plates==p) for p in plate_names]
+
+    # Initializations
+    ind_plates = []
+    ind_sta = []
+
+    # Loop over plates with less than 2 stations
+    for (i, p) in enumerate(plate_names):
+        if (nsta[i] < 2):
+
+            # Update indices of plates to delete
+            ind_plates.append(i)
+
+            # Update indices of stations to delete
+            ind_sta.extend(np.nonzero(sta_plates==p)[0])
+
+    # Delete plates with less than 2 stations
+    ind_plates = np.setdiff1d(range(len(plate_names)), ind_plates)
+    plate_names = [plate_names[i] for i in ind_plates]
+
+    # Delete stations on those plates
+    ind_sta = np.setdiff1d(range(len(code)), ind_sta)
+    code = [code[i] for i in ind_sta]
+    X = X[ind_sta]
+    V = V[ind_sta]
+    if (Q is not None):
+        ind = np.array([[2*i+0, 2*i+1] for i in ind_sta]).flatten()
+        if (Q.ndim == 1):
+            Q = Q[ind]
+        else:
+            Q = Q[np.ix_(ind,ind)]
+    R = R[ind_sta]
+    sta_plates = sta_plates[ind_sta]
+
+    # Initialize design matrix
+    n = 2*len(code)
+    p = 3*len(plate_names)
+    if (set_dT):
+        p += 3
+    A = np.zeros((n, p))
+
+    # Fill in design matrix, station by station
+    for i in range(len(code)):
+        j = plate_names.index(sta_plates[i])
+
+        # VE,VN / rotation vector partial derivatives
+        Ai = np.zeros((3, 3))
+        Ai[1,0] = -X[i,2]
+        Ai[2,0] =  X[i,1]
+        Ai[0,1] =  X[i,2]
+        Ai[2,1] = -X[i,0]
+        Ai[0,2] = -X[i,1]
+        Ai[1,2] =  X[i,0]
+        A[2*i:2*i+2,3*j:3*j+3] = 1000*mas2rad * np.dot(R[i,:2], Ai)
+
+        # VE,VN / translation rate partial derivatives
+        if (set_dT):
+            A[2*i:2*i+2,-3:] = R[i,:2]
+
+    # Build normal equation
+    if (Q is None):
+        AtP = A.T
+    elif (Q.ndim == 1):
+        AtP = A.T / Q
+    else:
+        P = invspd(Q)
+        AtP = np.dot(A.T, P)
+    N = np.dot(AtP, A)
+    b = np.dot(AtP, V.flatten())
+
+    # Solve normal equation
+    Qx = invspd(N)
+    x = np.dot(Qx, b)
+
+    # Compute residuals and variance factor
+    v = V.flatten() - np.dot(A, x)
+    if (Q is None):
+        vPv = np.sum(v**2)
+    elif (Q.ndim == 1):
+        vPv = np.sum(v**2/Q)
+    else:
+        vPv = np.dot(v.T, np.dot(P, v))
+    s02 = vPv / (n-p)
+    s0 = sqrt(s02)
+
+    # Covariance matrix and sigmas of estimated parameters
+    Qx *= s02
+    sx = np.sqrt(np.diag(Qx))
+
+    # (Approximate) standard deviation of residuals and normalized residuals
+    if (Q is None):
+        sv = s0 * np.ones(n)
+    elif (Q.ndim == 1):
+        sv = s0 * np.sqrt(Q)
+    else:
+        sv = s0 * np.sqrt(np.diag(Q))
+    vn = v / sv
+
+    # Reshape residual arrays
+    v = np.reshape(v, (len(code), 2))
+    sv = np.reshape(sv, (len(code), 2))
+    vn = np.reshape(vn, (len(code), 2))
+
+    # Overall WRMS of East/North residuals
+    wrms = np.zeros(2)
+    wrms[0] = sqrt(np.sum((v[:,0]/sv[:,0])**2) / np.sum(1/sv[:,0]**2))
+    wrms[1] = sqrt(np.sum((v[:,1]/sv[:,1])**2) / np.sum(1/sv[:,1]**2))
+
+    # Output statistics
+    stats = record()
+    stats.nplates = len(plate_names)
+    stats.nsta = len(code)
+    stats.vf = s02
+    stats.wrms = wrms
+
+    # Output plate list
+    plates = []
+    for (i, p) in enumerate(plate_names):
+        r = record()
+        r.name = p
+        ind = np.nonzero(sta_plates == p)[0]
+        r.nsta = len(ind)
+        r.wrms = np.zeros(2)
+        r.wrms[0] = sqrt(np.sum((v[ind,0]/sv[ind,0])**2) / np.sum(1/sv[ind,0]**2))
+        r.wrms[1] = sqrt(np.sum((v[ind,1]/sv[ind,1])**2) / np.sum(1/sv[ind,1]**2))
+        r.omega = x[3*i:3*i+3]
+        r.var_omega = Qx[3*i:3*i+3,3*i:3*i+3]
+        speed = sqrt(np.sum(r.omega**2))
+        phi = atan2(r.omega[2], sqrt(r.omega[0]**2+r.omega[1]**2))
+        lam = atan2(r.omega[1], r.omega[0])
+        lat = 180/pi*phi
+        lon = 180/pi*lam
+        r.pole = np.array([lon, lat, speed])
+        R = np.array([[-sin(lam), cos(lam), 0], [-sin(phi)*cos(lam), -sin(phi)*sin(lam), cos(phi)], [cos(phi)*cos(lam), cos(phi)*sin(lam), sin(phi)]])
+        R[0] *= 180/(pi*speed*cos(phi))
+        R[1] *= 180/(pi*speed)
+        r.var_pole = np.dot(R, np.dot(r.var_omega, R.T))
+        plates.append(r)
+
+    # Estimated translation rate
+    if (set_dT):
+        dT = x[-3:]
+        var_dT = Qx[-3:,-3:]
+    else:
+        dT = None
+        var_dT = None
+
+    # Print output
+    if not(quiet):
+        print('math.plate_rotations', file=out)
+        print('--------------------', file=out)
+        print('', file=out)
+
+        # Print main options and statistics
+        print('Number of plates   : {0}'.format(len(plates)))
+        print('Number of stations : {0}'.format(len(code)))
+        print('Translation rate   : {0}'.format(set_dT))
+        if (Q is None):
+            weighting = 'identity'
+        elif (Q.ndim == 1):
+            weighting = 'diagonal'
+        else:
+            weighting = 'full'
+        print('Weighting          : {0}'.format(weighting))
+        print('Variance factor    : {0:.8e}'.format(s02))
+        print('WRMS East          : {0:6.3f} mm/yr'.format(wrms[0]))
+        print('WRMS North         : {0:6.3f} mm/yr'.format(wrms[1]))
+        print('', file=out)
+
+        # Print translation rate if estimated
+        if (set_dT):
+            print('Translation rate:', file=out)
+            print('-----------------', file=out)
+            print('', file=out)
+            print(' TX = {0:7.3f} +/- {1:7.3f} mm/yr'.format(x[-3], sx[-3]))
+            print(' TY = {0:7.3f} +/- {1:7.3f} mm/yr'.format(x[-2], sx[-2]))
+            print(' TZ = {0:7.3f} +/- {1:7.3f} mm/yr'.format(x[-1], sx[-1]))
+            print('', file=out)
+
+        # Write plate summary
+        print('Tectonic plates:', file=out)
+        print('----------------', file=out)
+        print('', file=out)
+        print('                | #sta    WRMS (mm/yr) |                   Rotation vector (mas/yr)                   |              Rotation pole              |   Rotation speed   |', file=out)
+        print('                |         East   North |      omega_X              omega_Y              omega_Z       |   longitude (deg)      latitude (deg)   |      (mas/yr)      |', file=out)
+        print('----------------|----------------------|--------------------------------------------------------------|-----------------------------------------|--------------------|', file=out)
+        for p in plates:
+            sig_omega = np.sqrt(np.diag(p.var_omega))
+            sig_pole = np.sqrt(np.diag(p.var_pole))
+            print(' {0.name:<14s} | {0.nsta:4d}   {1[0]:6.3f} {1[1]:6.3f} | {2[0]:7.4f} +/- {3[0]:6.4f}   {2[1]:7.4f} +/- {3[1]:6.4f}   {2[2]:7.4f} +/- {3[2]:6.4f} | {4[0]:8.3f} +/- {5[0]:5.3f}   {4[1]:8.3f} +/- {5[1]:5.3f} | {4[2]:7.4f} +/- {5[2]:6.4f} |'.format(p, p.wrms, p.omega, sig_omega, p.pole, sig_pole))
+        print('----------------|----------------------|--------------------------------------------------------------|-----------------------------------------|--------------------|', file=out)
+        print('', file=out)
+
+        # Write residuals
+        print('Residuals:', file=out)
+        print('----------', file=out)
+        print('', file=out)
+        print(' code   plate          |    Raw (mm/yr)  |    Normalized   |', file=out)
+        print('                       |   East    North |   East    North |', file=out)
+        print('-----------------------|-----------------|-----------------|', file=out)
+        k = 0
+        for p in plates:
+            for j in range(len(code)):
+                if (sta_plates[j] == p.name):
+                    print(' {0}   {1:<14s} | {2[0]:7.3f} {2[1]:7.3f} | {3[0]:7.3f} {3[1]:7.3f} |'.format(code[j], p.name, v[j], vn[j]))
+            print('-----------------------|-----------------|-----------------|', file=out)
+        print('', file=out)
+
+    return (stats, plates, dT, var_dT, x, Qx, code, v, vn)
 
 # Compute co-seismic displacements at given point
 #------------------------------------------------

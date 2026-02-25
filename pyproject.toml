@@ -18,7 +18,8 @@ dependencies = [
   'matplotlib',
   'cartopy',
   'unlzw3',
-  'pdoc3'
+  'pdoc3',
+  'geopandas'
 ]
 
 [project.urls]
