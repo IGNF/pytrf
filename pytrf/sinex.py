@@ -1170,10 +1170,10 @@ class sinex:
             snx.iv = np.nonzero(types == 'VELX  ')[0].tolist()
             
             # PSD parameters
-            snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
+            snx.ipsd = np.nonzero(np.isin(types1, ['EXP', 'LOG']))[0].tolist()
             
             # Seasonal terms
-            snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            snx.iseas = np.nonzero(np.isin(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
             
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
@@ -1218,16 +1218,16 @@ class sinex:
             snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
             
             # Transformation parameters
-            snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iR = np.nonzero(np.isin(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
             snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
-            snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
-            snx.iA = np.nonzero(np.in1d(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
+            snx.iT = np.nonzero(np.isin(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+            snx.iA = np.nonzero(np.isin(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
             snx.itrans = snx.iT+snx.iS+snx.iR+snx.iA
 
             # Transformation parameter rates
-            snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
+            snx.idR = np.nonzero(np.isin(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
             snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
-            snx.idT = np.nonzero(np.in1d(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
+            snx.idT = np.nonzero(np.isin(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
             snx.idtrans = snx.idT+snx.idS+snx.idR
 
         else:
