@@ -1740,11 +1740,15 @@ class sinex:
             # Check PT code
             if (check_pt):
                 
-                # PT should be A except for stations IISC and KELY
+                # PT should be A except for stations IISC, KELY
                 if (code in ['IISC', 'KELY']):
                     pt2 = ' B'
                 else:
                     pt2 = ' A'
+
+                # Patch for station S91M
+                if (code == 'S91M'):
+                    pt2 = pt
                 
                 # If a correction is needed
                 if (pt2 != pt):
@@ -1823,6 +1827,10 @@ class sinex:
                     else:
                         domes2 = codomes[ind[imin]].domes
                         desc2 = codomes[ind[imin]].description
+
+            # Patch for station S91M
+            if (code == 'S91M'):
+                domes2 = snx.sta[i].domes
                                       
             # Correct DOMES number in snx.sta and print message if needed
             if (domes2 != snx.sta[i].domes):
