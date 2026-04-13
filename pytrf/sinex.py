@@ -6,6 +6,7 @@
 #-----------------
 import os
 import sys
+import warnings
 import re
 import gzip
 import unlzw3
@@ -1706,7 +1707,7 @@ class sinex:
     
     # Check station PT codes and DOMES numbers
     #-----------------------------------------
-    def check_staid(snx, codomes, check_pt=True, check_crd=True, quiet=False, out=sys.stdout):
+    def check_staid(snx, codomes, check_pt=True, check_crd=True, warn=False, quiet=False, out=sys.stdout):
       
         """
         Check station PT codes and DOMES numbers
@@ -1787,6 +1788,8 @@ class sinex:
                     else:
                         domes2 = default_domes
                         desc2 = snx.sta[i].description
+                        if (warn):
+                            warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
                     
             # Check DOMES number - 2nd case: Do not check station coordinates
             else:
@@ -1803,7 +1806,9 @@ class sinex:
                 if (len(ind) == 0):
                     domes2 = default_domes
                     desc2 = snx.sta[i].description
-                    
+                    if (warn):
+                        warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
+
                 # Else (at least one occurence is found),
                 else:
 
@@ -1822,7 +1827,9 @@ class sinex:
                     if (dmin > 100000):
                         domes2 = default_domes
                         desc2 = snx.sta[i].description
-                        
+                        if (warn):
+                            warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
+
                     # Else (point of the DOMES number catalogue with smallest distance to station is probably the right one),
                     else:
                         domes2 = codomes[ind[imin]].domes
@@ -1831,7 +1838,7 @@ class sinex:
             # Patch for station S91M
             if (code == 'S91M'):
                 domes2 = snx.sta[i].domes
-                                      
+
             # Correct DOMES number in snx.sta and print message if needed
             if (domes2 != snx.sta[i].domes):
                 snx.sta[i].domes = domes2
