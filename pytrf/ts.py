@@ -6611,10 +6611,10 @@ class model:
                         m[d].Q = m[d].n[1].Q + np.diag(m[d].n[0].Q)
                     m[d].v = m[d].r.y - m[d].yc
                     m[d].P = np.dot(m[d].F.T*m[d].P, m[d].F)
+                    m[d].Pv = np.dot(m[d].P, m[d].v)
                     m[d].y2x = np.dot(m[d].y2x, m[d].F)
 
                     del m[d].d, m[d].F, m[d].Fi, m[d].dF
-                    m[d].Pv = None
                     m[d].dQ = None
                     m[d].n[0].dQ = None
                     m[d].n[1].dQ = None
