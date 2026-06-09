@@ -1879,19 +1879,30 @@ class sinex:
         codept_soln = [s.code+s.pt for s in solns]
         codept_sta = [s.code+s.pt for s in snx.sta]
 
+        # Set some useful indices
+        ista = []
+        isol = []
+        for (i, ix) in enumerate(snx.ix):
+            p = snx.param[ix]
+            ista.append(codept_sta.index(p.code+p.pt))
+            isol.append([s.soln for s in snx.sta[ista[-1]].soln].index(p.soln))
+
         # Loop over STAX parameters
-        for i in snx.ix:
-            p = snx.param[i]
+        for (i, ix) in enumerate(snx.ix):
+            p = snx.param[ix]
+
+            # Mean observation epoch of current station position
+            tref = snx.sta[ista[i]].soln[isol[i]].datamean
 
             # If current station is found in discontinuity list
             if (p.code+p.pt in codept_soln):
-                ista = codept_soln.index(p.code+p.pt)
+                j = codept_soln.index(p.code+p.pt)
 
                 # Look for appropriate soln
                 isoln = 0
-                while ((solns[ista].P[isoln].end != '00:000:00000') and (earlier(solns[ista].P[isoln].end, p.tref))):
-                    isoln = isoln+1
-                soln2 = solns[ista].P[isoln].soln
+                while ((solns[j].P[isoln].end != '00:000:00000') and (earlier(solns[j].P[isoln].end, tref))):
+                    isoln += 1
+                soln2 = solns[j].P[isoln].soln
 
             # Else, default soln is '   1'
             else:
@@ -1907,13 +1918,12 @@ class sinex:
                     print('    {0.code} {0.pt} {0.soln} > {0.code} {0.pt} {1}'.format(p, soln2), file=out)
 
                 # Modify soln in snx.param
-                snx.param[i+0].soln = soln2
-                snx.param[i+1].soln = soln2
-                snx.param[i+2].soln = soln2
+                snx.param[ix+0].soln = soln2
+                snx.param[ix+1].soln = soln2
+                snx.param[ix+2].soln = soln2
                 
                 # Modify soln in snx.sta
-                ista = codept_sta.index(p.code+p.pt)
-                snx.sta[ista].soln[0].soln = soln2
+                snx.sta[ista[i]].soln[isol[i]].soln = soln2
                     
         # Print blank line in log file
         if not(quiet):
