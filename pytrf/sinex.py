@@ -5164,7 +5164,7 @@ class sinex:
         
     # Add seasonal signals to a solution
     #-----------------------------------
-    def add_seas(snx, seas):
+    def add_seas(snx, seas, update_cov=True):
         
         """
         Add seasonal signals to a solution
@@ -5173,6 +5173,9 @@ class sinex:
         ----------
         seas : sinex instance
             sinex instance containing seasonal signals
+        update_cov : bool, optional
+            Whether covariance matrix of PSD models should be added to covariance
+            matrix of sinex instance. Default is True.
         
         """
         
@@ -5189,11 +5192,14 @@ class sinex:
             
             # Add seasonal signals
             snx.x[i:i+3] += dx
-            if (snx.Q is not None):
-                snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
-                snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
-            else:
-                snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
+
+            # Update covariance matrix if required
+            if (update_cov):
+                if (snx.Q is not None):
+                    snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
+                    snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                else:
+                    snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
 
     # Calibrate LOD estimates wrt reference series
     #---------------------------------------------
