@@ -1114,12 +1114,8 @@ class sinex:
                 keys.append('46'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type == 'NUT_Y '):
                 keys.append('47'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'XGC   '):
-                keys.append('50'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'YGC   '):
-                keys.append('51'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'ZGC   '):
-                keys.append('52'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type[1:] == 'GC   '):
+                keys.append('5{0:11.5f}{1}'.format(date.from_tsnx(p.tref).mjd, p.type))
             elif (p.type == 'DSC   '):
                 keys.append('53'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']):
