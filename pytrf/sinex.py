@@ -4396,8 +4396,7 @@ class sinex:
             snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
 
             # Rotate station position residuals to ENH frames and convert them into mm
-            indx = np.nonzero(snx.v[snx.ix])[0]
-            ix = np.array([snx.ix[i] for i in indx])
+            ix = np.intersect1d(snx.ix, isnx)
             for i in ix:
                 R = xyz2enh(snx.x[i:i+3])
                 snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
@@ -4414,8 +4413,7 @@ class sinex:
                 snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
 
             # Rotate station velocity residuals to ENH frames and convert them into mm
-            indv = np.nonzero(snx.v[snx.iv])[0]
-            iv = np.array([snx.iv[i] for i in indv])
+            iv = np.intersect1d(snx.iv, isnx)
             for i in iv:
                 R = xyz2enh(snx.x[i-3:i])
                 snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
@@ -4438,8 +4436,7 @@ class sinex:
             snx.sv[igc] *= 1000
 
             # Indices of radiosource coordinate residuals
-            indrs = np.nonzero(snx.v[snx.irs])[0]
-            irs = np.array([snx.irs[i] for i in indrs])
+            irs = np.intersect1d(snx.irs, isnx)
 
             # Indices of ERP / GC / SC residuals
             ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
@@ -4480,9 +4477,9 @@ class sinex:
                 print('    ---------------', file=out)
                 print('', file=out)
                 print('    # observations      : {0}'.format(len(isnx)), file=out)
-                print('    (station positions  : {0})'.format(3*len(indx)), file=out)
-                print('    (station velocities : {0})'.format(3*len(indv)), file=out)
-                print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
+                print('    (station positions  : {0})'.format(3*len(ix)), file=out)
+                print('    (station velocities : {0})'.format(3*len(iv)), file=out)
+                print('    (radiosource coord. : {0})'.format(2*len(irs)), file=out)
                 print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
                 print('    # parameters        : {0}'.format(A.shape[1]), file=out)
                 print('    Weighting           : {0}'.format(weighting), file=out)
@@ -4490,9 +4487,9 @@ class sinex:
                 print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
                 print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
                 if (len(iv) > 0):
-                    print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
-                    print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
-                    print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                    print('    WRMS vel East       : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
+                    print('    WRMS vel North      : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
+                    print('    WRMS vel Up         : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
                 print('', file=out)
 
                 # Print estimated parameters and formal errors
@@ -4509,7 +4506,7 @@ class sinex:
                     print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
                     print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
                     print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
-                if (len(indv) > 0):
+                if (len(iv) > 0):
                     if ('T' in helmerts):
                         print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
                         print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
