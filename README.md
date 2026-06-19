@@ -1,5 +1,4 @@
-<img src="./pytrf-logo.png" width="300">
-
+<img src="./pytrf-logo.png" width="315">
 # pytrf
 
 pytrf provides Python utilities for the analysis and combination of Terrestrial Reference Frames.
