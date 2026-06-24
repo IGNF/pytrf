@@ -4306,9 +4306,21 @@ class sinex:
         # Get indices of common parameters between both solutions
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
+        
+        # If there isn't any common parameter between both solutions,
+        if (len(isnx) == 0):
+            
+            # Print message
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+                print('', file=out)
+                print('There isn\'t any common parameter between both solutions!', file=out)
 
-        # If both solutions are identical,
-        if np.array_equal(snx.x[isnx], ref.x[iref]):
+            return (None, None)
+
+        # Else, if both solutions are identical,
+        elif np.array_equal(snx.x[isnx], ref.x[iref]):
 
             # Print message
             if not(quiet):
@@ -4787,22 +4799,29 @@ class sinex:
             # Helmert comparison
             (T, Q) = snx.compare(ref, helmerts, weighting, apply_vf, norm_res, quiet, out)
             
-            # Get outlier list
-            (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, thr_abs_E, thr_abs_N, thr_abs_H, reject1by1 , ac, quiet, out)
+            # If Helmert comparison went well,
+            if (T is not None):
             
-            # If any outliers,
-            if (len(code) > 0):
+                # Get outlier list
+                (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, thr_abs_E, thr_abs_N, thr_abs_H, reject1by1 , ac, quiet, out)
                 
-                # Remove them either from snx or ref
-                if (clean_ref):
-                    ref.del_sta(code, pt, soln)
+                # If any outliers,
+                if (len(code) > 0):
+                    
+                    # Remove them either from snx or ref
+                    if (clean_ref):
+                        ref.del_sta(code, pt, soln)
+                    else:
+                        snx.del_sta(code, pt, soln)
+                
+                # Else, we're done.
                 else:
-                    snx.del_sta(code, pt, soln)
-            
+                    end = True
+                        
             # Else, we're done.
             else:
                 end = True
-                        
+                
         return (T, Q)
 
     # Propagate station positions to specified date
