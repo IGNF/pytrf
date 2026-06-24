@@ -141,11 +141,11 @@ class sinex:
         helmert_partials() : Get partial derivative matrix of Helmert parameters
         del_ind()          : Delete (reduce) parameters with specified indices
         del_params()       : Delete (reduce) parameters of specified types
-        del_unknown_par()  : Delete parameters that are not supported by snxcomb
+        del_unknown_par()  : Delete parameters that are not supported by snxcmb.combine()
         del_helmerts()     : Reduce origin, scale and/or orientation information in a normal equation
         del_sta()          : Delete (reduce) specified stations
         del_rs()           : Delete (reduce) specified radiosources
-        del_duplicates()   : Delete (reduce) solution numbers (solns) if there are many of them in an "instantaneous" solution
+        del_loose_sta()    : Delete (reduce) stations with loosely determined positions in a normal equation
         keep_sta()         : Keep specified stations - Delete (reduce) other stations
         keep_rs()          : Keep specified radiosources - Delete (reduce) other radiosources
         trim_params()      : Delete (reduce) parameters that do not belong to period of interest
@@ -3382,47 +3382,120 @@ class sinex:
         # And delete them
         snx.del_ind(ind)
 
-    # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
-    #------------------------------------------------------------------------------------------
-    def del_duplicates(snx, quiet=False, out=sys.stdout):
-        
+    # Delete (reduce) stations with loosely determined positions in a normal equation
+    #--------------------------------------------------------------------------------
+    def del_loose_sta(snx, thr=1000, quiet=False, out=sys.stdout):
+
         """
-        Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+        Delete (reduce) specified stations
 
         Parameters
         ----------
+        thr : float, optional
+            Threshold for the identification of stations with loosely determined positions.
+            The screening is based on the traces of the 3x3 diagonal blocks of the normal matrix
+            that correspond to station positions. Stations with traces lower than the median of
+            traces divided by thr**2 are iteratively reduced. Default is 1000.
         quiet : bool, optional
             Whether not to print output messages. Default is False.
         out : file-like, optional
             Log file. Default is sys.stdout.
         
         """
-
-        lst_del=[]
-
-        for sta in snx.sta:
-
-            #if there are many solns for the same station
-            if len(sta.soln) > 1:
+        
+        # Print header in log file
+        if not(quiet):
+            print('sinex.del_loose_sta', file=out)
+            print('-------------------', file=out)
+            print('', file=out)
+            print('    Stations reduced because of loosely determined positions', file=out)
+            print('    --------------------------------------------------------', file=out)
+            print('', file=out)
+            print('     code pt soln |   trace(N)  <  threshold  |', file=out)
+            print('    --------------|---------------------------|', file=out)
+        
+        # Initializations
+        isnx = np.array([[i, i+1, i+2] for i in snx.ix])
+        code = []
+        pt = []
+        soln = []
+        
+        # Iterative build list of stations to be reduced
+        end = False
+        while not(end):
+            tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
+            thrn = np.median(tr)/thr**2
+            ind = np.nonzero(tr < thrn)[0]
             
+            # If there are no more stations with loosely determined positions, stop iterations.
+            if (len(ind) == 0):
+                end = True
+                
+            # Else,
+            else:
+                
+                # Print stations to be reduced in log file
                 if not(quiet):
-                    print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
+                    for i in ind:
+                        p = snx.param[isnx[i][0]]
+                        print('     {0.code} {0.pt} {0.soln} | {1:11.5e} < {2:11.5e} |'.format(p, tr[i], thrn), file=out)
+                
+                # Update list of stations to be reduced and station position indices
+                code.extend([snx.param[isnx[i][0]].code for i in ind])
+                pt.extend([snx.param[isnx[i][0]].pt for i in ind])
+                soln.extend([snx.param[isnx[i][0]].soln for i in ind])
+                ind = np.setdiff1d(np.arange(len(isnx)), ind)
+                isnx = isnx[ind]
+                
+        # Print end of log file
+        if not(quiet):
+            print('    --------------|---------------------------|', file=out)
+            print('', file=out)
 
-                for soln in sta.soln :
-                    indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
-                    p = snx.param[indp]
-                    if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
-                        # if reference date is in the soln
-                        if not(quiet):
-                            print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
-                    
-                    else:
-                        if not(quiet):
-                            print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
+        # Reduce stations
+        snx.del_sta(code, pt, soln)
 
-                        lst_del+=[indp,indp+1,indp+2]
-            
-        snx.del_ind(lst_del)
+#     # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+#     #------------------------------------------------------------------------------------------
+#     def del_duplicates(snx, quiet=False, out=sys.stdout):
+#         
+#         """
+#         Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+# 
+#         Parameters
+#         ----------
+#         quiet : bool, optional
+#             Whether not to print output messages. Default is False.
+#         out : file-like, optional
+#             Log file. Default is sys.stdout.
+#         
+#         """
+# 
+#         lst_del=[]
+# 
+#         for sta in snx.sta:
+# 
+#             #if there are many solns for the same station
+#             if len(sta.soln) > 1:
+#             
+#                 if not(quiet):
+#                     print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
+# 
+#                 for soln in sta.soln :
+#                     indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
+#                     p = snx.param[indp]
+#                     if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
+#                         # if reference date is in the soln
+#                         if not(quiet):
+#                             print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
+#                     
+#                     else:
+#                         if not(quiet):
+#                             print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
+# 
+#                         lst_del+=[indp,indp+1,indp+2]
+#             
+#         snx.del_ind(lst_del)
 
     # Keep specified stations - Delete (reduce) other stations
     #---------------------------------------------------------
