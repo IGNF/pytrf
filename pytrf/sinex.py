@@ -302,9 +302,9 @@ class sinex:
         snx.file = os.path.basename(file)
 
         # Open input SINEX file
-        if (file[-3:] == '.gz'):
+        if file.endswith('.gz'):
             f = gzip.open(file, 'rt', encoding='latin-1')
-        elif (file[-2:] == '.Z'):
+        elif file.endswith('.Z'):
             f = StringIO(unlzw3.unlzw(Path(file)).decode())
         else:
             f = open(file, encoding='latin-1')

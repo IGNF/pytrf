@@ -1,8 +1,9 @@
 [project]
 name = 'pytrf'
-version = '0.1'
+version = '1.0'
 description = 'Python toolbox for the analysis of time series of terrestrial reference frames'
 readme = 'README.md'
+license = 'MIT'
 authors = [
   { name = 'Paul Rebischung', email = 'paul.rebischung@ign.fr' },
   { name = 'Julien Barneoud', email = 'julien.barneoud@ign.fr' },
@@ -23,7 +24,7 @@ dependencies = [
 ]
 
 [project.urls]
-homepage = 'https://github.com/prebischung/pytrf'
+homepage = 'https://github.com/IGNF/pytrf'
 
 [build-system]
 requires = ['setuptools>=64']
