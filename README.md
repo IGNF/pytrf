@@ -2,7 +2,9 @@
 
 # pytrf
 
-pytrf provides Python utilities for the analysis and combination of Terrestrial Reference Frames.
+Python toolbox for the analysis of time series of terrestrial reference frames
+
+Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see [LICENSE.md](LICENSE.md).
 <br/><br/>
 
 **Table of Contents**
@@ -10,14 +12,21 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
     1. [Requirements](#requirements)
     1. [Clone the repository](#clone-the-repository)
     1. [Install pytrf](#install-pytrf)
-    1. [Generate documentation](#generate-documentation)
     1. [Update with latest version](#update-with-latest-version)
-1. [Tips and common issues](#tips-and-common-issues)  
+1. [Documentation](#documentation)
+    1. [Traning slides](#training-slides)
+    1. [API documentation](#api-documentation)
+    1. [Complete documentation](#complete-documentation)
+1. [Getting started](#getting-started)
+    1. [Time series analysis examples](#time-series-analysis-examples)
+    1. [SINEX combination examples](#sinex-combination-examples)
+
+<!--1. [Tips and common issues](#tips-and-common-issues)
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
         1. [IGN network](#ign-network)
         1. [Run `git` behind a proxy server](#run-git-behind-a-proxy-server)
         1. [Run `conda` behind a proxy server](#run-conda-behind-a-proxy-server)
-        1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)
+        1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)-->
 
 <br/><br/>
 
@@ -48,13 +57,11 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
     $ cd pytrf
     ```
 
-<br>
-
 ### Install pytrf
 
 - If you work with a package manager, e.g., `conda`, you may want to create and activate a specific environment for pytrf.
 
-- In `path_to_pytrf_folder/pytrf`, run one of the two following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
+- In `path_to_pytrf_folder/pytrf`, run one of the two following commands. Use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
 
   Note: This will automatically install the missing required packages.
 
@@ -71,14 +78,11 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 - Open a python interpreter and try to import `pytrf`.
     ```sh
     >>> import pytrf
-    >>>
     >>> exit()
     ```
     You should hopefully be able to import the library without any error.
 
-<br>
-
-### Generate documentation
+<!--### Generate documentation
 
 Run:
 ```sh
@@ -87,7 +91,7 @@ $ pdoc --html pytrf
 A folder should have been created:
 - `path_to_pytrf_folder/html`: contains the project documentation
 
-<br>
+<br>-->
 
 ### Update with latest version
 
@@ -98,11 +102,46 @@ $ git pull
 
 Then re-install pytrf.
 
+<br></br>
 
+
+## Documentation
+
+### Training slides
+
+The slides used for the latest training session to pytrf are available [here](pytrf-training-2025-01.pdf).
+
+Recordings of the training session are available upon request.
+
+### API documentation
+
+You can generate API documentation about pytrf modules and functions by running:
+```sh
+$ pdoc --html pytrf
+```
+This should create a folder with the API documentation:
+- `path_to_pytrf_folder/html`
+
+### Complete documentation
+
+Available soon.
 
 <br></br>
 
-## Tips and common issues
+
+<!--## Getting started
+
+Different usage examples are provided in the [examples](examples) directory.
+
+### Time series analysis examples
+
+- Reading different time series formats
+- "Manual" modeling of a GNSS station position time series-->
+
+
+
+
+<!--## Tips and common issues
 
 ### Connectivity problems with `git`, `conda` and `pip`
 
@@ -234,4 +273,4 @@ Like conda, one possibility is to modify the configuration file. As a temporary 
 
 ```sh
 $ pip install --proxy myproxy.com:portnumber library_name
-```
+```-->
