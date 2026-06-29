@@ -1,17 +1,35 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf constants
 
-This subpackage defines several useful constants including:
+This module contains miscellaneous useful constants including:
 * conversion factors between angular units,
 * offsets between different time scales,
 * GRS80 ellipsoid parameters
 
 """
 
+
+
 # External imports
 #-----------------
 import math
 import numpy as np
+
+
 
 # Data
 #-----

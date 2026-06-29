@@ -1,7 +1,21 @@
-"""
-pytrf I/O utilities
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
 
-This subpackage contains read/write routines for various useful file formats.
+
+
+"""
+pytrf input/output utilities
+
+This module contains read/write routines for various useful file formats.
 
 """
 

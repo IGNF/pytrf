@@ -1,6 +1,23 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Julien Barnéoud
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
-    Combination of SINEX solutions
+    pytrf SINEX combination routines
 """
+
+
 
 # External imports
 #-----------------

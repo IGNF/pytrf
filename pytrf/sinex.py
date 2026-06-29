@@ -1,6 +1,24 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Julien Barnéoud
+#  - Maylis de La Serve
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
-    Class for reading, writing and manipulating SINEX files
+    pytrf class for reading, writing and manipulating SINEX files
 """
+
+
 
 # External imports
 #-----------------

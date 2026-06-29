@@ -1,7 +1,7 @@
 [project]
 name = 'pytrf'
 version = '0.1'
-description = 'Python utilities for the analysis and combination of Terrestrial Reference Frames'
+description = 'Python toolbox for the analysis of time series of terrestrial reference frames'
 readme = 'README.md'
 authors = [
   { name = 'Paul Rebischung', email = 'paul.rebischung@ign.fr' },

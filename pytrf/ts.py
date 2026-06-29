@@ -1,9 +1,27 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Kevin Gobron
+#  - Maylis de La Serve
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf time series utilities
 
-This subpackage contains various useful classes for modeling time series.
+This module contains classes for the analysis and modeling of time series.
 
 """
+
+
 
 # External imports
 #-----------------
