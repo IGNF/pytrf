@@ -39,8 +39,8 @@ except:
     from scipy.signal.windows import gaussian
 from scipy.stats import median_abs_deviation as mad
 import matplotlib.pyplot as pp
-pp.rcParams['font.family'] = 'monospace'
-pp.rcParams['font.size'] = 12
+#pp.rcParams['font.family'] = 'monospace'
+#pp.rcParams['font.size'] = 12
 from traceback import print_exc
 from astropy.timeseries.periodograms.lombscargle.implementations.utils import trig_sum
 

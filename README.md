@@ -17,9 +17,9 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
     1. [Traning slides](#training-slides)
     1. [API documentation](#api-documentation)
     1. [Complete documentation](#complete-documentation)
-1. [Getting started](#getting-started)
+<!--1. [Getting started](#getting-started)
     1. [Time series analysis examples](#time-series-analysis-examples)
-    1. [SINEX combination examples](#sinex-combination-examples)
+    1. [SINEX combination examples](#sinex-combination-examples)-->
 
 <!--1. [Tips and common issues](#tips-and-common-issues)
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
@@ -48,13 +48,13 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
 - Open a terminal and **clone the repository** with the following command.  
   IMPORTANT: you will be asked to enter your github username and *password*. **The *password* is your token, not your usual github password**.
     ```sh
-    $ git clone https://github.com/prebischung/pytrf
+    git clone https://github.com/prebischung/pytrf
     ```
 
 - A `pytrf` folder should have been created in the current directory.
   Run:
     ```sh
-    $ cd pytrf
+    cd pytrf
     ```
 
 ### Install pytrf
@@ -68,11 +68,11 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
   ```sh
-  $ pip install .
+  pip install .
   ```
   OR
   ```sh
-  $ pip install -e .
+  pip install -e .
   ```
 
 - Open a python interpreter and try to import `pytrf`.
@@ -82,22 +82,11 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
     ```
     You should hopefully be able to import the library without any error.
 
-<!--### Generate documentation
-
-Run:
-```sh
-$ pdoc --html pytrf
-```
-A folder should have been created:
-- `path_to_pytrf_folder/html`: contains the project documentation
-
-<br>-->
-
 ### Update with latest version
 
 Run:
 ```sh
-$ git pull
+git pull
 ```
 
 Then re-install pytrf.
@@ -117,10 +106,10 @@ Recordings of the training session are available upon request.
 
 You can generate API documentation about pytrf modules and functions by running:
 ```sh
-$ pdoc --html pytrf
+pdoc --html pytrf
 ```
 This should create a folder with the API documentation:
-- `path_to_pytrf_folder/html`
+`path_to_pytrf_folder/html`
 
 ### Complete documentation
 
@@ -135,8 +124,8 @@ Different usage examples are provided in the [examples](examples) directory.
 
 ### Time series analysis examples
 
-- Reading different time series formats
-- "Manual" modeling of a GNSS station position time series-->
+- Reading GNSS station position time series in different formats
+- "Manually" modeling of a GNSS station position time series-->
 
 
 
