@@ -5186,7 +5186,9 @@ class model:
         # Loop over unknown deterministic parameters
         for f in m.f:
             for p in f.par:
-                if not(p.fixed):
+                if (p.fixed):
+                    p.sig = 0
+                else:
                     i += 1
                     p.sig = sqrt(m.Qx[i,i])
                     
@@ -5386,7 +5388,9 @@ class model:
         # Loop over unknown noise parameters
         for n in m.n:
             for p in n.par:
-                if not(p.fixed):
+                if (p.fixed):
+                    p.sig = 0
+                else:
                     i += 1
                     p.sig = sqrt(m.Qb[i,i])
                     
