@@ -25,6 +25,7 @@ This module contains classes for the analysis and modeling of time series.
 
 # External imports
 #-----------------
+import os
 import sys
 eps = sys.float_info.epsilon
 import warnings
@@ -46,8 +47,10 @@ from astropy.timeseries.periodograms.lombscargle.implementations.utils import tr
 
 # Internal imports
 #-----------------
-from pytrf import date
+from pytrf import date, sinex
 from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot
+from pytrf.utils import record, earlier
+from pytrf.const import agency, default_domes
 
 
 
@@ -3844,62 +3847,68 @@ class model:
         
     Each model instance has the following methods:
     
-        add_polynom()  : Add polynomial function to model
-        add_sine()     : Add sine wave function to model
-        add_poisson()  : Add Poisson function to model
-        add_exp()      : Add exponential function to model
-        add_log()      : Add logarithmic function to model
-        add_psd()      : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
-        add_wn()       : Add homogeneous white noise to model
-        add_vw()       : Add variable white noise to model
-        add_ar1()      : Add AR(1) process to model
-        add_pl()       : Add power-law noise to model
-        add_fn()       : Add flicker noise to model
-        add_rw()       : Add random walk to model
-        add_ggm()      : Add GGM process to model
-        add_figgm()    : Add FIGGM process to model
-        add_jumps()    : Add jumps to specified polynomial and/or sine wave functions of model
-        del_polynom()  : Remove polynomial function from model
-        del_sine()     : Remove sine wave function from model
-        del_poisson()  : Remove Poisson function from model
-        del_exp()      : Remove exponential function from model
-        del_log()      : Remove logarithmic function from model
-        del_wn()       : Remove homogeneous white noise from model
-        del_vw()       : Remove variable white noise from model
-        del_ar1()      : Remove AR(1) process from model
-        del_pl()       : Remove power-law noise from model
-        del_ggm()      : Remove GGM process from model
-        del_figgm()    : Remove FIGGM process from model
-        del_jumps()    : Remove jumps from specified polynomial and/or sine wave functions
-        set_x0()       : Set default a priori values for unknown deterministic parameters
-        set_x()        : Set values of unknown deterministic parameters
-        get_x()        : Get values of unknown deterministic parameters
-        set_xr()       : Set values of unknown deterministic parameters given reparameterized parameters
-        get_xr()       : Get values of reparameterized unknown deterministic parameters
-        set_sigx()     : Set formal errors of deterministic parameters
-        dx_dxr()       : Compute partial derivatives of deterministic parameters wrt reparameterized deterministic parameters
-        set_b0()       : Set default a priori values for unknown noise parameters
-        set_b()        : Set values of unknown noise parameters
-        get_b()        : Get values of unknown noise parameters
-        set_br()       : Set values of unknown noise parameters given reparameterized parameters
-        get_br()       : Get values of reparameterized unknown noise parameters
-        set_sigb()     : Set formal errors of noise parameters
-        db_dbr()       : Compute partial derivatives of noise parameters wrt reparameterized noise parameters
-        set_oeq()      : Compute predicted observations and design matrix
-        set_cov()      : Compute covariance matrix
-        set_psd()      : Compute power spectral density of noise model and of residuals
-        set_xi()       : Estimate individual noise components
-        simulate()     : Simulate time series values
-        fitx()         : Fit deterministic model with fixed covariance matrix
-        fit()          : Fit deterministic + noise model
-        fit_iter()     : Fit deterministic + noise model and iteratively remove outliers
-        plot_fit()     : Plot time series + deterministic model
-        plot_res()     : Plot fit residuals
-        plot_normres() : Plot normalized residuals
-        plot_psd()     : Plot PSD of residuals and of noise model
-        plot_all()     : plot_fit(), plot_res(), plot_normres() & plot_psd()
-        __str__()      : Print fit statistics and parameters
-        dump()         : Dump model instance into pickle file
+        add_polynom()    : Add polynomial function to model
+        add_sine()       : Add sine wave function to model
+        add_poisson()    : Add Poisson function to model
+        add_exp()        : Add exponential function to model
+        add_log()        : Add logarithmic function to model
+        add_psd()        : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
+        add_wn()         : Add homogeneous white noise to model
+        add_vw()         : Add variable white noise to model
+        add_ar1()        : Add AR(1) process to model
+        add_pl()         : Add power-law noise to model
+        add_fn()         : Add flicker noise to model
+        add_rw()         : Add random walk to model
+        add_ggm()        : Add GGM process to model
+        add_figgm()      : Add FIGGM process to model
+        add_jumps()      : Add jumps to specified polynomial and/or sine wave functions of model
+        del_polynom()    : Remove polynomial function from model
+        del_sine()       : Remove sine wave function from model
+        del_poisson()    : Remove Poisson function from model
+        del_exp()        : Remove exponential function from model
+        del_log()        : Remove logarithmic function from model
+        del_wn()         : Remove homogeneous white noise from model
+        del_vw()         : Remove variable white noise from model
+        del_ar1()        : Remove AR(1) process from model
+        del_pl()         : Remove power-law noise from model
+        del_ggm()        : Remove GGM process from model
+        del_figgm()      : Remove FIGGM process from model
+        del_jumps()      : Remove jumps from specified polynomial and/or sine wave functions
+        set_x0()         : Set default a priori values for unknown deterministic parameters
+        set_x()          : Set values of unknown deterministic parameters
+        get_x()          : Get values of unknown deterministic parameters
+        set_xr()         : Set values of unknown deterministic parameters given reparameterized parameters
+        get_xr()         : Get values of reparameterized unknown deterministic parameters
+        set_sigx()       : Set formal errors of deterministic parameters
+        dx_dxr()         : Compute partial derivatives of deterministic parameters wrt reparameterized deterministic parameters
+        set_b0()         : Set default a priori values for unknown noise parameters
+        set_b()          : Set values of unknown noise parameters
+        get_b()          : Get values of unknown noise parameters
+        set_br()         : Set values of unknown noise parameters given reparameterized parameters
+        get_br()         : Get values of reparameterized unknown noise parameters
+        set_sigb()       : Set formal errors of noise parameters
+        db_dbr()         : Compute partial derivatives of noise parameters wrt reparameterized noise parameters
+        set_oeq()        : Compute predicted observations and design matrix
+        set_cov()        : Compute covariance matrix
+        set_psd()        : Compute power spectral density of noise model and of residuals
+        set_xi()         : Estimate individual noise components
+        simulate()       : Simulate time series values
+        fitx()           : Fit deterministic model with fixed covariance matrix
+        fit()            : Fit deterministic + noise model
+        fit_iter()       : Fit deterministic + noise model and iteratively remove outliers
+        plot_fit()       : Plot time series + deterministic model
+        plot_res()       : Plot fit residuals
+        plot_normres()   : Plot normalized residuals
+        plot_psd()       : Plot PSD of residuals and of noise model
+        plot_all()       : plot_fit(), plot_res(), plot_normres() & plot_psd()
+        __str__()        : Print fit statistics and parameters
+        dump()           : Dump model instance into pickle file
+        glr_outlier()    : Likelihood ratio test for outliers
+        glr_mean()       : Likelihood ratio for mean changes (position discontinuities)
+        glr_trend()      : Likelihood ratio for trend changes (velocity discontinuities)
+        glr_mean_trend() : Likelihood ratio for mean+trend changes (position+velocity discontinuities)
+        glr_sine()       : Likelihood ratio test for periodic signals
+        write_psdsnx()   : Export adjusted PSD model (exp and log functions) in SINEX format
         
     """
 
@@ -4108,9 +4117,9 @@ class model:
             Whether amplitudes should be considered fixed. Default is False.
         dims: str, optional
             If a sinex instance with post-seismic deformation models is provided, then
-            this keyword is needed to know the order of the ENH component(s) in the time
-            series r. dims must thus be a combination of the letters 'E', 'N' and/or 'H',
-            in the same order as those components are stored in r. Default is 'ENH'.
+            this keyword is needed to know the order of the ENU component(s) in the time
+            series r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
+            in the same order as those components are stored in r. Default is 'ENU'.
             
         """
 
@@ -4516,7 +4525,7 @@ class model:
         fix_tau : bool, optional
             Whether relaxation times should be considered fixed. Default is False.
         dims: str, optional
-            This keyword is needed to know the order of the ENH component(s) in the time
+            This keyword is needed to know the order of the ENU component(s) in the time
             series m.r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
             in the same order as those components are stored in m.r. Default is 'ENU'.
             
@@ -7834,3 +7843,187 @@ class model:
                         T[i] += np.dot(xc.T, CtPv)
                 
         return T
+
+    # Export adjusted PSD model (exp and log functions) in SINEX format
+    #------------------------------------------------------------------
+    def write_psdsnx(m, file, code, pt, tech='P', metasnx=None):
+
+        """
+        Export adjusted PSD model (exp and log functions) in SINEX format
+
+        Note:
+         - If specified SINEX file doesn't exist, a new PSD SINEX file will be created.
+         - If specified SINEX file exists, but doesn't contain the station in question,
+           its PSD model will be appended to the PSD SINEX file.
+         - If specified SINEX file exists and already contains the station in question,
+           its PSD model will be overwritten.
+
+        Warnings:
+         - The dates of the time series m.r MUST be MJDs.
+         - The values of the time series m.r MUST be expressed in m.
+         - The time series m.r MUST be 3D and expressed in the topocentric ENU frame.
+
+        Parameters
+        ----------
+        file : str
+            SINEX file to create or update
+        code : str
+            4-char station ID
+        pt : str
+            Station PT code
+        tech : str
+            Technique code ('P' for GNSS, 'D' for DORIS, 'L' for SLR, 'R', for VLBI).
+            Default is 'P'.
+        metasnx : str or sinex, optional
+            SINEX file or sinex instance from which to copy station metadata
+            (DOMES, description, lon, lat, h). Default is None. 
+
+        """
+
+        # Check that the model includes at least one exp or log function
+        b = False
+        for d in range(m.nd):
+            for f in m[d].f:
+                if isinstance(f, fexp) or isinstance(f, flog):
+                    b = True
+
+        # If not, raise warning and return.
+        if not(b):
+            warnings.warn('No PSD model to export.')
+            return
+        
+        # Initialize station metadata
+        domes = default_domes
+        description = 22*' '
+        lon = 11*' '
+        lat = 11*' '
+        h = 7*' '
+        
+        # If SINEX file or sinex instance with metadata is specified,
+        if (metasnx is not None):
+            
+            # Read SINEX file with metadata if needed
+            if not(isinstance(metasnx, sinex)):
+                metasnx = sinex.read(metasnx, dont_read=['comments', 'metadata', 'apriori', 'matrices'])
+                
+            # Get station metadata if available
+            if (code+pt in [s.code+s.pt for s in metasnx.sta]):
+                i = [s.code+s.pt for s in metasnx.sta].index(code+pt)
+                domes = metasnx.sta[i].domes
+                tech = metasnx.sta[i].tech
+                description = metasnx.sta[i].description
+                lon = metasnx.sta[i].lon
+                lat = metasnx.sta[i].lat
+                h = metasnx.sta[i].h
+
+        # If specified SINEX file exists, read it.
+        if os.path.isfile(file):
+            snx = sinex.read(file)
+
+        # Otherwise, create an empty sinex instance.
+        else:
+            snx = sinex()
+            snx.file = file
+            snx.version = '2.02'
+            snx.agency = agency
+            snx.t = date().tsnx()
+            snx.start = '49:365:86399'
+            snx.end = '50:001:00000'
+            snx.tech = tech
+            snx.npar = 0
+            snx.const = '2'
+            snx.content = 'S'
+            snx.sta = []
+            snx.param = []
+            snx.x = np.empty((0,))
+            snx.sig = np.empty((0,))
+            snx.Q = np.empty((0, 0))
+
+        # Update snx.start and snx.end if needed
+        start = date.from_mjd(m.r.t[0]).tsnx()
+        if earlier(start, snx.start):
+            snx.start = start
+
+        end = date.from_mjd(m.r.t[-1]).tsnx()
+        if earlier(snx.end, end):
+            snx.end = end
+
+        # If needed, delete PSD parameters of station in question from PSD sinex
+        # (This also deletes the station in question from snx.sta.)
+        if (snx.npar > 0):
+            ind = np.nonzero(np.array([p.code+p.pt for p in snx.param]) == code+pt)[0]
+            snx.del_ind(ind)
+        
+        # Add station into snx.sta
+        r = record()
+        r.code = code
+        r.pt = pt
+        r.domes = domes
+        r.tech = tech
+        r.description = description
+        r.lon = lon
+        r.lat = lat
+        r.h = h
+        snx.sta.append(r)
+
+        # Initialize lists of parameters, values and covariance matrix blocks
+        # to be added into PSD sinex
+        param = []
+        x = []
+        Q = []
+
+        # Loop over ENU components
+        for (d, c) in enumerate('ENU'):
+            ind = []
+            i = 0
+
+            # Loop over PSD functions
+            for f in m[d].f:
+                if isinstance(f, fexp) or isinstance(f, flog):
+
+                    # EXP or LOG?
+                    type = f.__class__.__name__[-3:].upper()
+
+                    # New amplitude parameter
+                    r = record()
+                    r.type = 'A'+type+'_'+c
+                    r.code = code
+                    r.pt = pt
+                    r.soln = '----'
+                    r.tref = date.from_mjd(f.t0).tsnx()
+                    r.unit = 'm   '
+                    r.const = '2'
+                    param.append(r)
+                    x.append(f.par[0].x)
+                    ind.append(i)
+
+                    # New relaxation time parameter
+                    r = record()
+                    r.type = 'T'+type+'_'+c
+                    r.code = code
+                    r.pt = pt
+                    r.soln = '----'
+                    r.tref = date.from_mjd(f.t0).tsnx()
+                    r.unit = 'y   '
+                    r.const = '2'
+                    param.append(r)
+                    x.append(f.par[1].x / 365.25)
+                    ind.append(i+1)
+
+                i += len(f.par)
+
+            # Covariance matrix of PSD parameters in component d
+            Qd = m[d].Qx[np.ix_(ind,ind)]
+            f = np.ones(len(ind))
+            f[1::2] = 1/365.25
+            Q.append(f*(Qd*f).T)
+
+        # Update sinex object
+        snx.npar += len(param)
+        snx.param.extend(param)
+        snx.x = np.hstack((snx.x, x))
+        snx.Q = linalg.block_diag(snx.Q, *Q)
+        snx.sig = np.sqrt(np.diag(snx.Q))
+
+        # Write SINEX file
+        snx.write(file, dont_write=['epochs', 'metadata'])
