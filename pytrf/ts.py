@@ -91,14 +91,15 @@ class ts:
         
     Each ts instance has the following methods:
 
-        __len__()       : Get number of components of ts instance
-        __getitem__()   : Get specific component of ts instance
-        dump()          : Dump ts instance into pickle file
-        trim()          : Trim ts instance down to period of interest
-        detrend()       : (Re-)detrend ts instance
-        del_points()    : Flag outliers
-        clean_sigmas()  : Flag observations with large formal errors as outliers
-        plot()          : Plot time series
+        __len__()        : Get number of components of ts instance
+        __getitem__()    : Get specific component of ts instance
+        dump()           : Dump ts instance into pickle file
+        trim()           : Trim ts instance down to period of interest
+        detrend()        : (Re-)detrend ts instance
+        del_points()     : Flag outliers
+        clean_sigmas()   : Flag observations with large formal errors as outliers
+        clean_outliers() : Automatically identify and flag outliers
+        plot()           : Plot time series
         
     """
 
@@ -706,6 +707,336 @@ class ts:
             # Else, we're done.
             else:
                 end = True
+
+    # Automatically identify and flag outliers
+    #-----------------------------------------
+    def clean_outliers(r, thr_mad=6, win_mad=183, per=[365.25, 182.625], tau=[2, 20], sc=3e-7, thr_vn=10, thr_offset=150,
+                       intermediate_plots=False, final_plot=False, quiet=False, out=sys.stdout):
+
+        """
+        Automatically identify and flag outliers.
+        
+        clean_outliers() identifies outliers by robustly fitting a semi-parametric model to the time series,
+        then computing a running median absolute deviation (MAD) of the model residuals. Points with residuals
+        larger than thr_mad * this running MAD are considered as outliers. Model fitting and outlier rejection
+        are performed iteratively until no outlier remains.
+        
+        The adjusted model is composed of a parametric component and a non-parametric component.
+            * The parametric component of the model is composed of:
+                - a linear trend,
+                - optional sine waves at user-defined periods (see argument per)
+                - automatically detected offsets,
+                - optional logarithmic transients with user-defined relaxation times after EVERY detected offset
+                  to capture potential post-seismic deformation (see argument tau).
+            * The non-parametric component of the model is a smooth curve whose 2nd derivative is constrained
+              to zero +/- the user defined value "sc" at every epoch.
+        
+        The adjustment of the model is made robust to outliers by iteratively downweighting points with large
+        normalized residuals: after each iteration, each point with a normalized residual larger than the
+        user-defined value thr_vn has its formal error inflated by (normalized residual / thr_vn).
+        
+        Offsets in the time series are automatically detected and added into the parametric model. After a
+        tentative model is adjusted, approximate likelihood ratio tests are performed to evaluate the relevance
+        of adding an offset at each epoch. If the maximum likelihood ratio test statistic exceeds the
+        user-defined value thr_offset, then an offset is added into the parametric model at the time when the
+        likelihood ratio test statistic reaches this maximum value, and the model is re-ajusted.
+        
+        Warning: The default parameter values are tailored to daily GNSS station position time series with time
+        expressed in days and values expressed in meters. Be sure to adapt the default values if you use this
+        function for other types of time series, or GNSS time series expressed in other units.
+
+        Returns
+        -------
+        t_offsets : list
+            List of the epochs of detected offsets
+
+        Parameters
+        ----------
+        thr_mad : float, optional
+            Threshold for outlier detection. All points with residuals larger than thr_mad * the running MAD
+            of the model residuals are considered as outliers. Default is 6.
+        win_mad : float, optional
+            Length of the window used to comupte the running MAD (in units of r.t). Default is 183.
+        per : list, optional
+            Periods of sine waves to be included in the model (in units of r.t). Default is [365.25, 182.625].
+        tau : list, optional
+            Relaxation times of logarithmic transients following EVERY detected offset (in units of r.t).
+            Default is [2, 20].
+        sc : float, optional
+            Sigma of the constraints on the second derivative of the non-parametric model in units of r.y/r.t**2.
+            Default is 3e-7.
+        thr_vn : float, optional
+            Threshold for outlier downweighting during the model adjustment. Default is 10.
+        thr_offset : float, optional
+            Threshold for offset detection statistic. Default is 150.
+        intermediate_plots : bool, optional
+            Whether to show a figure with the adjusted model, residuals and offset detection statistics after
+            each iteration. Default is False.
+        final_plot : bool, optional
+            Whether to show a figure with final model, residuals, outlier rejection limits and rejected outliers.
+            Default is False.
+        quiet : bool, optional
+            Whether to hide messages. Default is False.
+        out : file-like, optional
+            Log file. Default is sys.stdout.
+            
+        """
+        
+        # Print header in log file
+        if not(quiet):
+            print('', file=out)
+            print('ts.clean_outliers', file=out)
+            print('-----------------', file=out)
+            print('', file=out)
+        
+        # Initialize list of offsets
+        t_offsets = []
+        
+        # Component names to be shown in figures
+        if (r.dims is not None):
+            dims = r.dims
+        else:
+            dims = ['Component '+str(d+1) for d in range(r.nd)]
+        if (isinstance(dims, str)):
+            dims = [dims]
+        
+        # While there remains outliers,
+        end1 = False
+        while not(end1):
+            
+            # Shortcuts
+            n = r.n
+            t = r.t
+            sc2 = sc**2
+                        
+            # Build normal matrix of smoothness constraints for non-parametric model
+            C0 = -1 / ((t[1:-1]-t[:-2]) * (t[2:]-t[:-2]))
+            C2 = -1 / ((t[2:]-t[1:-1]) * (t[2:]-t[:-2]))
+            C_rows = 3*list(range(n-2))
+            C_cols = list(range(n-2)) + list(range(1, n-1)) + list(range(2, n))
+            C_vals = np.hstack((C0, -(C0+C2), C2))
+            C = sparse.csc_matrix((C_vals, (C_rows, C_cols)), shape=(n-2, n))
+            Nc = C.T.dot(C)
+            Nc_bands = np.zeros((3, n))
+            Nc_bands[0,:] = Nc[range(n), range(n)]
+            Nc_bands[1,:-1] = Nc[range(1, n), range(n-1)]
+            Nc_bands[2,:-2] = Nc[range(2, n), range(n-2)]
+
+            # Initialize design matrix of parametric model
+            dt = t - np.mean(t)
+            A = np.zeros((n, 2+2*len(per)))
+            A[:,0] = 1
+            A[:,1] = dt
+            for i in range(len(per)):
+                A[:,2*i+2] = np.cos(2*pi*dt/per[i])
+                A[:,2*i+3] = np.sin(2*pi*dt/per[i])
+            for to in t_offsets:
+                A = np.hstack((A, np.zeros((n, 1+len(tau)))))
+                ind = np.nonzero(t>=to)[0]
+                A[ind,-(1+len(tau))] = 1
+                for k in range(len(tau)):
+                    A[ind,-(k+1)] = np.log(1 + (t[ind]-to)/tau[k])
+
+            # While there remains offsets to be added into the model,
+            end2 = False
+            while not(end2):
+                
+                # Initializations
+                yo = np.zeros((n, r.nd))
+                yf = np.zeros((n, r.nd))
+                v = np.zeros((n, r.nd))
+                T = np.zeros((n, r.nd))
+                
+                # Loop over components
+                for d in range(r.nd):
+
+                    # Initializations
+                    if (r.nd == 1):
+                        y = r.y
+                    else:
+                        y = r.y[:,d]
+                    s2 = 1
+                    if (r.Q is not None):
+                        if (r.nd == 1):
+                            Q = r.Q
+                        else:
+                            Q = r.Q[:,d,d]
+                    else:
+                        Q = np.ones(n)
+                    dQ = np.ones(n)
+                    vnmax = np.inf
+                    
+                    # While there remains points with normalized residuals larger than 1.2*thr_vn,
+                    while (vnmax > 1.2*thr_vn):
+                        
+                        # While variance factor of observations hasn't converged,
+                        ds2 = np.inf
+                        while (np.abs(np.log(ds2)) > 0.01):
+
+                            # Fit model
+                            N = Nc_bands / sc2
+                            N[0,:] += 1 / (s2*Q*dQ)
+                            AtP = A.T / (s2*Q*dQ)
+                            X = linalg.solveh_banded(N, AtP.T, lower=True)
+                            Nx = np.dot((A-X).T, AtP.T)
+                            bx = np.dot((A-X).T, y/(s2*Q*dQ))
+                            x = linalg.solve(Nx, bx)
+                            yo[:,d] = np.dot(A, x)
+                            b = (y-yo[:,d]) / (s2*Q*dQ)
+                            yf[:,d] = linalg.solveh_banded(N, b, lower=True)
+                            v[:,d] = y-yo[:,d]-yf[:,d]
+                            ds2 = np.sum(v[:,d]**2/(Q*dQ)) / (s2*n)
+                            s2 *= ds2
+                            vn = v[:,d] / np.sqrt(s2*Q*dQ)
+
+                        # If further iterations are needed, downweight points with normalized residuals larger than 1.2 times thr_vn.
+                        vnmax = np.max(np.abs(vn))
+                        if (vnmax > 1.2*thr_vn):
+                            ind = np.nonzero(np.abs(vn) > thr_vn)[0]
+                            dQ[ind] *= (np.abs(vn[ind]) / thr_vn) ** 2
+                            
+                    # Compute offset detection statistics
+                    AtP /= ds2
+                    Qx = invspd(np.dot(AtP, A))
+                    CtPC = np.cumsum(1/(s2*Q*dQ))
+                    CtPA = np.cumsum(AtP.T, axis=0)
+                    CtPv = np.cumsum(v[:,d]/(s2*Q*dQ))
+                    for i in range(1, n-2):
+                        Nc = CtPC[i] - np.dot(CtPA[i], np.dot(Qx, CtPA[i].T))
+                        if (Nc > 0):
+                            T[i,d] = CtPv[i]**2/Nc
+                            
+                # Total offset detection statistics
+                Ts = np.sum(T, axis=1)
+                    
+                # Draw and show figure if requested
+                if (intermediate_plots):
+                    fig = pp.figure(figsize=(6*r.nd+2, 10), tight_layout=True)
+
+                    for d in range(r.nd):
+                        if (r.nd == 1):
+                            y = r.y
+                            ydel = r.ydel
+                        else:
+                            y = r.y[:,d]
+                            ydel = r.ydel[:,d]
+                        
+                        ax = fig.add_subplot(3, r.nd, d+1)
+                        pp.plot(r.t, y, '.k')
+                        pp.plot(r.tdel, ydel, '.m', markersize=10)
+                        pp.plot(r.t, yo[:,d]+yf[:,d], 'r')
+                        for to in t_offsets:
+                            pp.plot([to, to], [np.min(np.hstack((y, ydel))), np.max(np.hstack((y, ydel)))], 'r', linestyle='--')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel(dims[d]+' ['+r.yunit+']')
+ 
+                        ax = fig.add_subplot(3, r.nd, d+r.nd+1)
+                        pp.plot(r.t, v[:,d], '.k')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel(dims[d]+' residuals ['+r.yunit+']')
+ 
+                        pp.subplot(3, r.nd, d+2*r.nd+1)
+                        pp.plot(r.t, T[:,d], label=dims[d])
+                        pp.plot(r.t, Ts, label='Total')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel('Offset detection statistics')
+                        pp.legend()
+
+                    pp.show()
+
+                # If maximum offset detection statistics exceeds thr_offset,
+                # add an offset and possibly logarithmic transients into the model
+                if (np.max(Ts) > thr_offset):
+                    i = np.nonzero(Ts == np.max(Ts))[0][0]
+                    t_offsets.append(t[i+1])
+                    A = np.hstack((A, np.zeros((n, 1+len(tau)))))
+                    A[i+1:,-(1+len(tau))] = 1
+                    for k in range(len(tau)):
+                        A[i+1:,-(k+1)] = np.log(1 + (t[i+1:]-t[i+1])/tau[k])
+                        
+                    if not(quiet):
+                        print('    - New potential offset detected at t={0}'.format(t_offsets[-1]), file=out)
+                        
+                # Else, stop iterations.
+                else:
+                    end2 = True
+                    
+            # Compute running MAD of model residuals
+            imin = 0
+            imax = 0
+            madv = np.zeros((n, r.nd))
+            for i in range(n):
+                while (t[imin] < t[i] - win_mad/2):
+                    imin += 1
+                while (imax < n-1) and (t[imax+1] < t[i] + win_mad/2):
+                    imax += 1
+                if (imax == n-1) and (t[imax] < t[i] + win_mad/2):
+                    imax += 1
+                for d in range(r.nd):
+                    madv[i,d] = mad(v[imin:imax,d])
+                
+            # Delete points with residuals larger than thr_mad * running MAD,
+            ind = np.unique(np.nonzero(np.abs(v) > thr_mad*madv)[0])
+            if (len(ind) > 0):
+                if not(quiet):
+                    if (len(ind) == 1):
+                        print('    -   1 new outlier  detected'.format(len(ind)), file=out)
+                    else:
+                        print('    - {0:3d} new outliers detected'.format(len(ind)), file=out)
+                r.del_points(ind)
+                A = A[ind,:]
+                
+            # Or stop iterations.
+            else:
+                end1 = True
+                
+        # Draw and show figure if requested
+        if (final_plot):
+            fig = pp.figure(figsize=(6*r.nd+2, 7), tight_layout=True)
+
+            for d in range(r.nd):
+                if (r.nd == 1):
+                    y = r.y
+                    ydel = r.ydel
+                else:
+                    y = r.y[:,d]
+                    ydel = r.ydel[:,d]
+                
+                ax = fig.add_subplot(2, r.nd, d+1)
+                pp.plot(r.t, y, '.k')
+                pp.plot(r.tdel, ydel, '.m', markersize=10)
+                pp.plot(r.t, yo[:,d]+yf[:,d], 'r')
+                pp.plot(r.t, yo[:,d]+yf[:,d]+thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.plot(r.t, yo[:,d]+yf[:,d]-thr_mad*madv[:,d], 'r', linestyle='--')
+                for to in t_offsets:
+                    pp.plot([to, to], [np.min(np.hstack((y, ydel))), np.max(np.hstack((y, ydel)))], 'r', linestyle='--')
+                pp.grid()
+                pp.margins(0.01)
+                pp.xlabel('Time ['+r.tunit+']')
+                pp.ylabel(dims[d]+' ['+r.yunit+']')
+
+                ax = fig.add_subplot(2, r.nd, d+r.nd+1)
+                pp.plot(r.t, v[:,d], '.k')
+                pp.plot(r.t, +thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.plot(r.t, -thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.grid()
+                pp.margins(0.01)
+                pp.xlabel('Time ['+r.tunit+']')
+                pp.ylabel(dims[d]+' residuals ['+r.yunit+']')
+
+            pp.show()
+            
+        if not(quiet):
+            print('    Finished!', file=out)
+            print('', file=out)
+        
+        return t_offsets
 
     # Plot time series
     #-----------------
