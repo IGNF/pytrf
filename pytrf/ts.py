@@ -4178,6 +4178,7 @@ class model:
         
     Each model instance has the following methods:
     
+        del_points()     : Flag specified points as outliers in the model's time series
         add_polynom()    : Add polynomial function to model
         add_sine()       : Add sine wave function to model
         add_poisson()    : Add Poisson function to model
@@ -4492,9 +4493,7 @@ class model:
 
                 # Delete observations within current period
                 ind = np.nonzero((r.t >= start) * (r.t <= end))[0]
-                r.del_points(ind)
-                for d in range(m.nd):
-                    m[d].r = m.r[d]
+                m.del_points(ind)
 
             # Time series start and end dates
             tmin = r.t[0]
@@ -4541,7 +4540,25 @@ class model:
             m.add_psd(psd, code=code, pt=pt, fix_tau=fix_tau, fix_amp=fix_amp, dims=dims)
             
         return m
+    
+    # Flag specified points as outliers in the model's time series
+    #-------------------------------------------------------------
+    def del_points(m, ind):
         
+        """
+        Flag specified points as outliers in the model's time series
+
+        Parameters
+        ----------
+        ind : list
+            Indices of points to flag
+            
+        """
+        
+        m.r.del_points(ind)
+        for d in range(m.nd):
+            m[d].r = m.r[d]
+    
     ## Add custom function to model
     ##-----------------------------
     #def add_function(m, f):
@@ -6413,25 +6430,22 @@ class model:
                     method = 'Nelder-Mead'
 
                 # In case there are exactly two noise components with all their parameters fixed except, possibly, their variance factors,
-                # and there are no constraint on any deterministic parameter,
                 # we can make use of Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick.
                 mmas = (len(m[d].n) == 2) * (use_mmas)
                 if (mmas):
                     for n in m[d].n:
-                        for i in range(1, len(n.par)):
-                            if not(n.par[i].fixed):
+                        for p in n.par[1:]:
+                            if not(p.fixed):
                                 mmas = False
 
                 # If Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick may be used,
                 if (mmas):
 
                     # First get unit covariance matrix of each noise component
-                    if (m[d].n[0].Q is None):
-                        m[d].n[0].set_cov(m[d])
+                    m[d].n[0].set_cov(m[d])
                     Q1 = m[d].n[0].Q / m[d].n[0].par[0].x
 
-                    if (m[d].n[1].Q is None):
-                        m[d].n[1].set_cov(m[d])
+                    m[d].n[1].set_cov(m[d])
                     Q2 = m[d].n[1].Q / m[d].n[1].par[0].x
 
                     # If Q2 is diagonal and Q1 is full, swap the two matrices
@@ -7235,9 +7249,7 @@ class model:
                     if use_dirac:
                         m.add_dirac(t=m.r.t[ind])
                     else:
-                        m.r.del_points(ind)
-                        for d in range(m.nd):
-                            m[d].r = m.r[d]
+                        m.del_points[ind]
 
                     # Loop over functions to remove possibly unobserved discontinuities from model
                     for d in range(m.nd):
