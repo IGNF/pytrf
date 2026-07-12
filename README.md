@@ -1,6 +1,4 @@
-<img src="./pytrf-logo.png" width="315">
-
-# pytrf
+<img src="./pytrf-logo.png" width="300">
 
 Python toolbox for the analysis of time series of terrestrial reference frames
 
