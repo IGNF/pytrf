@@ -1178,7 +1178,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             R = xyz2enh(snx.x[i:i+3])
             sol.v[i:i+3] = np.dot(R, sol.v[i:i+3])
             s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3,i:i+3], R.T)))
-            if (norm_res == 'correct'):
+            if not(reduce_trans) and (norm_res == 'correct'):
                 sol.sv[i:i+3] = np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3,i:i+3], R.T))))
             else:
                 sol.sv[i:i+3] = np.sqrt(s2[i:i+3])
