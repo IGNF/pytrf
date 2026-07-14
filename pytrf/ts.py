@@ -7249,7 +7249,7 @@ class model:
                     if use_dirac:
                         m.add_dirac(t=m.r.t[ind])
                     else:
-                        m.del_points[ind]
+                        m.del_points(ind)
 
                     # Loop over functions to remove possibly unobserved discontinuities from model
                     for d in range(m.nd):

@@ -1,6 +1,6 @@
 <img src="./pytrf-logo.png" width="300">
 
-Python toolbox for the analysis of time series of terrestrial reference frames
+Python toolbox for the analysis of time series and terrestrial reference frames
 
 Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see [LICENSE.md](LICENSE.md).
 <br/><br/>
