@@ -88,7 +88,11 @@ print('Write long-term stacked solution...')
 combsnx.write('stacking.snx', dont_write=['metadata'])
 combsnx.write('stacking.ssc', dont_write=['metadata', 'apriori', 'matrices'])
 
-# Clean the "res" directory
+# Create "res" directory if it doesn't exist already
+if not(os.path.isdir('res')):
+    os.mkdir('res')
+
+# Clean "res" directory
 os.system('rm res/*')
 
 # Write stacking residuals

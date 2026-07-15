@@ -67,7 +67,13 @@ def extract(f):
 # Start of main code
 #-------------------
 
-# Clean the "crd" and "pkl" directories
+# Create "crd" and "pkl" directories if they don't exist already
+if not(os.path.isdir('crd')):
+    os.mkdir('crd')
+if not(os.path.isdir('pkl')):
+    os.mkdir('pkl')
+
+# Clean "crd" and "pkl" directories
 os.system('rm crd/*')
 os.system('rm pkl/*')
 

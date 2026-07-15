@@ -100,9 +100,9 @@ print('Post-process combined solution...')
 combsnx.compare_iter(ref, 'RST', weighting='identity', norm_res='approx', thr_raw=3, clean_ref=True, out=log)
 
 # Final inversion of the combined normal equation with NNRST constraints with respect to "clean" reference frame
-combsnx.clear_const()
-combsnx.add_mc('RST', 'STA', sigma=1e-5, datum=ref, thr=2)
-combsnx.neqinv()
+combsnx.clear_const()                                           # Clear previously applied constraints
+combsnx.add_mc('RST', 'STA', sigma=1e-5, datum=ref, thr=2)      # Add NNRST constraints wrt "clean" reference frame
+combsnx.neqinv()                                                # Invert normal equation
 
 # Write combined solution with and without matrices
 print('Write combined solution...')

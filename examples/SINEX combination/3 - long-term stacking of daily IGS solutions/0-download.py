@@ -27,6 +27,10 @@ os.system('wget -P gen ftp://igs-rf.ign.fr/pub/IGSR3/IGSR3_2077.ssc')        # I
 os.system('wget -P gen ftp://igs-rf.ign.fr/pub/IGSR3/soln_IGSR3.snx')        # IGSR3 discontinuity list
 os.system('wget -P gen ftp://igs-rf.ign.fr/pub/IGSR3/psd_IGSR3.snx')         # IGSR3 post-seismic deformation models
 
+# Create "inputs" directory if it doesn't exist already
+if not(os.path.isdir('inputs')):
+    os.mkdir('inputs')
+
 # Loop over GPS weeks and days
 # (This stacking example is limited to a 3-year period from GPS week 1930 to GPS week 2085.)
 for w in range(1930, 2086):

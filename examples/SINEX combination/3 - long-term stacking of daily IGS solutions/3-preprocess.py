@@ -74,6 +74,10 @@ def preprocess(f):
 # Start of main code
 #-------------------
 
+# Create "pkl-clean" directory if it doesn't exist already
+if not(os.path.isdir('pkl-clean')):
+    os.mkdir('pkl-clean')
+
 # Clean the "pkl-clean" directory
 os.system('rm pkl-clean/*')
 

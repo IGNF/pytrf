@@ -108,7 +108,13 @@ def fit(f):
 # Start of main code
 #-------------------
 
-# Clean the "del" and "fig" directories
+# Create "del" and "fig" directories if they don't exist already
+if not(os.path.isdir('del')):
+    os.mkdir('del')
+if not(os.path.isdir('fig')):
+    os.mkdir('fig')
+
+# Clean "del" and "fig" directories
 os.system('rm del/*')
 os.system('rm fig/*')
 

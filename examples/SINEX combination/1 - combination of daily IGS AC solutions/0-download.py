@@ -20,6 +20,12 @@ from pytrf.io import read_yaml
 
 
 
+# Create "gen" and "inputs" directories if they don't exist already
+if not(os.path.isdir('gen')):
+    os.mkdir('gen')
+if not(os.path.isdir('inputs')):
+    os.mkdir('inputs')
+    
 # Download general files (DOMES number catalogue and files associated with the IGSR3 reference frame)
 os.system('wget -P gen ftp://igs-rf.ign.fr/pub/DOMES/codomes_gps_coord.snx') # DOMES number catalogue
 os.system('wget -P gen ftp://igs-rf.ign.fr/pub/IGSR3/IGSR3_2077.ssc')        # IGSR3 SINEX file (w/o covariance matrix)

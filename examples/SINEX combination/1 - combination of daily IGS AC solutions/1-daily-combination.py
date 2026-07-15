@@ -29,6 +29,12 @@ tend = date.from_wd(w, d+1).tsnx()
 # Read DOMES number catalogue
 domes = read_domes('gen/codomes_gps_coord.snx')
 
+# Create "log" and "maps" directories if they don't exist already
+if not(os.path.isdir('log')):
+    os.mkdir('log')
+if not(os.path.isdir('maps')):
+    os.mkdir('maps')
+
 
 
 # Prepare reference frame
