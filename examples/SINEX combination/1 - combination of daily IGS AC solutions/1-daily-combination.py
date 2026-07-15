@@ -123,9 +123,9 @@ for ac in inputs:
     ac.snx.compare_iter(refc, 'RST', weighting='identity', norm_res='approx', thr_raw=3, clean_ref=True, out=log)
 
     # Final inversion of normal equation with NNRST constraints with respect to "clean" reference frame
-    ac.snx.clear_const()
-    ac.snx.add_mc('RST', 'STA', sigma='auto', datum=refc, thr=2)
-    ac.snx.neqinv(clear_neq=False)
+    ac.snx.clear_const()                                                # Clear previously applied constraints
+    ac.snx.add_mc('RST', 'STA', sigma='auto', datum=refc, thr=2)        # Add NNRST constraints wrt "clean" reference frame
+    ac.snx.neqinv(clear_neq=False)                                      # Invert normal equation
     
     # Store number of RF stations used for the alignment of the AC solution
     ac.nrf = len(np.nonzero(ac.snx.v[ac.snx.ix])[0])

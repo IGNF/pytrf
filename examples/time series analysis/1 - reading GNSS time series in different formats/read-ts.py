@@ -88,7 +88,7 @@ r.t = date.from_ymdhms(2000, 1, 1, 12).mjd + r.t/86400
 
 # Round MJDs to nearest noon
 # (For better efficiency in noise modeling, it is preferable, when possible, to get back to regularly spaced dates.)
-r.t = np.ceil(r.t) - 0.5
+r.t = np.round(r.t+0.5) - 0.5
 
 # Consequently set time series integration interval to 1 day
 r.T = 1
