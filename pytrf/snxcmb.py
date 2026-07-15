@@ -27,6 +27,7 @@ import sys
 #mkl.set_num_threads(1)
 import copy
 import pickle
+from tqdm import tqdm
 import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
@@ -233,6 +234,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     """
     
+    # Redirect progress bars to /dev/null if output is printed in a file (not sys.stdout)
+    tqdm_out = out
+    if (tqdm_out != sys.stdout):
+        tqdm_out = open(os.devnull, 'w')
+    
     # Print header in log file
     if not(quiet):
         print('snxcomb.combine', file=out)
@@ -299,12 +305,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
 
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
@@ -932,12 +938,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
         
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
             
         # Re-read input solution if needed
         if not(store_inputs):
@@ -1103,12 +1109,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
         
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Re-read input solution if needed
         if not(store_inputs):

@@ -1,7 +1,7 @@
 [project]
 name = 'pytrf'
 version = '1.0'
-description = 'Python toolbox for the analysis of time series of terrestrial reference frames'
+description = 'Python toolbox for the analysis of time series and terrestrial reference frames'
 readme = 'README.md'
 license = 'MIT'
 authors = [
@@ -11,6 +11,7 @@ authors = [
   { name = 'Maylis de La Serve', email = 'maylis.teyssendierdelaserve@ign.fr' },
 ]
 dependencies = [
+  'tqdm',
   'pyyaml',
   'numpy',
   'scipy',
