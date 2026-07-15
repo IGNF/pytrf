@@ -1,0 +1,42 @@
+-
+  name:        esa
+  file:        inputs/ESA3R03FIN_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST                                                      # Which Helmert parameters should be estimated between the input solution and the combined solution? (RST = rotations + scale + translations)
+  del_rot:     False                                                    # Is it necessary to delete the orientation information contained in the AC normal equation?
+-
+  name:        gfz
+  file:        inputs/GFZ2R03FIN_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     False
+-
+  name:        grg
+  file:        inputs/GRG6RE3FIN_$yyyy$doy0000_01D_000_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     False
+-
+  name:        jpl
+  file:        inputs/JPL0R3TFIN_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     True
+-
+  name:        mit
+  file:        inputs/MIT0R03GE-_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     True
+-
+  name:        ngs
+  file:        inputs/NGS0R03FIN_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     True
+-
+  name:        tug
+  file:        inputs/TUG0R03FIN_$yyyy$doy0000_01D_01D_SOL.SNX.gz
+  description: Daily IGS AC SINEX solution
+  params:      RST
+  del_rot:     False
