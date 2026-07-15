@@ -121,18 +121,18 @@ Different usage examples are provided in the [examples](examples) directory.
 
 ### Time series analysis examples
 
-- [Reading GNSS station position time series in different formats](examples/time series analysis/1 - reading GNSS time series in different formats)
-- [Modeling of a GNSS station position time series](examples/time series analysis/2 - modeling of a GNSS time series)
-- [Modeling of a GNSS station position time series with post-seismic deformation](examples/time series analysis/3 - modeling of a GNSS time series with post-seismic deformation)
-- [Automatic offset detection in a GNSS station position time series](examples/time series analysis/4 - automatic offset detection in a GNSS time series)
-- [Automatic modeling of a GPS satellite z-PCO time series](examples/time series analysis/5 - automatic modeling of a GPS satellite z-PCO time series)
-- [Simulation and Wiener filtering](examples/time series analysis/6 - simulation and Wiener filtering)
+- [Reading GNSS station position time series in different formats](<examples/time series analysis/1 - reading GNSS time series in different formats>)
+- [Modeling of a GNSS station position time series](<examples/time series analysis/2 - modeling of a GNSS time series>)
+- [Modeling of a GNSS station position time series with post-seismic deformation](<examples/time series analysis/3 - modeling of a GNSS time series with post-seismic deformation>)
+- [Automatic offset detection in a GNSS station position time series](<examples/time series analysis/4 - automatic offset detection in a GNSS time series>)
+- [Automatic modeling of a GPS satellite z-PCO time series](<examples/time series analysis/5 - automatic modeling of a GPS satellite z-PCO time series>)
+- [Simulation and Wiener filtering](<examples/time series analysis/6 - simulation and Wiener filtering>)
 
 ### SINEX combination examples
 
-- [Combination of daily IGS AC solutions](examples/SINEX combination/1 - combination of daily IGS AC solutions)
-- [Weekly combination of daily IGS solutions](examples/SINEX combination/2 - weekly combination of daily IGS solutions)
-- [Long-term stacking of daily IGS solutions](examples/SINEX combination/3 - long-term stacking of daily IGS solutions)
+- [Combination of daily IGS AC solutions](<examples/SINEX combination/1 - combination of daily IGS AC solutions>)
+- [Weekly combination of daily IGS solutions](<examples/SINEX combination/2 - weekly combination of daily IGS solutions>)
+- [Long-term stacking of daily IGS solutions](<examples/SINEX combination/3 - long-term stacking of daily IGS solutions>)
 
 
 
