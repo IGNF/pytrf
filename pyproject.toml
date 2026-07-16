@@ -19,7 +19,6 @@ dependencies = [
   'astropy',
   'matplotlib',
   'cartopy',
-  'unlzw3',
   'pdoc3',
   'geopandas'
 ]

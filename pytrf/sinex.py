@@ -27,8 +27,7 @@ import sys
 import warnings
 import re
 import gzip
-import unlzw3
-from pathlib import Path
+import subprocess
 from io import StringIO
 #import mkl
 #mkl.set_num_threads(1)
@@ -300,12 +299,14 @@ class sinex:
         # Initialization
         snx = sinex()
         snx.file = os.path.basename(file)
+        print(snx.file)
 
         # Open input SINEX file
         if file.endswith('.gz'):
             f = gzip.open(file, 'rt', encoding='latin-1')
         elif file.endswith('.Z'):
-            f = StringIO(unlzw3.unlzw(Path(file)).decode())
+            proc = subprocess.run(['gzip', '-dc', file], stdout=subprocess.PIPE)
+            f = StringIO(proc.stdout.decode('latin-1'))
         else:
             f = open(file, encoding='latin-1')
 
