@@ -12,7 +12,7 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
     1. [Install pytrf](#install-pytrf)
     1. [Update with latest version](#update-with-latest-version)
 1. [Documentation](#documentation)
-    1. [Traning slides](#training-slides)
+    1. [Training slides](#training-slides)
     1. [API documentation](#api-documentation)
     1. [Complete documentation](#complete-documentation)
 1. [Getting started](#getting-started)
