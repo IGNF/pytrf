@@ -46,7 +46,7 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
 - Open a terminal and **clone the repository** with the following command.  
   IMPORTANT: you will be asked to enter your github username and *password*. **The *password* is your token, not your usual github password**.
     ```sh
-    git clone https://github.com/prebischung/pytrf
+    git clone https://github.com/IGNF/pytrf
     ```
 
 - A `pytrf` directory should have been created in the current directory.
@@ -179,9 +179,9 @@ It should have download a `.pac` file in your usual `Downloads` directory.
 While running the `git clone` command, you may have the following error message.
 
 ```
-(pytrf_env) C:\Users\cpov\pytrf>git clone https://github.com/prebischung/pytrf
+(pytrf_env) C:\Users\cpov\pytrf>git clone https://github.com/IGNF/pytrf
 Cloning into 'pytrf'...
-fatal: unable to access 'https://github.com/prebischung/pytrf/': Failed to connect to github.com port 443 after 21091 ms: Timed out
+fatal: unable to access 'https://github.com/IGNF/pytrf/': Failed to connect to github.com port 443 after 21091 ms: Timed out
 ```
 
 This could be a proxy error.
