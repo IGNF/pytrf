@@ -25,6 +25,7 @@ namespace:
     sinex  : Class for reading, writing and manipulating SINEX files
     erp    : Class for reading, writing and manipulating ERP files
     
+    config : pytrf configuration utilities
     const  : pytrf constants
     utils  : pytrf miscellaneous utilities
     math   : pytrf math utilities
@@ -43,6 +44,7 @@ from .sinex import sinex
 from .erp import erp
 
 # Import pytrf modules
+from . import config
 from . import const
 from . import utils
 from . import math

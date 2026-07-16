@@ -50,7 +50,8 @@ from astropy.timeseries.periodograms.lombscargle.implementations.utils import tr
 from pytrf import date, sinex
 from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot
 from pytrf.utils import record, earlier
-from pytrf.const import agency, default_domes
+from pytrf.const import default_domes
+from pytrf.config import get_agency
 
 
 
@@ -8272,7 +8273,7 @@ class model:
             snx = sinex()
             snx.file = file
             snx.version = '2.02'
-            snx.agency = agency
+            snx.agency = get_agency()
             snx.t = date().tsnx()
             snx.start = '49:365:86399'
             snx.end = '50:001:00000'

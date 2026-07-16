@@ -76,9 +76,13 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
 - Open a python interpreter and try to import `pytrf`.
     ```sh
     >>> import pytrf
-    >>> exit()
     ```
     You should hopefully be able to import the library without any error.
+    
+- This may be a good time for you to set the 3-character name of your institution/agency as you would like it to appear in the SINEX files produced by pytrf, e.g.:
+    ```sh
+    >>> pytrf.config.set_agency('ROB')
+    ```
 
 ### Update with latest version
 

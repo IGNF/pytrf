@@ -48,6 +48,7 @@ from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr,
 from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
+from pytrf.config import get_agency
 
 
 
@@ -5586,7 +5587,7 @@ class sinex:
             stasnx = sinex()
             stasnx.file = snx.file
             stasnx.version = '2.02'
-            stasnx.agency = 'IGN'
+            stasnx.agency = get_agency()
             stasnx.start = snx.start
             stasnx.end = snx.end
             stasnx.tech = 'P'

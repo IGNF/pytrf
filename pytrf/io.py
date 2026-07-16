@@ -35,7 +35,6 @@ from math import sqrt, log10
 #-----------------
 from pytrf import date, sinex
 from pytrf.utils import record, isfloat, earlier, dict2rec, rec2dict, sed_keywords
-from pytrf.const import agency
 
 
 
@@ -332,9 +331,11 @@ def atx2snx(file, t):
         Date in SINEX format
     """
 
+    from pytrf.config import get_agency
+
     # Initialize sinex instance
     snx = sinex.sinex()
-    snx.agency = 'ATX'
+    snx.agency = get_agency()
     snx.t = date().tsnx()
     snx.start = t
     snx.end = t
@@ -1002,9 +1003,11 @@ def sitelogs2snx(logsource):
         Site log source list
     """
     
+    from pytrf.config import get_agency
+    
     # Initializations
     snx = sinex.sinex()
-    snx.agency = agency
+    snx.agency = get_agency()
     snx.start = '00:000:00000'
     snx.end = '00:000:00000'
     snx.tech = 'P'

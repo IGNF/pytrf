@@ -34,9 +34,6 @@ import numpy as np
 # Data
 #-----
 
-# Agency
-agency = 'IGN'
-
 # Default DOMES number
 default_domes = '     M   '
 

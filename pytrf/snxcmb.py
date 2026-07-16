@@ -37,10 +37,11 @@ from traceback import print_exc
 # Internal imports
 #-----------------
 from pytrf import date, sinex
-from pytrf.const import agency, mas2rad, dera_dt
+from pytrf.const import mas2rad, dera_dt
 from pytrf.io import read_yaml, read_solns
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
 from pytrf.utils import record, earlier
+from pytrf.config import get_agency
 
 
 
@@ -277,7 +278,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Initialize combined SINEX solution
     combsnx = sinex()
     combsnx.version = '2.02'
-    combsnx.agency = agency
+    combsnx.agency = get_agency()
     combsnx.const = 2
     combsnx.input = []
     combsnx.sta = []
