@@ -1,0 +1,12 @@
+cff-version: 1.2.0
+authors:
+- family-names: "Rebischung"
+  given-names: "Paul"
+- family-names: "Barnéoud"
+  given-names: "Julien"
+- family-names: "Gobron"
+  given-names: "Kevin"
+- family-names: "de La Serve"
+  given-names: "Maylis"
+title: "pytrf: Python toolbox for the analysis of time series and terrestrial reference frames"
+url: "https://github.com/prebischung/pytrf

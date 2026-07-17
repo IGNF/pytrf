@@ -18,6 +18,7 @@ Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see
 1. [Getting started](#getting-started)
     1. [Time series analysis examples](#time-series-analysis-examples)
     1. [SINEX combination examples](#sinex-combination-examples)
+1. [How to cite](#how-to-cite)
 
 <!--1. [Tips and common issues](#tips-and-common-issues)
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
@@ -138,6 +139,13 @@ Different usage examples are provided in the [examples](examples) directory.
 - [Weekly combination of daily IGS solutions](<examples/SINEX combination/2 - weekly combination of daily IGS solutions>)
 - [Long-term stacking of daily IGS solutions](<examples/SINEX combination/3 - long-term stacking of daily IGS solutions>)
 
+<br></br>
+
+
+## How to cite
+
+Please use the reference provided by github's "Cite this repository" button.
+Proper citation help others find and reference this work and support its continued development.
 
 
 <!--## Tips and common issues

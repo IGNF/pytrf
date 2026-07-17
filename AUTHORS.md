@@ -3,10 +3,10 @@ pytrf authors
 
 ## Main developer:
 
-* Paul Rebischung (IGN)
+* Paul Rebischung (IGN, IPGP)
 
 ## Other contributors:
 
-* Julien Barnéoud (IGN)
-* Kevin Gobron (IGN)
-* Maylis de La Serve (IGN)
+* Julien Barnéoud (IGN, IPGP)
+* Kevin Gobron (IGN, IPGP)
+* Maylis de La Serve (IGN, IPGP)
