@@ -1,12 +1,19 @@
 cff-version: 1.2.0
+title: >-
+  pytrf: Python toolbox for the analysis of time series and
+  terrestrial reference frames
+type: software
 authors:
-- family-names: "Rebischung"
-  given-names: "Paul"
-- family-names: "Barnéoud"
-  given-names: "Julien"
-- family-names: "Gobron"
-  given-names: "Kevin"
-- family-names: "de La Serve"
-  given-names: "Maylis"
-title: "pytrf: Python toolbox for the analysis of time series and terrestrial reference frames"
-url: "https://github.com/prebischung/pytrf
+  - given-names: Paul
+    family-names: Rebischung
+  - given-names: Julien
+    family-names: Barnéoud
+  - given-names: Kevin
+    family-names: Gobron
+  - given-names: Maylis
+    family-names: de La Serve
+identifiers:
+  - type: url
+    value: 'https://github.com/prebischung/pytrf'
+repository-code: 'https://github.com/prebischung/pytrf'
+license: MIT
