@@ -144,8 +144,7 @@ Different usage examples are provided in the [examples](examples) directory.
 
 ## How to cite
 
-Please use the reference provided by github's "Cite this repository" button.
-Proper citation help others find and reference this work and support its continued development.
+Please use the reference provided by GitHub's "Cite this repository" button.
 
 
 <!--## Tips and common issues
