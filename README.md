@@ -101,7 +101,7 @@ Then re-install pytrf.
 
 ### Training slides
 
-The slides used for the latest training session to pytrf are available [here](pytrf-training-2025-01.pdf).
+The slides used for the latest training session to pytrf are available [here](pytrf-training-slides.pdf).
 
 Recordings of the training session are available upon request.
 
