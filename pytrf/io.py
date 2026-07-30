@@ -1,7 +1,21 @@
-"""
-pytrf I/O utilities
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
 
-This subpackage contains read/write routines for various useful file formats.
+
+
+"""
+pytrf input/output utilities
+
+This module contains read/write routines for various useful file formats.
 
 """
 
@@ -21,7 +35,6 @@ from math import sqrt, log10
 #-----------------
 from pytrf import date, sinex
 from pytrf.utils import record, isfloat, earlier, dict2rec, rec2dict, sed_keywords
-from pytrf.const import agency
 
 
 
@@ -318,9 +331,11 @@ def atx2snx(file, t):
         Date in SINEX format
     """
 
+    from pytrf.config import get_agency
+
     # Initialize sinex instance
     snx = sinex.sinex()
-    snx.agency = 'ATX'
+    snx.agency = get_agency()
     snx.t = date().tsnx()
     snx.start = t
     snx.end = t
@@ -988,9 +1003,11 @@ def sitelogs2snx(logsource):
         Site log source list
     """
     
+    from pytrf.config import get_agency
+    
     # Initializations
     snx = sinex.sinex()
-    snx.agency = agency
+    snx.agency = get_agency()
     snx.start = '00:000:00000'
     snx.end = '00:000:00000'
     snx.tech = 'P'

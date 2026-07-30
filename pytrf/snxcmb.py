@@ -1,6 +1,23 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Julien Barnéoud
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
-    Combination of SINEX solutions
+    pytrf SINEX combination routines
 """
+
+
 
 # External imports
 #-----------------
@@ -10,6 +27,7 @@ import sys
 #mkl.set_num_threads(1)
 import copy
 import pickle
+from tqdm import tqdm
 import numpy as np
 from scipy import sparse, linalg
 from math import sqrt
@@ -19,10 +37,11 @@ from traceback import print_exc
 # Internal imports
 #-----------------
 from pytrf import date, sinex
-from pytrf.const import agency, mas2rad, dera_dt
+from pytrf.const import mas2rad, dera_dt
 from pytrf.io import read_yaml, read_solns
 from pytrf.math import invspd, pinvspd, trdot, xyz2enh
 from pytrf.utils import record, earlier
+from pytrf.config import get_agency
 
 
 
@@ -216,6 +235,11 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     """
     
+    # Redirect progress bars to /dev/null if output is printed in a file (not sys.stdout)
+    tqdm_out = out
+    if (tqdm_out != sys.stdout):
+        tqdm_out = open(os.devnull, 'w')
+    
     # Print header in log file
     if not(quiet):
         print('snxcomb.combine', file=out)
@@ -254,7 +278,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Initialize combined SINEX solution
     combsnx = sinex()
     combsnx.version = '2.02'
-    combsnx.agency = agency
+    combsnx.agency = get_agency()
     combsnx.const = 2
     combsnx.input = []
     combsnx.sta = []
@@ -282,12 +306,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
 
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
@@ -915,12 +939,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
         
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
             
         # Re-read input solution if needed
         if not(store_inputs):
@@ -1086,12 +1110,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Loop over input solutions
     #--------------------------
     
-    for isol in range(len(inputs)):
+    for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
         
-        # Print message
-        if not(quiet):
-            print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        ## Print message
+        #if not(quiet):
+            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
 
         # Re-read input solution if needed
         if not(store_inputs):
@@ -1161,7 +1185,7 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
             R = xyz2enh(snx.x[i:i+3])
             sol.v[i:i+3] = np.dot(R, sol.v[i:i+3])
             s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3,i:i+3], R.T)))
-            if (norm_res == 'correct'):
+            if not(reduce_trans) and (norm_res == 'correct'):
                 sol.sv[i:i+3] = np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3,i:i+3], R.T))))
             else:
                 sol.sv[i:i+3] = np.sqrt(s2[i:i+3])

@@ -1,7 +1,21 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf miscellaneous utilities
 
-This subpackage contains miscalleanous low-level routines.
+This module contains miscalleanous low-level routines.
 
 """
 
@@ -143,33 +157,6 @@ def temp_file():
     """
   
     return str(uuid.uuid4())
-
-# Convert .ps image to .png image
-#--------------------------------
-def ps2png(ps, png, rotate=0, margin=20):
-  
-    """
-    Convert .ps image to .png image
-
-    Parameters
-    ----------
-    ps : str
-        Input .ps file
-    png : str
-        Output .ps file
-    rotate : float
-        Rotation angle [deg]. Default is 0.
-    margin : int
-        Margin [pixels]. Default is 20.
-    """
-
-    # Temporary file
-    tmp = temp_file()+'.png'
-
-    # Let's go!
-    os.system('gs -dQUIET -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r250 -dGraphicsAlphaBits=4 -sOutputFile={0} {1}'.format(tmp, ps))
-    os.system('convert {0} -rotate {1} -quality 100 -trim -mattecolor white -frame {2}x{2} {3}'.format(tmp, rotate, margin, png))
-    os.system('rm {0}'.format(tmp))
   
 # Substitute keywords by their values in a string
 #------------------------------------------------
