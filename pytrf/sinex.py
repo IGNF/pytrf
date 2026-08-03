@@ -3902,7 +3902,7 @@ class sinex:
     def setup_sc(snx, tref):
       
         """
-        Set up geocenter coordinates in a normal equation
+        Set up scale factor in a normal equation
 
         Parameters
         ----------
