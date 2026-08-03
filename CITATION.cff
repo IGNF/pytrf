@@ -14,6 +14,6 @@ authors:
     family-names: de La Serve
 identifiers:
   - type: url
-    value: 'https://github.com/prebischung/pytrf'
-repository-code: 'https://github.com/prebischung/pytrf'
+    value: 'https://github.com/IGNF/pytrf'
+repository-code: 'https://github.com/IGNF/pytrf'
 license: MIT
