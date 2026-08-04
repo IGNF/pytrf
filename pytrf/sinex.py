@@ -300,7 +300,6 @@ class sinex:
         # Initialization
         snx = sinex()
         snx.file = os.path.basename(file)
-        print(snx.file)
 
         # Open input SINEX file
         if file.endswith('.gz'):
