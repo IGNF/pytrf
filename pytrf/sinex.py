@@ -3406,7 +3406,7 @@ class sinex:
     def del_loose_sta(snx, thr=1000, quiet=False, out=sys.stdout):
 
         """
-        Delete (reduce) specified stations
+        Delete (reduce) stations with loosely determined positions in a normal equation
 
         Parameters
         ----------
