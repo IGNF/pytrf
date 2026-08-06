@@ -130,8 +130,8 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 
 # Combination of SINEX solutions
 #-------------------------------
-def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, stack_gc=False, stack_sc=False, return_neq=False,
-            datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
+def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, xconst=None, stack_gc=False, stack_sc=False,
+            return_neq=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
             update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
 
     """
@@ -162,7 +162,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
     vconst : str or list, optional
-        [YAML file containing] velocity constraints to be applied. Default is None.
+        [YAML file containing] station velocity constraints to be applied. Default is None.
+    xconst : str or list, optional
+        [YAML file containing] station position constraints to be applied. Default is None.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -254,7 +256,12 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(isinstance(solns, list)):
             solns = read_solns(solns)
 
-    # Read velocity constraints if necessary
+    # Read station position constraints if necessary
+    if (xconst):
+        if not(isinstance(xconst, list)):
+            xconst = read_yaml(xconst)
+
+    # Read station velocity constraints if necessary
     if (vconst):
         if not(isinstance(vconst, list)):
             vconst = read_yaml(vconst)
@@ -847,14 +854,39 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Change a priori coordinates of reference stations
     if (datum):
         combsnx.prior2ref(datum)
+        
+    # Change a priori coordinates of reference radiosources
+    if (crf_datum):
+        combsnx.prior2ref(crf_datum)
+        
+    # Change a priori positions of stations with absolute position constraints, if any
+    if (xconst):
+        keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.ix]]
+
+        # Loop over specified absolute position constraints
+        for xc in xconst:
+            if hasattr(xc, 'point'):
+
+                # If specified point actually has an estimated position,
+                tab = xc.point.split()
+                sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
+                if (sta in keys):
+                    i = keys.index(sta)
+
+                    # Check that there is no conflict with datum
+                    if hasattr(combsnx.param[combsnx.ix[i]], 'xref'):
+                        raise RuntimeError('Absolute position constraint not allowed for datum point {0}.'.format(sta))
+
+                    # If not, change a priori station position to the specified value
+                    # and assign "reference" values to the corresponding parameters
+                    else:
+                        combsnx.x0[combsnx.ix[i]:combsnx.ix[i]+3] = xc.xref
+                        for k in range(3):
+                            combsnx.param[combsnx.ix[i]+k].xref = combsnx.x0[combsnx.ix[i]+k]
 
     # Change a priori velocities of stations with absolute velocity constraints, if any
     if (set_vel) and (vconst):
         keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iv]]
-        if (datum):
-            keys_datum = [p.code+p.pt+p.soln for p in [datum.param[i] for i in datum.iv]]
-        else:
-            keys_datum = []
 
         # Loop over specified absolute velocity constraints
         for vc in vconst:
@@ -867,53 +899,109 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
                     i = keys.index(sta)
 
                     # Check that there is no conflict with datum
-                    if (sta in keys_datum):
+                    if hasattr(combsnx.param[combsnx.iv[i]], 'xref'):
                         raise RuntimeError('Absolute velocity constraint not allowed for datum point {0}.'.format(sta))
 
-                    # If not, change a priori value of point velocity to either the specified value, if any,
-                    # or NaN (temporarily)
-                    elif hasattr(vc, 'vref'):
-                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = vc.vref
+                    # If not, change a priori station position to specified value, or zero,
+                    # and assign "reference" values to the corresponding parameters
                     else:
-                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = np.nan
+                        if hasattr(vc, 'vref'):
+                            combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = vc.vref
+                        else:
+                            combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = np.zeros(3)
+                        for k in range(3):
+                            combsnx.param[combsnx.iv[i]+k].xref = combsnx.x0[combsnx.iv[i]+k]
+        
+    # If relative station position constraints are going to be applied, assign consistent a priori positions
+    # to all the points within each cluster of relative position constraints
+    if (xconst):
 
-    # Change a priori coordinates of reference radiosources
-    if (crf_datum):
-        combsnx.prior2ref(crf_datum)
-
-    # If velocities are going to be estimated, and relative velocity constraints are going to be applied,
-    # attribute the same a priori velocity to all the points within each cluster of relative velocity constraints
-    if (set_vel) and (((solns) and (dv_sig)) or (vconst)):
-
-        # Build graph of relative velocity constraints
-        G = combsnx.dvc_graph(solns, dv_sig, vconst)
-        nodes = list(G.nodes())
+        # Build graph of relative position constraints
+        Gx = combsnx.dxc_graph(xconst)
+        nodes = list(Gx.nodes())
 
         # Loop over every connected component of the graph
-        for c in nx.connected_components(G):
+        for c in nx.connected_components(Gx):
             if (len(c) > 1):
 
                 # Get indices of the nodes in current connected component
                 ind = [nodes.index(s) for s in list(c)]
 
-                # List of non-zero a priori velocities of the points in current connected component
-                v0 = []
+                # List of reference positions of the points in current connected component
+                xref = []
                 for i in ind:
-                    if np.any(combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3]):
-                        v0.append(combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3])
-                v0 = np.unique(v0, axis=0)
+                    if hasattr(combsnx.param[combsnx.ix[i]], 'xref'):
+                        iref = i
+                        xref.append([combsnx.param[combsnx.ix[i]+k].xref for k in range(3)])
+                
+                # If none of the points in current connected component has a reference position,
+                # choose as default reference position the a priori position of the first point
+                if (len(xref) == 0):
+                    iref = ind[0]
+                    xref = [combsnx.x0[combsnx.ix[iref]:combsnx.ix[iref]+3]]
 
-                # If there are more than one element in this list, then there's a conflict.
-                if (len(v0) > 1):
-                    raise RuntimeError('Relative velocity constraint not allowed between points with different a priori velocities:\n{0}'.format(sorted(list(c))))
+                # If there are more than one element in the list of reference positions, then there's a conflict.
+                if (len(xref) > 1):
+                    raise RuntimeError('Relative position constraint not allowed between points with different reference positions:\n{0}'.format(sorted(list(c))))
+                
+                # Else, if current connected component contains two points, 
+                elif (len(c) == 2):
 
-                # Else, if there's a single element, attribute this same a priori velocity to all the points in the cluster
-                elif (len(v0) == 1):
+                    # Get tie vector between both points
+                    dxref = np.array(Gx.get_edge_data(*c)['dxref'])
+                
+                    # If the second point has reference coordinates, assign as a priori position of the first point
+                    # the reference position of the second point minus the tie vector.
+                    if (iref == ind[1]):
+                        combsnx.x0[combsnx.ix[ind[0]]:combsnx.ix[ind[0]]+3] = xref[0] - dxref
+                            
+                    # Else, the other way round.
+                    else:
+                        combsnx.x0[combsnx.ix[ind[1]]:combsnx.ix[ind[1]]+3] = xref[0] + dxref
+
+                # Else, assign as a priori positions of all points in current connected component
+                # the reference position of THE reference point (by default: the first one)
+                else:
                     for i in ind:
-                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = v0[0]
+                        combsnx.x0[combsnx.ix[i]:combsnx.ix[i]+3] = xref[0]
 
-    # Set remaining "NaN" a priori velocities to zero
-    combsnx.x0[np.isnan(combsnx.x0)] = 0
+    # If velocities are going to be estimated, and relative station velocity constraints are going to be applied,
+    # assign the same a priori velocity to all the points within each cluster of relative velocity constraints
+    if (set_vel) and (((solns) and (dv_sig)) or (vconst)):
+
+        # Build graph of relative velocity constraints
+        Gv = combsnx.dvc_graph(solns, dv_sig, vconst)
+        nodes = list(Gv.nodes())
+
+        # Loop over every connected component of the graph
+        for c in nx.connected_components(Gv):
+            if (len(c) > 1):
+
+                # Get indices of the nodes in current connected component
+                ind = [nodes.index(s) for s in list(c)]
+
+                # List of reference velocities of the points in current connected component
+                vref = []
+                for i in ind:
+                    if hasattr(combsnx.param[combsnx.iv[i]], 'xref'):
+                        iref = i
+                        vref.append([combsnx.param[combsnx.iv[i]+k].xref for k in range(3)])
+                        
+                # If none of the points in current connected component has a reference velocity,
+                # choose as default reference velocity the a priori velocity of the first point
+                if (len(vref) == 0):
+                    iref = ind[0]
+                    vref = [combsnx.x0[combsnx.iv[iref]:combsnx.iv[iref]+3]]
+
+                # If there are more than one element in the list of reference velocities, then there's a conflict.
+                if (len(vref) > 1):
+                    raise RuntimeError('Relative velocity constraint not allowed between points with different reference velocities:\n{0}'.format(sorted(list(c))))
+
+                # Else, assign as a priori velocities of all points in current connected component
+                # the reference velocity of THE reference point (by default: the first one)
+                else:
+                    for i in ind:
+                        combsnx.x0[combsnx.iv[i]:combsnx.iv[i]+3] = vref[0]
 
 
 
@@ -1052,13 +1140,23 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 
 
-    # Add velocity constraints
-    #-------------------------
+    # Add station position constraints
+    #---------------------------------
+
+    if (xconst):
+        if not(quiet):
+            print('        Add station position constraints', file=out)
+        nc += combsnx.add_xc(xconst, Gx)
+
+
+        
+    # Add station velocity constraints
+    #---------------------------------
 
     if (set_vel) and (((solns) and (dv_sig)) or (vconst)):
         if not(quiet):
-            print('        Add velocity constraints', file=out)
-        nc += combsnx.add_vc(solns, dv_sig, vconst, G)
+            print('        Add station velocity constraints', file=out)
+        nc += combsnx.add_vc(solns, dv_sig, vconst, Gv)
 
 
 
@@ -1303,10 +1401,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 
 # Iterative combination of SINEX solutions
 #-----------------------------------------
-def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, stack_gc=False, stack_sc=False,
-                 datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
-                 update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True,
-                 thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
+def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, xconst=None, stack_gc=False, stack_sc=False,
+                 datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False,
+                 norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, thr_raw=None, thr_norm=None, flag_once=False,
+                 quiet=False, out=sys.stdout):
 
     """
     Iterative combination of SINEX solutions
@@ -1336,7 +1434,9 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         Sigma of equality constraints to be applied between successive velocities [m/y].
         Default is 1e-6.
     vconst : str or list, optional
-        [YAML file containing] velocity constraints to be applied. Default is None.
+        [YAML file containing] station velocity constraints to be applied. Default is None.
+    xconst : str or list, optional
+        [YAML file containing] station position constraints to be applied. Default is None.
     stack_gc : bool, optional
         Whether successive geocenter coordinates should be stacked into single
         combined geocenter coordinates. Default is False.
@@ -1424,7 +1524,7 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, vconst, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
+        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, vconst, xconst, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:

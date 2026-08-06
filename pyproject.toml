@@ -30,3 +30,7 @@ homepage = 'https://github.com/IGNF/pytrf'
 [build-system]
 requires = ['setuptools>=64']
 build-backend = 'setuptools.build_meta'
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["pytrf*"]

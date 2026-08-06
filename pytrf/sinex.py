@@ -176,7 +176,9 @@ class sinex:
         setup_gc()         : Set up geocenter coordinates in a normal equation
         prior2ref()        : Set a priori parameter values to reference values
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
-        add_vc()           : Add absolute and/or relative velocity constraints to normal matrix of constraints
+        add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
+        add_xc()           : Add absolute and/or relative station position constraints to normal matrix of constraints
+        add_vc()           : Add absolute and/or relative station velocity constraints to normal matrix of constraints
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -192,7 +194,9 @@ class sinex:
         print_table()      : Print table of parameters
         print_coord()      : Print table of (instantaneous) station positions
         split()            : Split sinex instance into station-specific instances
-        dvc_graph()        : Build graph of relative velocity constraints
+        dxc_graph()        : Build graph of relative station position constraints
+        dvc_graph()        : Build graph of relative station velocity constraints
+        plate_rotations    : Estimate tectonic plate rotation vectors from station velocities
         
     """
 
@@ -300,7 +304,6 @@ class sinex:
         # Initialization
         snx = sinex()
         snx.file = os.path.basename(file)
-        print(snx.file)
 
         # Open input SINEX file
         if file.endswith('.gz'):
@@ -3407,7 +3410,7 @@ class sinex:
     def del_loose_sta(snx, thr=1000, quiet=False, out=sys.stdout):
 
         """
-        Delete (reduce) specified stations
+        Delete (reduce) stations with loosely determined positions in a normal equation
 
         Parameters
         ----------
@@ -3968,13 +3971,17 @@ class sinex:
         # Get indices of common parameters
         (isnx, iref) = snx.get_common_par(ref)
 
-        # And change a priori parameter values
+        # Change a priori parameter values
         dx0 = np.zeros(snx.npar)
         dx0[isnx] = ref.x[iref] - snx.x0[isnx]
         if (np.any(dx0)):
             snx.x0 += dx0
             if (snx.N is not None):
                 snx.b -= np.dot(snx.N, dx0)
+                
+        # And assign "reference" values to relevant parameters
+        for i in isnx:
+            snx.param[i].xref = snx.x0[i]
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
@@ -4167,12 +4174,13 @@ class sinex:
                 
         return A.shape[1]
 
-    ## Add equality constraints between successive velocities to normal matrix of constraints
-    ##---------------------------------------------------------------------------------------
-    #def add_dvc(snx, solns, sigma=1e-6):
-        
+    ## Add mean or trend Internal Constraints (on R,S and/or T parameters) to normal matrix of constraints.
+    ##--------------------------------------------------------------------
+    #def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None, debug=False):
+    
         #"""
-        #Add equality constraints between successive velocities to normal matrix of constraints
+        #Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
+        #If you want both MEAN and TREND constraints, apply twice this method with par=MEAN and par=TREND
         
         #Returns
         #-------
@@ -4181,55 +4189,175 @@ class sinex:
 
         #Parameters
         #----------
-        #solns : list
-            #Reference discontinuity list (from ioutils.read_solns)
-        #sigma : float, optional
-            #Sigma of velocity equality constraints in m/y. Default is 1e-6.
-            
+        #dict_helmert : dict of str
+            #Indicates which Helmert parameters should be constrained, for a particular solution (snx.param[k].isol).
+            #It can include 'T' (translations), 'S' (scale), 'R' (rotations)
+            #and 'A' (CRF rotations).
+            #Format example for combination of 3 soltutions : dict_helmert = {'sol1':'RST', 'sol2':'RS', 'sol3':''}
+        #ic_type : str
+            #Indicates to which type of constraints should be applied.
+            #It can be either 'MEAN' (internal constraints on MEAN) or 'TREND' (internal constraints on TREND).
+        #sigma : float or str, optional
+            #Sigma of minimal constraints in m[/y]. Default is 1e-5.
+            #If set to 'auto', an adequate sigma is automatically computed based on the
+            #median of the diagonal elements of the normal matrix that correspond to
+            #positions/velocities of stations to which constraints are applied:
+            #sigma = 0.01 / sqrt(median(N_{i,i})).
+        #t0 : str
+            #Reference date (SINEX date format)
+            #Must be specified if par='TREND'
         #"""
-        
-        ## Initializations
+        ##initialize nc : number of constraints
         #nc = 0
-        #keys = [s.code+s.pt for s in solns]
-        #keys_v = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iv]]
+        ## get all param TRANS indices
+        #all_transf_id = snx.itrans
         
-        ## Loop over stations
-        #for sta in snx.sta:
-
-            ## Index of current station in discontinuity list
-            #if (sta.code+sta.pt in keys):
-                #isoln = keys.index(sta.code+sta.pt)
-
-                ## Loop over solns
-                #for i in range(len(sta.soln)-1):
+        ## dict of id according to R, S,T (classication):
+        ##in each list, we keep param only according to dict_helmert from user YAML
+        #dict_transf = {'RX':[],
+                       #'RY':[],
+                       #'RZ':[],
+                       #'TX':[],
+                       #'TY':[],
+                       #'TZ':[],
+                       #'SC':[]}
+        
+        ## Initialize ic_trend
+        #vect_ic_trend = None
+        #mat_ic_trend = None 
+        #if ic_type == 'TREND' : #initialize tk-t0 vector
+            #vect_ic_trend = np.zeros((snx.Nc.shape[0],1))
+    
+        ## names are in snx.param. 1 object by line. We look "type" attribute.
+        ## filter id according code name in dict_helmert
+        #for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
+            
+            #if par.isol in list(dict_helmert.keys()): #ic_for this sol ?
+                #if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T > which one ask by user ?
+                    ##Here, at least 1 Internal constraint apply on this TRANSF param
+                    ##we are looking for if 'R...', 'SC' or 'T...' are in par.type
                     
-                    ## Get end date of current soln
-                    #ip = [p.soln for p in solns[isoln].P].index(sta.soln[i].soln)
-                    #end = solns[isoln].P[ip].end
+                    ##add to list inside dict_transf: par.type can also be with X, Y, Z dims
+                    #dict_transf[par.type[0:2]].append(all_transf_id[num]) #type[0:2] because par.type like 'RX    ' -> 'RX'
+                    ##we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
                     
-                    ## If current soln should be constrained with the next one,
-                    #if not(end in [v.end for v in solns[isoln].V]):
+                    #if ic_type == 'TREND' :#complete vect_ic_trend
+                        #vect_ic_trend[all_transf_id[num]] = date.from_tsnx(par.tref).ydec() - date.from_tsnx(t0).ydec() #decimal year conversion
                         
-                        ## Get indices of both velocities
-                        #i1 = keys_v.index(sta.code+sta.pt+sta.soln[i].soln)
-                        #i2 = keys_v.index(sta.code+sta.pt+sta.soln[i+1].soln)
-                        
-                        ## Add constraints between them
-                        #for k in range(3):
-                            #snx.Nc[snx.iv[i1]+k,snx.iv[i1]+k] += 1 / sigma**2
-                            #snx.Nc[snx.iv[i1]+k,snx.iv[i2]+k] -= 1 / sigma**2
-                            #snx.Nc[snx.iv[i2]+k,snx.iv[i1]+k] -= 1 / sigma**2
-                            #snx.Nc[snx.iv[i2]+k,snx.iv[i2]+k] += 1 / sigma**2
-                        #nc += 3
-                        
-        #return nc
+                    ##we have 1 more constraint
+                    #nc +=1
+                    
+        ### convert sigma according to dim, giv by user in meter
+        #sigma_T = sigma * 1000 #mm conversion
+        #sigma_R = sigma * 1/(ae*mas2rad) #mas conversion
+        #sigma_S = sigma * 1/(1e-9*ae) #ppb conversion
+        
+        #dict_sigma = {'T':sigma_T, 'R':sigma_R, 'S':sigma_S}
+        
+        #if ic_type == 'MEAN' :
+            ### complet Nc matrix with 1/sigma²
+            #for key in dict_transf.keys():
+                #snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) #key[0] : R, S or T
+            
+        #elif ic_type == 'TREND' :
+            ##Same dim than Nc
+            #mat_ic_trend = vect_ic_trend @  vect_ic_trend.T
+            ### complet Nc matrix with 1/sigma²
+            #for key in dict_transf.keys():
+                #snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic_trend[np.ix_(dict_transf[key],dict_transf[key])]
+            
+    
+        #if debug :
+            #return nc , dict_transf,vect_ic_trend, mat_ic_trend
+        #else:
+            #return nc
 
-    # Add absolute and/or relative velocity constraints to normal matrix of constraints
-    #----------------------------------------------------------------------------------
+    # Add absolute and/or relative station position constraints to normal matrix of constraints
+    #------------------------------------------------------------------------------------------
+    def add_xc(snx, xconst, G=None):
+
+        """
+        Add absolute and/or relative station position constraints to normal matrix of constraints
+
+        Returns
+        -------
+        nc : Number of constraints added
+
+        Parameters
+        ----------
+        xconst : str or list, optional
+            [YAML file containing] station position constraints to be applied.
+        G : networkx Graph instance, optional
+            Graph of relative station position constraints constructed by sinex.dxc_graph().
+            May be provided here to save time if the graph was computed beforehand.
+
+        """
+
+        # Initializations
+        nc = 0
+        keys = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
+
+        # Read station position constraints to be applied
+        if not(isinstance(xconst, list)):
+            xconst = read_yaml(xconst)
+
+        # 1 - Absolute position constraints
+        #----------------------------------
+
+        # Loop over absolute position constraints, if any
+        for xc in xconst:
+            if hasattr(xc, 'point'):
+
+                # If specified point actually has an estimated position,
+                tab = xc.point.split()
+                sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
+                if (sta in keys):
+                    
+                    # If a single sigma is provided for all 3 XYZ components,
+                    # turn it into a list of 3 identical sigmas.
+                    if np.isscalar(xc.sigma):
+                        xc.sigma = 3*[xc.sigma]
+
+                    # Apply constraint
+                    i = keys.index(sta)
+                    for k in range(3):
+                        snx.Nc[snx.ix[i]+k,snx.ix[i]+k] += 1 / xc.sigma[k]**2
+                        snx.param[snx.ix[i]+k].const = '0'
+                    nc += 3
+
+        # 2 - Relative position constraints
+        #----------------------------------
+
+        # Compute graph of relative position constraints if needed
+        if not(G):
+            G = snx.dxc_graph(xconst)
+
+        # Loop over edges of the graph
+        for e in G.edges:
+
+            # Get indices of both points
+            i1 = keys.index(e[0])
+            i2 = keys.index(e[1])
+
+            # Get weight of the constraint
+            w = G.get_edge_data(*e)['weight']
+
+            # Apply constraint
+            for k in range(3):
+                snx.Nc[snx.ix[i1]+k,snx.ix[i1]+k] += w[k]
+                snx.Nc[snx.ix[i1]+k,snx.ix[i2]+k] -= w[k]
+                snx.Nc[snx.ix[i2]+k,snx.ix[i1]+k] -= w[k]
+                snx.Nc[snx.ix[i2]+k,snx.ix[i2]+k] += w[k]
+            nc += 3
+
+        return nc
+
+    # Add absolute and/or relative station velocity constraints to normal matrix of constraints
+    #------------------------------------------------------------------------------------------
     def add_vc(snx, solns=None, sigma=1e-6, vconst=None, G=None):
 
         """
-        Add absolute and/or relative velocity constraints to normal matrix of constraints
+        Add absolute and/or relative station velocity constraints to normal matrix of constraints
 
         Returns
         -------
@@ -5616,13 +5744,78 @@ class sinex:
             # Dump sinex object
             stasnx.set_par_ind()
             stasnx.dump(dir+'/'+s.code+'.snx')
+            
+    # Build graph of relative station position constraints
+    #-----------------------------------------------------
+    def dxc_graph(snx, xconst=None):
 
-    # Build graph of relative velocity constraints
-    #---------------------------------------------
+        """
+        Build graph of relative station position constraints from a YAML file
+
+        Returns
+        -------
+        G : networkx Graph instance
+
+        Parameters
+        ----------
+        xconst : str or list
+            [YAML file containing] station position constraints to be applied
+
+        """
+
+        # Initializations
+        nodes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
+        G = nx.Graph()
+        G.add_nodes_from(nodes)
+
+        # If necessary, read YAML file with station position constraints
+        if not(isinstance(xconst, list)):
+            xconst = read_yaml(xconst)
+
+        # Loop over clusters of relative position constraints
+        for xc in xconst:
+            if hasattr(xc, 'points'):
+                
+                # Check that, if a non-zero tie vector is provided, the cluster contains only two points
+                if hasattr(xc, 'dxref'):
+                    if np.any(xc.dxref) and (len(xc.points) != 2):
+                        raise RuntimeError('Relative position constraint with non-zero tie vector is allowed only between exactly two points.')
+                
+                # Get point IDs
+                sta = []
+                for i in range(len(xc.points)):
+                    tab = xc.points[i].split()
+                    sta.append(tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2])))
+
+                # Remove points that are not part of the solution
+                i = 0
+                while (i < len(sta)):
+                    if (sta[i] in nodes):
+                        i += 1
+                    else:
+                        sta.pop(i)
+                        
+                # If a single sigma is provided for all 3 XYZ components,
+                # turn it into an array of 3 identical sigmas.
+                if np.isscalar(xc.sigma):
+                    xc.sigma = 3*[xc.sigma]
+                    
+                # If not provided, set reference vector between points to [0, 0, 0]
+                if not(hasattr(xc, 'dxref')):
+                    xc.dxref = [0, 0, 0]
+
+                # Add edges to the graph
+                for i in range(len(sta)-1):
+                    G.add_edge(sta[i], sta[i+1], weight=1/np.array(xc.sigma)**2, dxref=xc.dxref)
+                    
+        return G
+
+    # Build graph of relative station velocity constraints
+    #-----------------------------------------------------
     def dvc_graph(snx, solns=None, sigma=1e-6, vconst=None):
 
         """
-        Build graph of relative velocity constraints from a reference discontinuity list
+        Build graph of relative station velocity constraints from a reference discontinuity list
         and/or a YAML file
 
         Returns
@@ -5704,7 +5897,7 @@ class sinex:
                         else:
                             sta.pop(i)
 
-                    # Loop over points of the clusters
+                    # Loop over points of the cluster
                     for i in range(len(sta)-1):
 
                         # If an edge from current point to next point is already present in the graph,
