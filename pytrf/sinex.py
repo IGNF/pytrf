@@ -4174,103 +4174,105 @@ class sinex:
                 
         return A.shape[1]
 
-    ## Add mean or trend Internal Constraints (on R,S and/or T parameters) to normal matrix of constraints.
-    ##--------------------------------------------------------------------
-    #def add_ic(snx, dict_helmert, ic_type, sigma=1e-5, t0=None, debug=False):
+    # Add "internal constraints" to the normal matrix of constraints of a stacked (or combined) solution,
+    # i.e., either zero-mean OR zero-trend constraints to the time series of specified transformation parameters
+    #------------------------------------------------------------------------------------------------------------
+    def add_ic(snx, ic_type, ic_contributions, sigma=1e-5, t0=None):
     
-        #"""
-        #Add R, T and/or S internal constraints to normal matrix of constraints. Available on 'MEAN' or 'TREND' constrains (par attribute).
-        #If you want both MEAN and TREND constraints, apply twice this method with par=MEAN and par=TREND
+        """
+        Add "internal constraints" to the normal matrix of constraints of a stacked (or combined) solution,
+        i.e., either zero-mean OR zero-trend constraints to the time series of specified transformation parameters
         
-        #Returns
-        #-------
-        #nc : int
-            #Number of constraints added
+        To apply both zero-mean AND zero-trend constraints, this method should be called twice.
+        
+        Returns
+        -------
+        nc : int
+            Number of constraints added
 
-        #Parameters
-        #----------
-        #dict_helmert : dict of str
-            #Indicates which Helmert parameters should be constrained, for a particular solution (snx.param[k].isol).
-            #It can include 'T' (translations), 'S' (scale), 'R' (rotations)
-            #and 'A' (CRF rotations).
-            #Format example for combination of 3 soltutions : dict_helmert = {'sol1':'RST', 'sol2':'RS', 'sol3':''}
-        #ic_type : str
-            #Indicates to which type of constraints should be applied.
-            #It can be either 'MEAN' (internal constraints on MEAN) or 'TREND' (internal constraints on TREND).
-        #sigma : float or str, optional
-            #Sigma of minimal constraints in m[/y]. Default is 1e-5.
-            #If set to 'auto', an adequate sigma is automatically computed based on the
-            #median of the diagonal elements of the normal matrix that correspond to
-            #positions/velocities of stations to which constraints are applied:
-            #sigma = 0.01 / sqrt(median(N_{i,i})).
-        #t0 : str
-            #Reference date (SINEX date format)
-            #Must be specified if par='TREND'
-        #"""
-        ##initialize nc : number of constraints
-        #nc = 0
-        ## get all param TRANS indices
-        #all_transf_id = snx.itrans
-        
-        ## dict of id according to R, S,T (classication):
-        ##in each list, we keep param only according to dict_helmert from user YAML
-        #dict_transf = {'RX':[],
-                       #'RY':[],
-                       #'RZ':[],
-                       #'TX':[],
-                       #'TY':[],
-                       #'TZ':[],
-                       #'SC':[]}
-        
-        ## Initialize ic_trend
-        #vect_ic_trend = None
-        #mat_ic_trend = None 
-        #if ic_type == 'TREND' : #initialize tk-t0 vector
-            #vect_ic_trend = np.zeros((snx.Nc.shape[0],1))
-    
-        ## names are in snx.param. 1 object by line. We look "type" attribute.
-        ## filter id according code name in dict_helmert
-        #for (num, par) in enumerate(np.array(snx.param)[all_transf_id]):
+        Parameters
+        ----------
+        ic_type : str
+            Indicates to which type of constraints should be applied.
+            It can be either 'mean' (for zero-mean constraints) or 'trend' (for zero-trend constraints).
+        ic_contributions: list
+            List of strings indicating which transformation parameters should be considered for the application
+            of the "internal constraints". The list should contain as many entries as there are input solutions
+            to the stacked (or combined) solution snx. Each entry should be a combination of the letters 
+            'T' (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations).
+            Example in the case of a combination of three input solutions:
+                ic_contributions = ['ST', 'ST', 'S']
+            In this case:
+                - a zero-[mean/trend] constraint would be applied to the scale factors of all three input solutions,
+                - a zero-[mean/trend] constraint would be applied to the translations of only the first two input solutions,
+                - no constraint would be applied to the rotation (nor CRF rotation) parameters.
+        sigma : float, optional
+            Sigma of internal constraints in m[/y]. Default is 1e-5.
+        t0 : str, optional
+            Reference date (SINEX date format) used for the application of zero-trend constraints.
+            If not specified, then the average epochs of the input solutions contributing to the zero-trend constraints
+            are used.
             
-            #if par.isol in list(dict_helmert.keys()): #ic_for this sol ?
-                #if par.type[0] in dict_helmert[par.isol] : #'par.type[0]' can be R, S or T > which one ask by user ?
-                    ##Here, at least 1 Internal constraint apply on this TRANSF param
-                    ##we are looking for if 'R...', 'SC' or 'T...' are in par.type
-                    
-                    ##add to list inside dict_transf: par.type can also be with X, Y, Z dims
-                    #dict_transf[par.type[0:2]].append(all_transf_id[num]) #type[0:2] because par.type like 'RX    ' -> 'RX'
-                    ##we will apply same sigma on X, Y, Z for same dim, i.e. on RX, RY & RZ > id same in same key 'R'
-                    
-                    #if ic_type == 'TREND' :#complete vect_ic_trend
-                        #vect_ic_trend[all_transf_id[num]] = date.from_tsnx(par.tref).ydec() - date.from_tsnx(t0).ydec() #decimal year conversion
-                        
-                    ##we have 1 more constraint
-                    #nc +=1
-                    
-        ### convert sigma according to dim, giv by user in meter
-        #sigma_T = sigma * 1000 #mm conversion
-        #sigma_R = sigma * 1/(ae*mas2rad) #mas conversion
-        #sigma_S = sigma * 1/(1e-9*ae) #ppb conversion
-        
-        #dict_sigma = {'T':sigma_T, 'R':sigma_R, 'S':sigma_S}
-        
-        #if ic_type == 'MEAN' :
-            ### complet Nc matrix with 1/sigma²
-            #for key in dict_transf.keys():
-                #snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) #key[0] : R, S or T
+        Warning: add_ic() assumes that, if "internal constraints" are applied to a certain type of transformation
+        parameters(R, S, T or A), then these transformation parameters are estimated for EVERY input solution.
+        Do not use add_ic() to define, e.g., the origin of the stacked (or combined) solution if you do not estimate
+        translations for EVERY input solution.
             
-        #elif ic_type == 'TREND' :
-            ##Same dim than Nc
-            #mat_ic_trend = vect_ic_trend @  vect_ic_trend.T
-            ### complet Nc matrix with 1/sigma²
-            #for key in dict_transf.keys():
-                #snx.Nc[np.ix_(dict_transf[key],dict_transf[key])] += 1/(dict_sigma[key[0]]**2) * mat_ic_trend[np.ix_(dict_transf[key],dict_transf[key])]
+        """
+        
+        # Initialize number of applied constraints
+        nc = 0
+        
+        # For which types of transformation parameters do we need to apply constraints? (R?, S?, T?, A?)
+        helmerts = list(set(''.join(ic_contributions)))
+        
+        # Loop over those types of transformation parameters
+        for h in helmerts: 
             
-    
-        #if debug :
-            #return nc , dict_transf,vect_ic_trend, mat_ic_trend
-        #else:
-            #return nc
+            # Indices of input solutions that should contribute to the constraint on current type of transformation parameters
+            isol = np.nonzero([h in c for c in ic_contributions])[0]
+            
+            # Indices of parameters to which the constraint should be applied
+            if (h == 'R'):
+                ind = np.array(snx.iR[::3])[isol]
+            elif (h == 'S'):
+                ind = np.array(snx.iS)[isol]
+            elif (h == 'T'):
+                ind = np.array(snx.iT[::3])[isol]
+            elif (h == 'A'):
+                ind = np.array(snx.iA[::3])[isol]
+                
+            # Sigma of the constraint in correct unit
+            if (h in 'RA'):
+                sigmac = sigma / (ae*mas2rad)     # m -> mas
+            elif (h == 'S'):
+                sigmac = sigma / (1e-9*ae)        # m -> ppb
+            elif (h == 'T'):
+                sigmac = sigma * 1000             # m -> mm
+                
+            # Normal matrix of the constraint
+            if (ic_type == 'mean'):
+                Nc = 1 / sigmac**2
+                
+            elif (ic_type == 'trend'):
+                if (t0 is not None):
+                    mjd0 = date.from_tsnx(t0).mjd
+                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd - mjd0 for i in ind]) / 365.25
+                else:
+                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd for i in ind])
+                    dt = (dt - np.mean(dt)) / 365.25
+                Nc = np.outer(dt, dt) / sigmac**2
+                
+            # Add constraint(s) to the normal matrix of constraints
+            if (h in 'RTA'):
+                for k in range(3):
+                    snx.Nc[np.ix_(ind+k, ind+k)] += Nc
+                nc += 3
+            elif (h == 'S'):
+                snx.Nc[np.ix_(ind, ind)] += Nc
+                nc += 1
+                
+        return nc
 
     # Add absolute and/or relative station position constraints to normal matrix of constraints
     #------------------------------------------------------------------------------------------

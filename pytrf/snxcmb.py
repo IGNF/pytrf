@@ -23,6 +23,7 @@
 #-----------------
 import os
 import sys
+import warnings
 #import mkl
 #mkl.set_num_threads(1)
 import copy
@@ -132,7 +133,8 @@ def read_input(sol, tref, solns=None, check_solns=True, psd=None, stack_gc=False
 #-------------------------------
 def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, xconst=None, stack_gc=False, stack_sc=False,
             return_neq=False, datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None,
-            update_sf=False, norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
+            ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, update_sf=False, norm_res='correct', vce='correct', store_inputs=True,
+            reduce_trans=False, clear_neq=True, quiet=False, out=sys.stdout):
 
     """
     Combination of SINEX solutions
@@ -202,6 +204,34 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    ic_mean : bool, optional
+        Boolean indicating whether zero-mean constraints should be applied to the time series of
+        certain types of transformation parameters. Default is False.
+        If True, then every input solution in the list "inputs", that should contribute to a 
+        zero-mean constraint on some type of transformation parameters, should have an attribute
+        "ic_mean" assigned. This attribute may be composed of any combination of the letters 'T'
+        (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations) indicating the types
+        of transformation parameters for which the input solution should contribute to a zero-mean
+        constraint. The input solutions that do not contribute to any zero-mean constraint may
+        have no "ic_mean" attribute assigned, or may have an empty string or None as "ic_mean"
+        attribute.
+    ic_mean_sig : float, optional
+        Sigma of the zero-mean constraints to be applied to the time series of transformation
+        parameters, in m
+    ic_trend : bool, optional
+        Boolean indicating whether zero-trend constraints should be applied to the time series of
+        certain types of transformation parameters. Default is False.
+        If True, then every input solution in the list "inputs", that should contribute to a 
+        zero-trend constraint on some type of transformation parameters, should have an attribute
+        "ic_trend" assigned. This attribute may be composed of any combination of the letters 'T'
+        (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations) indicating the types
+        of transformation parameters for which the input solution should contribute to a zero-trend
+        constraint. The input solutions that do not contribute to any zero-trend constraint may
+        have no "ic_trend" attribute assigned, or may have an empty string or None as "ic_trend"
+        attribute.
+    ic_trend_sig : float, optional
+        Sigma of the zero-trend constraints to be applied to the time series of transformation
+        parameters, in m/y
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
         Default is False.
@@ -250,7 +280,52 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Read input file if necessary
     if not(isinstance(inputs, list)):
         inputs = read_yaml(inputs)
+        
+    # Set possibly missing "ic_mean" attributes of input solutions
+    if (ic_mean):
+        for sol in inputs:
+            if not(hasattr(sol, 'ic_mean')):
+                sol.ic_mean = ''
+            elif (sol.ic_mean is None):
+                sol.ic_mean = ''
 
+    # Set possibly missing "ic_trend" attributes of input solutions
+    if (ic_trend):
+        for sol in inputs:
+            if not(hasattr(sol, 'ic_trend')):
+                sol.ic_trend = ''
+            elif (sol.ic_trend is None):
+                sol.ic_trend = ''
+                
+    # Make some checks if internal constraints should be applied to the combined solution
+    if (ic_mean):
+        helmerts = list(set(''.join([sol.ic_mean for sol in inputs])))
+        if (len(helmerts) == 0):
+            ic_mean = False
+        for h in helmerts:
+            if (mc_sta is not None):
+                if (h in mc_sta):
+                    raise RuntimeError('Conflict between "minimal" and "internal" constraints.')
+            for sol in inputs:
+                if not(h in sol.params):
+                    raise RuntimeError('Zero-mean constraint on time series of some type ({0}) of transformation parameters is not allowed when this type of transformation parameters is not estimated for EVERY input solution.'.format(h))
+                
+    if (ic_trend):
+        helmerts = list(set(''.join([sol.ic_trend for sol in inputs])))
+        if (len(helmerts) == 0):
+            ic_trend = False
+        for h in helmerts:
+            if (mc_vel is not None):
+                if (h in mc_vel):
+                    raise RuntimeError('Conflict between "minimal" and "internal" constraints.')
+            for sol in inputs:
+                if not(h in sol.params):
+                    raise RuntimeError('Zero-trend constraint on time series of some type ({0}) of transformation parameters is not allowed when this type of transformation parameters is not estimated for EVERY input solution.'.format(h))
+                
+    if ((ic_mean) or (ic_trend)) and (reduce_trans):
+        warnings.warn('Transformation parameters cannot be reduced when "internal" constraints are applied. => Parameter "reduce_trans" is forced to False.')
+        reduce_trans = False
+        
     # Read discontinuity file if necessary
     if (solns):
         if not(isinstance(solns, list)):
@@ -1124,7 +1199,6 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     # Add minimal constraints
     #------------------------
-    
 
     # Add minimal constraints to station positions
     if (mc_sta):
@@ -1137,6 +1211,23 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         if not(quiet):
             print('        Add minimal constraints to station velocities', file=out)
         nc += combsnx.add_mc(mc_vel, 'VEL', sigma=mc_vel_sig, datum=datum, thr=mc_vel_thr)
+
+
+
+    # Add "internal" constraints
+    #---------------------------
+    
+    # Add zero-mean constraints to time series of transformation parameters
+    if (ic_mean):
+        if not(quiet):
+            print('        Add zero-mean constraints to time series of transformation parameters', file=out)
+        nc += combsnx.add_ic('mean', [sol.ic_mean for sol in inputs], sigma=ic_mean_sig, t0=tref)
+
+    # Add zero-trend constraints to time series of transformation parameters
+    if (ic_trend):
+        if not(quiet):
+            print('        Add zero-trend constraints to time series of transformation parameters', file=out)
+        nc += combsnx.add_ic('trend', [sol.ic_trend for sol in inputs], sigma=ic_trend_sig, t0=tref)
 
 
 
@@ -1402,9 +1493,9 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
 # Iterative combination of SINEX solutions
 #-----------------------------------------
 def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False, dv_sig=1e-6, vconst=None, xconst=None, stack_gc=False, stack_sc=False,
-                 datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, update_sf=False,
-                 norm_res='correct', vce='correct', store_inputs=True, reduce_trans=False, clear_neq=True, thr_raw=None, thr_norm=None, flag_once=False,
-                 quiet=False, out=sys.stdout):
+                 datum=None, crf_datum=None, mc_sta=None, mc_sta_sig=1e-5, mc_sta_thr=None, mc_vel=None, mc_vel_sig=1e-6, mc_vel_thr=None, 
+                 ic_mean=False, ic_mean_sig=1e-5, ic_trend=False, ic_trend_sig=1e-6, update_sf=False, norm_res='correct', vce='correct', store_inputs=True,
+                 reduce_trans=False, clear_neq=True, thr_raw=None, thr_norm=None, flag_once=False, quiet=False, out=sys.stdout):
 
     """
     Iterative combination of SINEX solutions
@@ -1471,6 +1562,34 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
         If set, then station velocities with large uncertainties will be rejected from the set
         of station velocities to which minimal constraints are applied. See sinex.add_mc() for
         detailed explanations.
+    ic_mean : bool, optional
+        Boolean indicating whether zero-mean constraints should be applied to the time series of
+        certain types of transformation parameters. Default is False.
+        If True, then every input solution in the list "inputs", that should contribute to a 
+        zero-mean constraint on some type of transformation parameters, should have an attribute
+        "ic_mean" assigned. This attribute may be composed of any combination of the letters 'T'
+        (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations) indicating the types
+        of transformation parameters for which the input solution should contribute to a zero-mean
+        constraint. The input solutions that do not contribute to any zero-mean constraint may
+        have no "ic_mean" attribute assigned, or may have an empty string or None as "ic_mean"
+        attribute.
+    ic_mean_sig : float, optional
+        Sigma of the zero-mean constraints to be applied to the time series of transformation
+        parameters, in m
+    ic_trend : bool, optional
+        Boolean indicating whether zero-trend constraints should be applied to the time series of
+        certain types of transformation parameters. Default is False.
+        If True, then every input solution in the list "inputs", that should contribute to a 
+        zero-trend constraint on some type of transformation parameters, should have an attribute
+        "ic_trend" assigned. This attribute may be composed of any combination of the letters 'T'
+        (translations), 'S' (scale), 'R' (rotations) and 'A' (CRF rotations) indicating the types
+        of transformation parameters for which the input solution should contribute to a zero-trend
+        constraint. The input solutions that do not contribute to any zero-trend constraint may
+        have no "ic_trend" attribute assigned, or may have an empty string or None as "ic_trend"
+        attribute.
+    ic_trend_sig : float, optional
+        Sigma of the zero-trend constraints to be applied to the time series of transformation
+        parameters, in m/y
     update_sf : bool, optional
         Whether to update variance factors of input solutions with VCE estimates.
         Default is False.
@@ -1524,7 +1643,8 @@ def combine_iter(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=F
     while not(end):
         
         # Combine input solutions
-        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, vconst, xconst, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
+        combsnx = combine(inputs, tref, solns, check_solns, psd, set_vel, dv_sig, vconst, xconst, stack_gc, stack_sc, False, datum, crf_datum, mc_sta, mc_sta_sig, mc_sta_thr, mc_vel, mc_vel_sig, mc_vel_thr,
+                          ic_mean, ic_mean_sig, ic_trend, ic_trend_sig, update_sf, norm_res, vce, store_inputs, reduce_trans, clear_neq, quiet, out)
         
         # First loop over input solutions to flag outliers
         for sol in inputs:
