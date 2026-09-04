@@ -25,6 +25,7 @@ This module contains classes for the analysis and modeling of time series.
 
 # External imports
 #-----------------
+from collections.abc import Sequence
 import os
 import sys
 eps = sys.float_info.epsilon
@@ -4095,7 +4096,7 @@ class figgm(noise):
 
 # model class
 #------------
-class model:
+class model(Sequence['model']):
   
     """
     Class for deterministic+noise models adjusted to time series
@@ -4405,8 +4406,12 @@ class model:
         if (m.nd == 1):
             return m
         else:
+            assert len(m.md) == m.nd
             return m.md[i]
-        
+
+    def __len__(m):
+        return m.nd
+    
     # Initialize model instance from discontinuity list in (pseudo-)SINEX format
     #---------------------------------------------------------------------------
     @classmethod
@@ -5347,10 +5352,10 @@ class model:
                 f = m[d].f[i]
                 if isinstance(f, polynom):
                     if (f.deg in deg):
-                        m[d].f[i] = polynom(f.deg, sorted(f.t+t))
+                        m[d].f[i] = polynom(f.deg, sorted(set(f.t+t)))
                 elif isinstance(f, sine):
                     if (f.per in per):
-                        m[d].f[i] = sine(f.per, sorted(f.t+t))
+                        m[d].f[i] = sine(f.per, sorted(set(f.t+t)))
 
     # Remove jumps from specified polynomial and/or sine wave functions of model
     #---------------------------------------------------------------------------
@@ -6867,7 +6872,7 @@ class model:
                             mc = copy.deepcopy(m[d])
 
                             # Inner function: noise parameters -> log-likelihood
-                            def logl(b):
+                            def logl(b,mc=mc):
                                 mc.set_b(b)
                                 mc.set_cov(chol=True)
                                 mc.fitx()
@@ -7362,6 +7367,15 @@ class model:
             
         """
         
+        figure = m.plot_fit_figure(figsize, tunit, dims, title)
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            figure.show()
+
+    def plot_fit_figure(m, figsize=None, tunit=None, dims=None, title=None):
         # Plot time series
         (fig, t) = m.r.plot(figsize=figsize, tunit=tunit, dims=dims, title=title, return_fig=True)
 
@@ -7372,13 +7386,8 @@ class model:
             fig.axes[d].plot(t, m[d].yc, 'r', linewidth=2, zorder=4)
             if (m[d].sc is not None):
                 fig.axes[d].fill_between(t, m[d].yc-m[d].sc, m[d].yc+m[d].sc, color='r', alpha=0.6, zorder=4)
-            
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+
+        return fig
 
     # Plot fit residuals
     #-------------------
@@ -7405,7 +7414,20 @@ class model:
             Whether to show figure. Default is True.
             
         """
-        
+
+        figure = m.plot_res_figure()
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            pp.show()
+
+    def plot_res_figure(m, thr_raw=None, figsize=None, tunit=None, dims=None, title=None):
+        """
+        Same as `model.plot_res` but return the figure instead of showing it.
+        """
+
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7451,13 +7473,7 @@ class model:
                 ax.plot([t[0], t[-1]], [thr, thr], '--r', linewidth=2)
                 ax.plot([t[0], t[-1]], [-thr, -thr], '--r', linewidth=2)
         ax.set_xlabel('Time ['+tunit+']')
-        
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+        return fig
 
     # Plot normalized residuals
     #--------------------------
@@ -7484,7 +7500,18 @@ class model:
             Whether to show figure. Default is True.
             
         """
-        
+        figure = m.plot_normres_figure(thr_norm, figsize, tunit, dims, title)
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            figure.show()
+
+    def plot_normres_figure(m, thr_norm=None, figsize=None, tunit=None, dims=None, title=None):
+        """
+        Same as `model.plot_normres` but return the figure instead of showing it.
+        """
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7529,13 +7556,9 @@ class model:
                 ax.plot([t[0], t[-1]], [thr_norm, thr_norm], '--r', linewidth=2)
                 ax.plot([t[0], t[-1]], [-thr_norm, -thr_norm], '--r', linewidth=2)
         ax.set_xlabel('Time ['+tunit+']')
+
+        return fig
         
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
 
     # Plot PSD of fit residuals and of noise model
     #---------------------------------------------
@@ -7563,7 +7586,18 @@ class model:
             Whether to show figure. Default is True.
             
         """
+        fig = m.plot_psd_figure(smooth, figsize, tunit, dims)
+        # Save or show figure
+        if (output is not None):
+            fig.savefig(output, bbox_inches='tight')
+            pp.close(fig)
+        elif (show):
+            fig.show()
 
+    def plot_psd_figure(m, smooth=1, figsize=None, tunit=None, dims=None):
+        """
+        Same as `model.plot_psd` but return the figure instead of showing it.
+        """
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7642,14 +7676,8 @@ class model:
                 #if isinstance(f, sine):
                     #ax.loglog([365.25/f.per, 365.25/f.per], [pmin, pmax], '--r', zorder=0)
             
-        ax.set_xlabel('Frequency ['+funit+']')
-        
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+        ax.set_xlabel('Frequency ['+funit+']')        
+        return fig
 
     # plot_fit(), plot_res(), plot_normres() & plot_psd()
     #----------------------------------------------------

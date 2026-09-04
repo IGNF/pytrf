@@ -21,7 +21,10 @@ dependencies = [
   'matplotlib',
   'cartopy',
   'pdoc3',
-  'geopandas'
+  'geopandas',
+  'PyQt6',
+  'PyQt6-WebEngine',
+  'requests'
 ]
 
 [project.urls]
@@ -30,3 +33,6 @@ homepage = 'https://github.com/IGNF/pytrf'
 [build-system]
 requires = ['setuptools>=64']
 build-backend = 'setuptools.build_meta'
+
+[tool.setuptools]
+packages = ['pytrf']

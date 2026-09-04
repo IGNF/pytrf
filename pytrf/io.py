@@ -25,6 +25,7 @@ This module contains read/write routines for various useful file formats.
 #-----------------
 import os
 import re
+import traceback
 import yaml
 import copy
 import unicodedata
@@ -272,6 +273,48 @@ def read_solns(file):
             line = f.readline()
 
     return solns
+
+def update_solns(path: str, solns: list):
+    header = "%=SNX 2.02\n* THIS SNX FILE IS INCOMPLETE\n"
+    try:
+        # Copy header from original file
+        with open(path, "r") as f:
+            header = f.readline()
+            in_comment = False
+            while True:
+                line = f.readline()
+                if line.startswith("*"):
+                    header += line
+                    continue
+                if line.startswith("+FILE/COMMENT"):
+                    in_comment = True
+                    header += line
+                    continue
+                if line.startswith("-FILE/COMMENT"):
+                    header += line
+                    in_comment = False
+                    continue
+                if not in_comment:
+                    break
+                header += line
+    except Exception as e:
+        traceback.print_exception(e)
+
+    lines = []
+
+    for soln in solns:
+        prefix = f" {soln.code} {soln.pt} "
+        for code in ["P", "V", "X"]:
+            for p in getattr(soln, code, []):
+                lines.append(f"{prefix}{p.soln} P {p.start} {p.end} {code} - {p.cause}")
+        lines.append("*")
+
+    with open(path, "w") as f:
+        f.write(header)
+        f.write("+SOLUTION/DISCONTINUITY\n")
+        f.write("\n".join(lines))
+        f.write("\n-SOLUTION/DISCONTINUITY\n%ENDSNX\n")
+
 
 # Get ground antenna list from ANTEX file
 #----------------------------------------

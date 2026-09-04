@@ -52,3 +52,5 @@ from . import io
 from . import igs
 from . import ts
 from . import snxcmb
+
+from . import gui

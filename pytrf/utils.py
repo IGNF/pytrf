@@ -351,16 +351,29 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
         Output file. Default is None (i.e. map shown on screen).
 
     """
+    figure = station_map_figure(lon, lat, code, write_codes, title)
+
+    if (output):
+        figure.savefig(output, bbox_inches='tight')
+    else:
+        figure.show()
+
+def station_map_figure(lon, lat, code, write_codes=True, title=None):
+    """
+        Same as `station_map` but return the figure instead of showing it
+    """
 
     # Draw basemap
-    pp.figure()
+    figure = pp.figure()
     ax = pp.axes(projection=ccrs.Robinson())
     ax.add_feature(cfeature.LAND)
     ax.add_feature(cfeature.OCEAN)
+    figure.add_axes(ax)
 
     # Add title if necessary
     if (title):
-        pp.title(title)
+        ax.set_title(title)
+        
 
     # Plot points
     ax.plot(lon, lat, '.k', markersize=6, transform=ccrs.Geodetic())
@@ -370,10 +383,5 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
         for i in range(len(code)):
             ax.text(lon[i], lat[i], code[i], fontsize=10, transform=ccrs.Geodetic())
 
-    # Save figure into output file...
-    if (output):
-        pp.savefig(output, bbox_inches='tight')
+    return figure
 
-    # ...or show it
-    else:
-        pp.show()
