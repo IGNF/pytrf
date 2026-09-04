@@ -1,7 +1,21 @@
-"""
-pytrf I/O utilities
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
 
-This subpackage contains read/write routines for various useful file formats.
+
+
+"""
+pytrf input/output utilities
+
+This module contains read/write routines for various useful file formats.
 
 """
 
@@ -11,6 +25,7 @@ This subpackage contains read/write routines for various useful file formats.
 #-----------------
 import os
 import re
+import traceback
 import yaml
 import copy
 import unicodedata
@@ -21,7 +36,6 @@ from math import sqrt, log10
 #-----------------
 from pytrf import date, sinex
 from pytrf.utils import record, isfloat, earlier, dict2rec, rec2dict, sed_keywords
-from pytrf.const import agency
 
 
 
@@ -260,6 +274,48 @@ def read_solns(file):
 
     return solns
 
+def update_solns(path: str, solns: list):
+    header = "%=SNX 2.02\n* THIS SNX FILE IS INCOMPLETE\n"
+    try:
+        # Copy header from original file
+        with open(path, "r") as f:
+            header = f.readline()
+            in_comment = False
+            while True:
+                line = f.readline()
+                if line.startswith("*"):
+                    header += line
+                    continue
+                if line.startswith("+FILE/COMMENT"):
+                    in_comment = True
+                    header += line
+                    continue
+                if line.startswith("-FILE/COMMENT"):
+                    header += line
+                    in_comment = False
+                    continue
+                if not in_comment:
+                    break
+                header += line
+    except Exception as e:
+        traceback.print_exception(e)
+
+    lines = []
+
+    for soln in solns:
+        prefix = f" {soln.code} {soln.pt} "
+        for code in ["P", "V", "X"]:
+            for p in getattr(soln, code, []):
+                lines.append(f"{prefix}{p.soln} P {p.start} {p.end} {code} - {p.cause}")
+        lines.append("*")
+
+    with open(path, "w") as f:
+        f.write(header)
+        f.write("+SOLUTION/DISCONTINUITY\n")
+        f.write("\n".join(lines))
+        f.write("\n-SOLUTION/DISCONTINUITY\n%ENDSNX\n")
+
+
 # Get ground antenna list from ANTEX file
 #----------------------------------------
 def get_ant_list(file):
@@ -318,9 +374,11 @@ def atx2snx(file, t):
         Date in SINEX format
     """
 
+    from pytrf.config import get_agency
+
     # Initialize sinex instance
     snx = sinex.sinex()
-    snx.agency = 'ATX'
+    snx.agency = get_agency()
     snx.t = date().tsnx()
     snx.start = t
     snx.end = t
@@ -988,9 +1046,11 @@ def sitelogs2snx(logsource):
         Site log source list
     """
     
+    from pytrf.config import get_agency
+    
     # Initializations
     snx = sinex.sinex()
-    snx.agency = agency
+    snx.agency = get_agency()
     snx.start = '00:000:00000'
     snx.end = '00:000:00000'
     snx.tech = 'P'

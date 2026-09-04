@@ -1,6 +1,8 @@
-# pytrf
+<img src="./pytrf-logo.png" width="260">
 
-pytrf provides Python utilities for the analysis and combination of Terrestrial Reference Frames.
+Python toolbox for the analysis of time series and terrestrial reference frames
+
+Copyright [IGN France](https://www.ign.fr/). Licensed under **MIT** license, see [LICENSE.md](LICENSE.md).
 <br/><br/>
 
 **Table of Contents**
@@ -8,14 +10,22 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
     1. [Requirements](#requirements)
     1. [Clone the repository](#clone-the-repository)
     1. [Install pytrf](#install-pytrf)
-    1. [Generate documentation](#generate-documentation)
     1. [Update with latest version](#update-with-latest-version)
-1. [Tips and common issues](#tips-and-common-issues)  
+1. [Documentation](#documentation)
+    1. [Training slides](#training-slides)
+    1. [API documentation](#api-documentation)
+    1. [Complete documentation](#complete-documentation)
+1. [Getting started](#getting-started)
+    1. [Time series analysis examples](#time-series-analysis-examples)
+    1. [SINEX combination examples](#sinex-combination-examples)
+1. [How to cite](#how-to-cite)
+
+<!--1. [Tips and common issues](#tips-and-common-issues)
     1. [Connectivity problems with `git`, `conda` and `pip`](#connectivity-problems-with-git-conda-and-pip)
         1. [IGN network](#ign-network)
         1. [Run `git` behind a proxy server](#run-git-behind-a-proxy-server)
         1. [Run `conda` behind a proxy server](#run-conda-behind-a-proxy-server)
-        1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)
+        1. [Run `pip` behind a proxy server](#run-pip-behind-a-proxy-server)-->
 
 <br/><br/>
 
@@ -37,70 +47,107 @@ pytrf provides Python utilities for the analysis and combination of Terrestrial 
 - Open a terminal and **clone the repository** with the following command.  
   IMPORTANT: you will be asked to enter your github username and *password*. **The *password* is your token, not your usual github password**.
     ```sh
-    $ git clone https://github.com/prebischung/pytrf
+    git clone https://github.com/prebischung/pytrf
     ```
 
-- A `pytrf` folder should have been created in the current directory.
+- A `pytrf` directory should have been created in the current directory.
   Run:
     ```sh
-    $ cd pytrf
+    cd pytrf
     ```
-
-<br>
 
 ### Install pytrf
 
 - If you work with a package manager, e.g., `conda`, you may want to create and activate a specific environment for pytrf.
 
-- In `path_to_pytrf_folder/pytrf`, run one of the two following commands: use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
+- Within the `pytrf` directory, run one of the two following commands. Use the `-e` option if you plan on coding within pytrf — you won't need to reinstall it after every change.
 
   Note: This will automatically install the missing required packages.
 
   Note: Don't miss the dot  **`.`** at the end of both commands.
 
   ```sh
-  $ pip install .
+  pip install .
   ```
   OR
   ```sh
-  $ pip install -e .
+  pip install -e .
   ```
 
 - Open a python interpreter and try to import `pytrf`.
     ```sh
     >>> import pytrf
-    >>>
-    >>> exit()
     ```
     You should hopefully be able to import the library without any error.
-
-<br>
-
-### Generate documentation
-
-Run:
-```sh
-$ pdoc --html pytrf
-```
-A folder should have been created:
-- `path_to_pytrf_folder/html`: contains the project documentation
-
-<br>
+    
+- This may be a good time for you to set the 3-character name of your institution/agency as you would like it to appear in the SINEX files produced by pytrf, e.g.:
+    ```sh
+    >>> pytrf.config.set_agency('ROB')
+    ```
 
 ### Update with latest version
 
-Run:
+Within the `pytrf` directory, run:
 ```sh
-$ git pull
+git pull
 ```
 
 Then re-install pytrf.
 
+<br></br>
 
+
+## Documentation
+
+### Training slides
+
+The slides used for the latest training session to pytrf are available [here](pytrf-training-slides.pdf).
+
+Recordings of the training session are available upon request.
+
+### API documentation
+
+You can generate API documentation about pytrf modules and functions by running:
+```sh
+pdoc --html pytrf
+```
+in the `pytrf` directory. This should create a `pytrf/html` directory with the API documentation.
+
+### Complete documentation
+
+Available soon.
 
 <br></br>
 
-## Tips and common issues
+
+## Getting started
+
+Different usage examples are provided in the [examples](examples) directory.
+
+### Time series analysis examples
+
+- [Reading GNSS station position time series in different formats](<examples/time series analysis/1 - reading GNSS time series in different formats>)
+- [Modeling of a GNSS station position time series](<examples/time series analysis/2 - modeling of a GNSS time series>)
+- [Modeling of a GNSS station position time series with post-seismic deformation](<examples/time series analysis/3 - modeling of a GNSS time series with post-seismic deformation>)
+- [Automatic offset detection in a GNSS station position time series](<examples/time series analysis/4 - automatic offset detection in a GNSS time series>)
+- [Automatic modeling of a GPS satellite z-PCO time series](<examples/time series analysis/5 - automatic modeling of a GPS satellite z-PCO time series>)
+- [Simulation and Wiener filtering](<examples/time series analysis/6 - simulation and Wiener filtering>)
+
+### SINEX combination examples
+
+- [Combination of daily IGS AC solutions](<examples/SINEX combination/1 - combination of daily IGS AC solutions>)
+- [Weekly combination of daily IGS solutions](<examples/SINEX combination/2 - weekly combination of daily IGS solutions>)
+- [Long-term stacking of daily IGS solutions](<examples/SINEX combination/3 - long-term stacking of daily IGS solutions>)
+
+<br></br>
+
+
+## How to cite
+
+Please use the reference provided by GitHub's "Cite this repository" button.
+
+
+<!--## Tips and common issues
 
 ### Connectivity problems with `git`, `conda` and `pip`
 
@@ -126,7 +173,7 @@ In order to allow `git`, `conda` and `pip` to run connection-needed commands, we
 > - In Windows search bar, go to: `Parameters` > `Internet and Network` > `Proxy`
 <br></br>
 > - In `Automatic proxy configuration`, `Use an installation script` should be activated. Copy the script address in your clipboard and paste it in a web browser.  
-It should have download a `.pac` file in your usual `Downloads` folder.
+It should have download a `.pac` file in your usual `Downloads` directory.
 <br></br>
 > - Open the file. Identify your proxy address used for http requests (around the comment `// toutes les autres demandes (sauf ftp) => proxy`). The format is `myproxy.com:portnumber`.
 
@@ -232,4 +279,4 @@ Like conda, one possibility is to modify the configuration file. As a temporary 
 
 ```sh
 $ pip install --proxy myproxy.com:portnumber library_name
-```
+```-->

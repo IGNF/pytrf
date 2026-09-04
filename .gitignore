@@ -1,0 +1,6 @@
+.venv
+tmp
+gui-tests
+pytrf.egg-info
+dist
+__pycache__

@@ -1,12 +1,32 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Kevin Gobron
+#  - Maylis de La Serve
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf time series utilities
 
-This subpackage contains various useful classes for modeling time series.
+This module contains classes for the analysis and modeling of time series.
 
 """
 
+
+
 # External imports
 #-----------------
+from collections.abc import Sequence
+import os
 import sys
 eps = sys.float_info.epsilon
 import warnings
@@ -21,15 +41,18 @@ except:
     from scipy.signal.windows import gaussian
 from scipy.stats import median_abs_deviation as mad
 import matplotlib.pyplot as pp
-pp.rcParams['font.family'] = 'monospace'
-pp.rcParams['font.size'] = 12
+#pp.rcParams['font.family'] = 'monospace'
+#pp.rcParams['font.size'] = 12
 from traceback import print_exc
 from astropy.timeseries.periodograms.lombscargle.implementations.utils import trig_sum
 
 # Internal imports
 #-----------------
-from pytrf import date
+from pytrf import date, sinex
 from pytrf.math import xyz2enh, trend, invspd, cholesky, cholsolve, lombscargle, trdot
+from pytrf.utils import record, earlier
+from pytrf.const import default_domes
+from pytrf.config import get_agency
 
 
 
@@ -70,14 +93,15 @@ class ts:
         
     Each ts instance has the following methods:
 
-        __len__()       : Get number of components of ts instance
-        __getitem__()   : Get specific component of ts instance
-        dump()          : Dump ts instance into pickle file
-        trim()          : Trim ts instance down to period of interest
-        detrend()       : (Re-)detrend ts instance
-        del_points()    : Flag outliers
-        clean_sigmas()  : Flag observations with large formal errors as outliers
-        plot()          : Plot time series
+        __len__()        : Get number of components of ts instance
+        __getitem__()    : Get specific component of ts instance
+        dump()           : Dump ts instance into pickle file
+        trim()           : Trim ts instance down to period of interest
+        detrend()        : (Re-)detrend ts instance
+        del_points()     : Flag outliers
+        clean_sigmas()   : Flag observations with large formal errors as outliers
+        clean_outliers() : Automatically identify and flag outliers
+        plot()           : Plot time series
         
     """
 
@@ -685,6 +709,336 @@ class ts:
             # Else, we're done.
             else:
                 end = True
+
+    # Automatically identify and flag outliers
+    #-----------------------------------------
+    def clean_outliers(r, thr_mad=6, win_mad=183, per=[365.25, 182.625], tau=[2, 20], sc=3e-7, thr_vn=10, thr_offset=150,
+                       intermediate_plots=False, final_plot=False, quiet=False, out=sys.stdout):
+
+        """
+        Automatically identify and flag outliers.
+        
+        clean_outliers() identifies outliers by robustly fitting a semi-parametric model to the time series,
+        then computing a running median absolute deviation (MAD) of the model residuals. Points with residuals
+        larger than thr_mad * this running MAD are considered as outliers. Model fitting and outlier rejection
+        are performed iteratively until no outlier remains.
+        
+        The adjusted model is composed of a parametric component and a non-parametric component.
+            * The parametric component of the model is composed of:
+                - a linear trend,
+                - optional sine waves at user-defined periods (see argument per)
+                - automatically detected offsets,
+                - optional logarithmic transients with user-defined relaxation times after EVERY detected offset
+                  to capture potential post-seismic deformation (see argument tau).
+            * The non-parametric component of the model is a smooth curve whose 2nd derivative is constrained
+              to zero +/- the user defined value "sc" at every epoch.
+        
+        The adjustment of the model is made robust to outliers by iteratively downweighting points with large
+        normalized residuals: after each iteration, each point with a normalized residual larger than the
+        user-defined value thr_vn has its formal error inflated by (normalized residual / thr_vn).
+        
+        Offsets in the time series are automatically detected and added into the parametric model. After a
+        tentative model is adjusted, approximate likelihood ratio tests are performed to evaluate the relevance
+        of adding an offset at each epoch. If the maximum likelihood ratio test statistic exceeds the
+        user-defined value thr_offset, then an offset is added into the parametric model at the time when the
+        likelihood ratio test statistic reaches this maximum value, and the model is re-ajusted.
+        
+        Warning: The default parameter values are tailored to daily GNSS station position time series with time
+        expressed in days and values expressed in meters. Be sure to adapt the default values if you use this
+        function for other types of time series, or GNSS time series expressed in other units.
+
+        Returns
+        -------
+        t_offsets : list
+            List of the epochs of detected offsets
+
+        Parameters
+        ----------
+        thr_mad : float, optional
+            Threshold for outlier detection. All points with residuals larger than thr_mad * the running MAD
+            of the model residuals are considered as outliers. Default is 6.
+        win_mad : float, optional
+            Length of the window used to comupte the running MAD (in units of r.t). Default is 183.
+        per : list, optional
+            Periods of sine waves to be included in the model (in units of r.t). Default is [365.25, 182.625].
+        tau : list, optional
+            Relaxation times of logarithmic transients following EVERY detected offset (in units of r.t).
+            Default is [2, 20].
+        sc : float, optional
+            Sigma of the constraints on the second derivative of the non-parametric model in units of r.y/r.t**2.
+            Default is 3e-7.
+        thr_vn : float, optional
+            Threshold for outlier downweighting during the model adjustment. Default is 10.
+        thr_offset : float, optional
+            Threshold for offset detection statistic. Default is 150.
+        intermediate_plots : bool, optional
+            Whether to show a figure with the adjusted model, residuals and offset detection statistics after
+            each iteration. Default is False.
+        final_plot : bool, optional
+            Whether to show a figure with final model, residuals, outlier rejection limits and rejected outliers.
+            Default is False.
+        quiet : bool, optional
+            Whether to hide messages. Default is False.
+        out : file-like, optional
+            Log file. Default is sys.stdout.
+            
+        """
+        
+        # Print header in log file
+        if not(quiet):
+            print('', file=out)
+            print('ts.clean_outliers', file=out)
+            print('-----------------', file=out)
+            print('', file=out)
+        
+        # Initialize list of offsets
+        t_offsets = []
+        
+        # Component names to be shown in figures
+        if (r.dims is not None):
+            dims = r.dims
+        else:
+            dims = ['Component '+str(d+1) for d in range(r.nd)]
+        if (isinstance(dims, str)):
+            dims = [dims]
+        
+        # While there remains outliers,
+        end1 = False
+        while not(end1):
+            
+            # Shortcuts
+            n = r.n
+            t = r.t
+            sc2 = sc**2
+                        
+            # Build normal matrix of smoothness constraints for non-parametric model
+            C0 = -1 / ((t[1:-1]-t[:-2]) * (t[2:]-t[:-2]))
+            C2 = -1 / ((t[2:]-t[1:-1]) * (t[2:]-t[:-2]))
+            C_rows = 3*list(range(n-2))
+            C_cols = list(range(n-2)) + list(range(1, n-1)) + list(range(2, n))
+            C_vals = np.hstack((C0, -(C0+C2), C2))
+            C = sparse.csc_matrix((C_vals, (C_rows, C_cols)), shape=(n-2, n))
+            Nc = C.T.dot(C)
+            Nc_bands = np.zeros((3, n))
+            Nc_bands[0,:] = Nc[range(n), range(n)]
+            Nc_bands[1,:-1] = Nc[range(1, n), range(n-1)]
+            Nc_bands[2,:-2] = Nc[range(2, n), range(n-2)]
+
+            # Initialize design matrix of parametric model
+            dt = t - np.mean(t)
+            A = np.zeros((n, 2+2*len(per)))
+            A[:,0] = 1
+            A[:,1] = dt
+            for i in range(len(per)):
+                A[:,2*i+2] = np.cos(2*pi*dt/per[i])
+                A[:,2*i+3] = np.sin(2*pi*dt/per[i])
+            for to in t_offsets:
+                A = np.hstack((A, np.zeros((n, 1+len(tau)))))
+                ind = np.nonzero(t>=to)[0]
+                A[ind,-(1+len(tau))] = 1
+                for k in range(len(tau)):
+                    A[ind,-(k+1)] = np.log(1 + (t[ind]-to)/tau[k])
+
+            # While there remains offsets to be added into the model,
+            end2 = False
+            while not(end2):
+                
+                # Initializations
+                yo = np.zeros((n, r.nd))
+                yf = np.zeros((n, r.nd))
+                v = np.zeros((n, r.nd))
+                T = np.zeros((n, r.nd))
+                
+                # Loop over components
+                for d in range(r.nd):
+
+                    # Initializations
+                    if (r.nd == 1):
+                        y = r.y
+                    else:
+                        y = r.y[:,d]
+                    s2 = 1
+                    if (r.Q is not None):
+                        if (r.nd == 1):
+                            Q = r.Q
+                        else:
+                            Q = r.Q[:,d,d]
+                    else:
+                        Q = np.ones(n)
+                    dQ = np.ones(n)
+                    vnmax = np.inf
+                    
+                    # While there remains points with normalized residuals larger than 1.2*thr_vn,
+                    while (vnmax > 1.2*thr_vn):
+                        
+                        # While variance factor of observations hasn't converged,
+                        ds2 = np.inf
+                        while (np.abs(np.log(ds2)) > 0.01):
+
+                            # Fit model
+                            N = Nc_bands / sc2
+                            N[0,:] += 1 / (s2*Q*dQ)
+                            AtP = A.T / (s2*Q*dQ)
+                            X = linalg.solveh_banded(N, AtP.T, lower=True)
+                            Nx = np.dot((A-X).T, AtP.T)
+                            bx = np.dot((A-X).T, y/(s2*Q*dQ))
+                            x = linalg.solve(Nx, bx)
+                            yo[:,d] = np.dot(A, x)
+                            b = (y-yo[:,d]) / (s2*Q*dQ)
+                            yf[:,d] = linalg.solveh_banded(N, b, lower=True)
+                            v[:,d] = y-yo[:,d]-yf[:,d]
+                            ds2 = np.sum(v[:,d]**2/(Q*dQ)) / (s2*n)
+                            s2 *= ds2
+                            vn = v[:,d] / np.sqrt(s2*Q*dQ)
+
+                        # If further iterations are needed, downweight points with normalized residuals larger than 1.2 times thr_vn.
+                        vnmax = np.max(np.abs(vn))
+                        if (vnmax > 1.2*thr_vn):
+                            ind = np.nonzero(np.abs(vn) > thr_vn)[0]
+                            dQ[ind] *= (np.abs(vn[ind]) / thr_vn) ** 2
+                            
+                    # Compute offset detection statistics
+                    AtP /= ds2
+                    Qx = invspd(np.dot(AtP, A))
+                    CtPC = np.cumsum(1/(s2*Q*dQ))
+                    CtPA = np.cumsum(AtP.T, axis=0)
+                    CtPv = np.cumsum(v[:,d]/(s2*Q*dQ))
+                    for i in range(1, n-2):
+                        Nc = CtPC[i] - np.dot(CtPA[i], np.dot(Qx, CtPA[i].T))
+                        if (Nc > 0):
+                            T[i,d] = CtPv[i]**2/Nc
+                            
+                # Total offset detection statistics
+                Ts = np.sum(T, axis=1)
+                    
+                # Draw and show figure if requested
+                if (intermediate_plots):
+                    fig = pp.figure(figsize=(6*r.nd+2, 10), tight_layout=True)
+
+                    for d in range(r.nd):
+                        if (r.nd == 1):
+                            y = r.y
+                            ydel = r.ydel
+                        else:
+                            y = r.y[:,d]
+                            ydel = r.ydel[:,d]
+                        
+                        ax = fig.add_subplot(3, r.nd, d+1)
+                        pp.plot(r.t, y, '.k')
+                        pp.plot(r.tdel, ydel, '.m', markersize=10)
+                        pp.plot(r.t, yo[:,d]+yf[:,d], 'r')
+                        for to in t_offsets:
+                            pp.plot([to, to], [np.min(np.hstack((y, ydel))), np.max(np.hstack((y, ydel)))], 'r', linestyle='--')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel(dims[d]+' ['+r.yunit+']')
+ 
+                        ax = fig.add_subplot(3, r.nd, d+r.nd+1)
+                        pp.plot(r.t, v[:,d], '.k')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel(dims[d]+' residuals ['+r.yunit+']')
+ 
+                        pp.subplot(3, r.nd, d+2*r.nd+1)
+                        pp.plot(r.t, T[:,d], label=dims[d])
+                        pp.plot(r.t, Ts, label='Total')
+                        pp.grid()
+                        pp.margins(0.01)
+                        pp.xlabel('Time ['+r.tunit+']')
+                        pp.ylabel('Offset detection statistics')
+                        pp.legend()
+
+                    pp.show()
+
+                # If maximum offset detection statistics exceeds thr_offset,
+                # add an offset and possibly logarithmic transients into the model
+                if (np.max(Ts) > thr_offset):
+                    i = np.nonzero(Ts == np.max(Ts))[0][0]
+                    t_offsets.append(t[i+1])
+                    A = np.hstack((A, np.zeros((n, 1+len(tau)))))
+                    A[i+1:,-(1+len(tau))] = 1
+                    for k in range(len(tau)):
+                        A[i+1:,-(k+1)] = np.log(1 + (t[i+1:]-t[i+1])/tau[k])
+                        
+                    if not(quiet):
+                        print('    - New potential offset detected at t={0}'.format(t_offsets[-1]), file=out)
+                        
+                # Else, stop iterations.
+                else:
+                    end2 = True
+                    
+            # Compute running MAD of model residuals
+            imin = 0
+            imax = 0
+            madv = np.zeros((n, r.nd))
+            for i in range(n):
+                while (t[imin] < t[i] - win_mad/2):
+                    imin += 1
+                while (imax < n-1) and (t[imax+1] < t[i] + win_mad/2):
+                    imax += 1
+                if (imax == n-1) and (t[imax] < t[i] + win_mad/2):
+                    imax += 1
+                for d in range(r.nd):
+                    madv[i,d] = mad(v[imin:imax,d])
+                
+            # Delete points with residuals larger than thr_mad * running MAD,
+            ind = np.unique(np.nonzero(np.abs(v) > thr_mad*madv)[0])
+            if (len(ind) > 0):
+                if not(quiet):
+                    if (len(ind) == 1):
+                        print('    -   1 new outlier  detected'.format(len(ind)), file=out)
+                    else:
+                        print('    - {0:3d} new outliers detected'.format(len(ind)), file=out)
+                r.del_points(ind)
+                A = A[ind,:]
+                
+            # Or stop iterations.
+            else:
+                end1 = True
+                
+        # Draw and show figure if requested
+        if (final_plot):
+            fig = pp.figure(figsize=(6*r.nd+2, 7), tight_layout=True)
+
+            for d in range(r.nd):
+                if (r.nd == 1):
+                    y = r.y
+                    ydel = r.ydel
+                else:
+                    y = r.y[:,d]
+                    ydel = r.ydel[:,d]
+                
+                ax = fig.add_subplot(2, r.nd, d+1)
+                pp.plot(r.t, y, '.k')
+                pp.plot(r.tdel, ydel, '.m', markersize=10)
+                pp.plot(r.t, yo[:,d]+yf[:,d], 'r')
+                pp.plot(r.t, yo[:,d]+yf[:,d]+thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.plot(r.t, yo[:,d]+yf[:,d]-thr_mad*madv[:,d], 'r', linestyle='--')
+                for to in t_offsets:
+                    pp.plot([to, to], [np.min(np.hstack((y, ydel))), np.max(np.hstack((y, ydel)))], 'r', linestyle='--')
+                pp.grid()
+                pp.margins(0.01)
+                pp.xlabel('Time ['+r.tunit+']')
+                pp.ylabel(dims[d]+' ['+r.yunit+']')
+
+                ax = fig.add_subplot(2, r.nd, d+r.nd+1)
+                pp.plot(r.t, v[:,d], '.k')
+                pp.plot(r.t, +thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.plot(r.t, -thr_mad*madv[:,d], 'r', linestyle='--')
+                pp.grid()
+                pp.margins(0.01)
+                pp.xlabel('Time ['+r.tunit+']')
+                pp.ylabel(dims[d]+' residuals ['+r.yunit+']')
+
+            pp.show()
+            
+        if not(quiet):
+            print('    Finished!', file=out)
+            print('', file=out)
+        
+        return t_offsets
 
     # Plot time series
     #-----------------
@@ -3742,7 +4096,7 @@ class figgm(noise):
 
 # model class
 #------------
-class model:
+class model(Sequence['model']):
   
     """
     Class for deterministic+noise models adjusted to time series
@@ -3826,62 +4180,69 @@ class model:
         
     Each model instance has the following methods:
     
-        add_polynom()  : Add polynomial function to model
-        add_sine()     : Add sine wave function to model
-        add_poisson()  : Add Poisson function to model
-        add_exp()      : Add exponential function to model
-        add_log()      : Add logarithmic function to model
-        add_psd()      : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
-        add_wn()       : Add homogeneous white noise to model
-        add_vw()       : Add variable white noise to model
-        add_ar1()      : Add AR(1) process to model
-        add_pl()       : Add power-law noise to model
-        add_fn()       : Add flicker noise to model
-        add_rw()       : Add random walk to model
-        add_ggm()      : Add GGM process to model
-        add_figgm()    : Add FIGGM process to model
-        add_jumps()    : Add jumps to specified polynomial and/or sine wave functions of model
-        del_polynom()  : Remove polynomial function from model
-        del_sine()     : Remove sine wave function from model
-        del_poisson()  : Remove Poisson function from model
-        del_exp()      : Remove exponential function from model
-        del_log()      : Remove logarithmic function from model
-        del_wn()       : Remove homogeneous white noise from model
-        del_vw()       : Remove variable white noise from model
-        del_ar1()      : Remove AR(1) process from model
-        del_pl()       : Remove power-law noise from model
-        del_ggm()      : Remove GGM process from model
-        del_figgm()    : Remove FIGGM process from model
-        del_jumps()    : Remove jumps from specified polynomial and/or sine wave functions
-        set_x0()       : Set default a priori values for unknown deterministic parameters
-        set_x()        : Set values of unknown deterministic parameters
-        get_x()        : Get values of unknown deterministic parameters
-        set_xr()       : Set values of unknown deterministic parameters given reparameterized parameters
-        get_xr()       : Get values of reparameterized unknown deterministic parameters
-        set_sigx()     : Set formal errors of deterministic parameters
-        dx_dxr()       : Compute partial derivatives of deterministic parameters wrt reparameterized deterministic parameters
-        set_b0()       : Set default a priori values for unknown noise parameters
-        set_b()        : Set values of unknown noise parameters
-        get_b()        : Get values of unknown noise parameters
-        set_br()       : Set values of unknown noise parameters given reparameterized parameters
-        get_br()       : Get values of reparameterized unknown noise parameters
-        set_sigb()     : Set formal errors of noise parameters
-        db_dbr()       : Compute partial derivatives of noise parameters wrt reparameterized noise parameters
-        set_oeq()      : Compute predicted observations and design matrix
-        set_cov()      : Compute covariance matrix
-        set_psd()      : Compute power spectral density of noise model and of residuals
-        set_xi()       : Estimate individual noise components
-        simulate()     : Simulate time series values
-        fitx()         : Fit deterministic model with fixed covariance matrix
-        fit()          : Fit deterministic + noise model
-        fit_iter()     : Fit deterministic + noise model and iteratively remove outliers
-        plot_fit()     : Plot time series + deterministic model
-        plot_res()     : Plot fit residuals
-        plot_normres() : Plot normalized residuals
-        plot_psd()     : Plot PSD of residuals and of noise model
-        plot_all()     : plot_fit(), plot_res(), plot_normres() & plot_psd()
-        __str__()      : Print fit statistics and parameters
-        dump()         : Dump model instance into pickle file
+        del_points()     : Flag specified points as outliers in the model's time series
+        add_polynom()    : Add polynomial function to model
+        add_sine()       : Add sine wave function to model
+        add_poisson()    : Add Poisson function to model
+        add_exp()        : Add exponential function to model
+        add_log()        : Add logarithmic function to model
+        add_psd()        : Add exp and log functions to model based on a SINEX file containing post-seismic deformation models
+        add_wn()         : Add homogeneous white noise to model
+        add_vw()         : Add variable white noise to model
+        add_ar1()        : Add AR(1) process to model
+        add_pl()         : Add power-law noise to model
+        add_fn()         : Add flicker noise to model
+        add_rw()         : Add random walk to model
+        add_ggm()        : Add GGM process to model
+        add_figgm()      : Add FIGGM process to model
+        add_jumps()      : Add jumps to specified polynomial and/or sine wave functions of model
+        del_polynom()    : Remove polynomial function from model
+        del_sine()       : Remove sine wave function from model
+        del_poisson()    : Remove Poisson function from model
+        del_exp()        : Remove exponential function from model
+        del_log()        : Remove logarithmic function from model
+        del_wn()         : Remove homogeneous white noise from model
+        del_vw()         : Remove variable white noise from model
+        del_ar1()        : Remove AR(1) process from model
+        del_pl()         : Remove power-law noise from model
+        del_ggm()        : Remove GGM process from model
+        del_figgm()      : Remove FIGGM process from model
+        del_jumps()      : Remove jumps from specified polynomial and/or sine wave functions
+        set_x0()         : Set default a priori values for unknown deterministic parameters
+        set_x()          : Set values of unknown deterministic parameters
+        get_x()          : Get values of unknown deterministic parameters
+        set_xr()         : Set values of unknown deterministic parameters given reparameterized parameters
+        get_xr()         : Get values of reparameterized unknown deterministic parameters
+        set_sigx()       : Set formal errors of deterministic parameters
+        dx_dxr()         : Compute partial derivatives of deterministic parameters wrt reparameterized deterministic parameters
+        set_b0()         : Set default a priori values for unknown noise parameters
+        set_b()          : Set values of unknown noise parameters
+        get_b()          : Get values of unknown noise parameters
+        set_br()         : Set values of unknown noise parameters given reparameterized parameters
+        get_br()         : Get values of reparameterized unknown noise parameters
+        set_sigb()       : Set formal errors of noise parameters
+        db_dbr()         : Compute partial derivatives of noise parameters wrt reparameterized noise parameters
+        set_oeq()        : Compute predicted observations and design matrix
+        set_cov()        : Compute covariance matrix
+        set_psd()        : Compute power spectral density of noise model and of residuals
+        set_xi()         : Estimate individual noise components
+        simulate()       : Simulate time series values
+        fitx()           : Fit deterministic model with fixed covariance matrix
+        fit()            : Fit deterministic + noise model
+        fit_iter()       : Fit deterministic + noise model and iteratively remove outliers
+        plot_fit()       : Plot time series + deterministic model
+        plot_res()       : Plot fit residuals
+        plot_normres()   : Plot normalized residuals
+        plot_psd()       : Plot PSD of residuals and of noise model
+        plot_all()       : plot_fit(), plot_res(), plot_normres() & plot_psd()
+        __str__()        : Print fit statistics and parameters
+        dump()           : Dump model instance into pickle file
+        glr_outlier()    : Likelihood ratio test for outliers
+        glr_mean()       : Likelihood ratio for mean changes (position discontinuities)
+        glr_trend()      : Likelihood ratio for trend changes (velocity discontinuities)
+        glr_mean_trend() : Likelihood ratio for mean+trend changes (position+velocity discontinuities)
+        glr_sine()       : Likelihood ratio test for periodic signals
+        write_psdsnx()   : Export adjusted PSD model (exp and log functions) in SINEX format
         
     """
 
@@ -4045,8 +4406,12 @@ class model:
         if (m.nd == 1):
             return m
         else:
+            assert len(m.md) == m.nd
             return m.md[i]
-        
+
+    def __len__(m):
+        return m.nd
+    
     # Initialize model instance from discontinuity list in (pseudo-)SINEX format
     #---------------------------------------------------------------------------
     @classmethod
@@ -4090,9 +4455,9 @@ class model:
             Whether amplitudes should be considered fixed. Default is False.
         dims: str, optional
             If a sinex instance with post-seismic deformation models is provided, then
-            this keyword is needed to know the order of the ENH component(s) in the time
-            series r. dims must thus be a combination of the letters 'E', 'N' and/or 'H',
-            in the same order as those components are stored in r. Default is 'ENH'.
+            this keyword is needed to know the order of the ENU component(s) in the time
+            series r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
+            in the same order as those components are stored in r. Default is 'ENU'.
             
         """
 
@@ -4134,9 +4499,7 @@ class model:
 
                 # Delete observations within current period
                 ind = np.nonzero((r.t >= start) * (r.t <= end))[0]
-                r.del_points(ind)
-                for d in range(m.nd):
-                    m[d].r = m.r[d]
+                m.del_points(ind)
 
             # Time series start and end dates
             tmin = r.t[0]
@@ -4183,7 +4546,25 @@ class model:
             m.add_psd(psd, code=code, pt=pt, fix_tau=fix_tau, fix_amp=fix_amp, dims=dims)
             
         return m
+    
+    # Flag specified points as outliers in the model's time series
+    #-------------------------------------------------------------
+    def del_points(m, ind):
         
+        """
+        Flag specified points as outliers in the model's time series
+
+        Parameters
+        ----------
+        ind : list
+            Indices of points to flag
+            
+        """
+        
+        m.r.del_points(ind)
+        for d in range(m.nd):
+            m[d].r = m.r[d]
+    
     ## Add custom function to model
     ##-----------------------------
     #def add_function(m, f):
@@ -4498,7 +4879,7 @@ class model:
         fix_tau : bool, optional
             Whether relaxation times should be considered fixed. Default is False.
         dims: str, optional
-            This keyword is needed to know the order of the ENH component(s) in the time
+            This keyword is needed to know the order of the ENU component(s) in the time
             series m.r. dims must thus be a combination of the letters 'E', 'N' and/or 'U',
             in the same order as those components are stored in m.r. Default is 'ENU'.
             
@@ -4971,10 +5352,10 @@ class model:
                 f = m[d].f[i]
                 if isinstance(f, polynom):
                     if (f.deg in deg):
-                        m[d].f[i] = polynom(f.deg, sorted(f.t+t))
+                        m[d].f[i] = polynom(f.deg, sorted(set(f.t+t)))
                 elif isinstance(f, sine):
                     if (f.per in per):
-                        m[d].f[i] = sine(f.per, sorted(f.t+t))
+                        m[d].f[i] = sine(f.per, sorted(set(f.t+t)))
 
     # Remove jumps from specified polynomial and/or sine wave functions of model
     #---------------------------------------------------------------------------
@@ -5159,7 +5540,9 @@ class model:
         # Loop over unknown deterministic parameters
         for f in m.f:
             for p in f.par:
-                if not(p.fixed):
+                if (p.fixed):
+                    p.sig = 0
+                else:
                     i += 1
                     p.sig = sqrt(m.Qx[i,i])
                     
@@ -5359,7 +5742,9 @@ class model:
         # Loop over unknown noise parameters
         for n in m.n:
             for p in n.par:
-                if not(p.fixed):
+                if (p.fixed):
+                    p.sig = 0
+                else:
                     i += 1
                     p.sig = sqrt(m.Qb[i,i])
                     
@@ -6051,25 +6436,22 @@ class model:
                     method = 'Nelder-Mead'
 
                 # In case there are exactly two noise components with all their parameters fixed except, possibly, their variance factors,
-                # and there are no constraint on any deterministic parameter,
                 # we can make use of Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick.
                 mmas = (len(m[d].n) == 2) * (use_mmas)
                 if (mmas):
                     for n in m[d].n:
-                        for i in range(1, len(n.par)):
-                            if not(n.par[i].fixed):
+                        for p in n.par[1:]:
+                            if not(p.fixed):
                                 mmas = False
 
                 # If Mashhadizadeh-Maleki & Amiri-Simkooei (2024)'s trick may be used,
                 if (mmas):
 
                     # First get unit covariance matrix of each noise component
-                    if (m[d].n[0].Q is None):
-                        m[d].n[0].set_cov(m[d])
+                    m[d].n[0].set_cov(m[d])
                     Q1 = m[d].n[0].Q / m[d].n[0].par[0].x
 
-                    if (m[d].n[1].Q is None):
-                        m[d].n[1].set_cov(m[d])
+                    m[d].n[1].set_cov(m[d])
                     Q2 = m[d].n[1].Q / m[d].n[1].par[0].x
 
                     # If Q2 is diagonal and Q1 is full, swap the two matrices
@@ -6490,7 +6872,7 @@ class model:
                             mc = copy.deepcopy(m[d])
 
                             # Inner function: noise parameters -> log-likelihood
-                            def logl(b):
+                            def logl(b,mc=mc):
                                 mc.set_b(b)
                                 mc.set_cov(chol=True)
                                 mc.fitx()
@@ -6611,10 +6993,10 @@ class model:
                         m[d].Q = m[d].n[1].Q + np.diag(m[d].n[0].Q)
                     m[d].v = m[d].r.y - m[d].yc
                     m[d].P = np.dot(m[d].F.T*m[d].P, m[d].F)
+                    m[d].Pv = np.dot(m[d].P, m[d].v)
                     m[d].y2x = np.dot(m[d].y2x, m[d].F)
 
                     del m[d].d, m[d].F, m[d].Fi, m[d].dF
-                    m[d].Pv = None
                     m[d].dQ = None
                     m[d].n[0].dQ = None
                     m[d].n[1].dQ = None
@@ -6873,9 +7255,7 @@ class model:
                     if use_dirac:
                         m.add_dirac(t=m.r.t[ind])
                     else:
-                        m.r.del_points(ind)
-                        for d in range(m.nd):
-                            m[d].r = m.r[d]
+                        m.del_points(ind)
 
                     # Loop over functions to remove possibly unobserved discontinuities from model
                     for d in range(m.nd):
@@ -6987,6 +7367,15 @@ class model:
             
         """
         
+        figure = m.plot_fit_figure(figsize, tunit, dims, title)
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            figure.show()
+
+    def plot_fit_figure(m, figsize=None, tunit=None, dims=None, title=None):
         # Plot time series
         (fig, t) = m.r.plot(figsize=figsize, tunit=tunit, dims=dims, title=title, return_fig=True)
 
@@ -6997,13 +7386,8 @@ class model:
             fig.axes[d].plot(t, m[d].yc, 'r', linewidth=2, zorder=4)
             if (m[d].sc is not None):
                 fig.axes[d].fill_between(t, m[d].yc-m[d].sc, m[d].yc+m[d].sc, color='r', alpha=0.6, zorder=4)
-            
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+
+        return fig
 
     # Plot fit residuals
     #-------------------
@@ -7030,7 +7414,20 @@ class model:
             Whether to show figure. Default is True.
             
         """
-        
+
+        figure = m.plot_res_figure()
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            pp.show()
+
+    def plot_res_figure(m, thr_raw=None, figsize=None, tunit=None, dims=None, title=None):
+        """
+        Same as `model.plot_res` but return the figure instead of showing it.
+        """
+
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7076,13 +7473,7 @@ class model:
                 ax.plot([t[0], t[-1]], [thr, thr], '--r', linewidth=2)
                 ax.plot([t[0], t[-1]], [-thr, -thr], '--r', linewidth=2)
         ax.set_xlabel('Time ['+tunit+']')
-        
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+        return fig
 
     # Plot normalized residuals
     #--------------------------
@@ -7109,7 +7500,18 @@ class model:
             Whether to show figure. Default is True.
             
         """
-        
+        figure = m.plot_normres_figure(thr_norm, figsize, tunit, dims, title)
+        # Save or show figure
+        if (output is not None):
+            figure.savefig(output, bbox_inches='tight')
+            pp.close(figure)
+        elif (show):
+            figure.show()
+
+    def plot_normres_figure(m, thr_norm=None, figsize=None, tunit=None, dims=None, title=None):
+        """
+        Same as `model.plot_normres` but return the figure instead of showing it.
+        """
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7154,13 +7556,9 @@ class model:
                 ax.plot([t[0], t[-1]], [thr_norm, thr_norm], '--r', linewidth=2)
                 ax.plot([t[0], t[-1]], [-thr_norm, -thr_norm], '--r', linewidth=2)
         ax.set_xlabel('Time ['+tunit+']')
+
+        return fig
         
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
 
     # Plot PSD of fit residuals and of noise model
     #---------------------------------------------
@@ -7188,7 +7586,18 @@ class model:
             Whether to show figure. Default is True.
             
         """
+        fig = m.plot_psd_figure(smooth, figsize, tunit, dims)
+        # Save or show figure
+        if (output is not None):
+            fig.savefig(output, bbox_inches='tight')
+            pp.close(fig)
+        elif (show):
+            fig.show()
 
+    def plot_psd_figure(m, smooth=1, figsize=None, tunit=None, dims=None):
+        """
+        Same as `model.plot_psd` but return the figure instead of showing it.
+        """
         # Figure size
         if (figsize is None):
             if (m.nd == 1):
@@ -7267,14 +7676,8 @@ class model:
                 #if isinstance(f, sine):
                     #ax.loglog([365.25/f.per, 365.25/f.per], [pmin, pmax], '--r', zorder=0)
             
-        ax.set_xlabel('Frequency ['+funit+']')
-        
-        # Save or show figure
-        if (output is not None):
-            pp.savefig(output, bbox_inches='tight')
-            pp.close()
-        elif (show):
-            pp.show()
+        ax.set_xlabel('Frequency ['+funit+']')        
+        return fig
 
     # plot_fit(), plot_res(), plot_normres() & plot_psd()
     #----------------------------------------------------
@@ -7816,3 +8219,187 @@ class model:
                         T[i] += np.dot(xc.T, CtPv)
                 
         return T
+
+    # Export adjusted PSD model (exp and log functions) in SINEX format
+    #------------------------------------------------------------------
+    def write_psdsnx(m, file, code, pt, tech='P', metasnx=None):
+
+        """
+        Export adjusted PSD model (exp and log functions) in SINEX format
+
+        Note:
+         - If specified SINEX file doesn't exist, a new PSD SINEX file will be created.
+         - If specified SINEX file exists, but doesn't contain the station in question,
+           its PSD model will be appended to the PSD SINEX file.
+         - If specified SINEX file exists and already contains the station in question,
+           its PSD model will be overwritten.
+
+        Warnings:
+         - The dates of the time series m.r MUST be MJDs.
+         - The values of the time series m.r MUST be expressed in m.
+         - The time series m.r MUST be 3D and expressed in the topocentric ENU frame.
+
+        Parameters
+        ----------
+        file : str
+            SINEX file to create or update
+        code : str
+            4-char station ID
+        pt : str
+            Station PT code
+        tech : str
+            Technique code ('P' for GNSS, 'D' for DORIS, 'L' for SLR, 'R', for VLBI).
+            Default is 'P'.
+        metasnx : str or sinex, optional
+            SINEX file or sinex instance from which to copy station metadata
+            (DOMES, description, lon, lat, h). Default is None. 
+
+        """
+
+        # Check that the model includes at least one exp or log function
+        b = False
+        for d in range(m.nd):
+            for f in m[d].f:
+                if isinstance(f, fexp) or isinstance(f, flog):
+                    b = True
+
+        # If not, raise warning and return.
+        if not(b):
+            warnings.warn('No PSD model to export.')
+            return
+        
+        # Initialize station metadata
+        domes = default_domes
+        description = 22*' '
+        lon = 11*' '
+        lat = 11*' '
+        h = 7*' '
+        
+        # If SINEX file or sinex instance with metadata is specified,
+        if (metasnx is not None):
+            
+            # Read SINEX file with metadata if needed
+            if not(isinstance(metasnx, sinex)):
+                metasnx = sinex.read(metasnx, dont_read=['comments', 'metadata', 'apriori', 'matrices'])
+                
+            # Get station metadata if available
+            if (code+pt in [s.code+s.pt for s in metasnx.sta]):
+                i = [s.code+s.pt for s in metasnx.sta].index(code+pt)
+                domes = metasnx.sta[i].domes
+                tech = metasnx.sta[i].tech
+                description = metasnx.sta[i].description
+                lon = metasnx.sta[i].lon
+                lat = metasnx.sta[i].lat
+                h = metasnx.sta[i].h
+
+        # If specified SINEX file exists, read it.
+        if os.path.isfile(file):
+            snx = sinex.read(file)
+
+        # Otherwise, create an empty sinex instance.
+        else:
+            snx = sinex()
+            snx.file = file
+            snx.version = '2.02'
+            snx.agency = get_agency()
+            snx.t = date().tsnx()
+            snx.start = '49:365:86399'
+            snx.end = '50:001:00000'
+            snx.tech = tech
+            snx.npar = 0
+            snx.const = '2'
+            snx.content = 'S'
+            snx.sta = []
+            snx.param = []
+            snx.x = np.empty((0,))
+            snx.sig = np.empty((0,))
+            snx.Q = np.empty((0, 0))
+
+        # Update snx.start and snx.end if needed
+        start = date.from_mjd(m.r.t[0]).tsnx()
+        if earlier(start, snx.start):
+            snx.start = start
+
+        end = date.from_mjd(m.r.t[-1]).tsnx()
+        if earlier(snx.end, end):
+            snx.end = end
+
+        # If needed, delete PSD parameters of station in question from PSD sinex
+        # (This also deletes the station in question from snx.sta.)
+        if (snx.npar > 0):
+            ind = np.nonzero(np.array([p.code+p.pt for p in snx.param]) == code+pt)[0]
+            snx.del_ind(ind)
+        
+        # Add station into snx.sta
+        r = record()
+        r.code = code
+        r.pt = pt
+        r.domes = domes
+        r.tech = tech
+        r.description = description
+        r.lon = lon
+        r.lat = lat
+        r.h = h
+        snx.sta.append(r)
+
+        # Initialize lists of parameters, values and covariance matrix blocks
+        # to be added into PSD sinex
+        param = []
+        x = []
+        Q = []
+
+        # Loop over ENU components
+        for (d, c) in enumerate('ENU'):
+            ind = []
+            i = 0
+
+            # Loop over PSD functions
+            for f in m[d].f:
+                if isinstance(f, fexp) or isinstance(f, flog):
+
+                    # EXP or LOG?
+                    type = f.__class__.__name__[-3:].upper()
+
+                    # New amplitude parameter
+                    r = record()
+                    r.type = 'A'+type+'_'+c
+                    r.code = code
+                    r.pt = pt
+                    r.soln = '----'
+                    r.tref = date.from_mjd(f.t0).tsnx()
+                    r.unit = 'm   '
+                    r.const = '2'
+                    param.append(r)
+                    x.append(f.par[0].x)
+                    ind.append(i)
+
+                    # New relaxation time parameter
+                    r = record()
+                    r.type = 'T'+type+'_'+c
+                    r.code = code
+                    r.pt = pt
+                    r.soln = '----'
+                    r.tref = date.from_mjd(f.t0).tsnx()
+                    r.unit = 'y   '
+                    r.const = '2'
+                    param.append(r)
+                    x.append(f.par[1].x / 365.25)
+                    ind.append(i+1)
+
+                i += len(f.par)
+
+            # Covariance matrix of PSD parameters in component d
+            Qd = m[d].Qx[np.ix_(ind,ind)]
+            f = np.ones(len(ind))
+            f[1::2] = 1/365.25
+            Q.append(f*(Qd*f).T)
+
+        # Update sinex object
+        snx.npar += len(param)
+        snx.param.extend(param)
+        snx.x = np.hstack((snx.x, x))
+        snx.Q = linalg.block_diag(snx.Q, *Q)
+        snx.sig = np.sqrt(np.diag(snx.Q))
+
+        # Write SINEX file
+        snx.write(file, dont_write=['epochs', 'metadata'])

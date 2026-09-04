@@ -1,9 +1,25 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf IGS utilities
 
-This subpackage contains various useful routines for the IGS SINEX combination.
+This module contains various useful routines for the IGS SINEX combinations.
 
 """
+
+
 
 # External imports
 #-----------------
@@ -354,7 +370,7 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
         print('IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fsum)
         print('---------------------------------------------------------', file=fsum)
         print('', file=fsum)
-        print(' Authors: Anne Duret, Paul Rebischung', file=fsum)
+        print(' Authors: Hugo Bontempi, Moez Jilani, Maylis de La Serve, Paul Rebischung', file=fsum)
         print(' Contact: igs-rf@ign.fr', file=fsum)
         print('', file=fsum)
         print(' Daily AC solutions:', file=fsum)
@@ -378,8 +394,8 @@ def write_sum(dacs, w, opt, nsta, ndat, Tdat, wdat, ncore, Tcore, wcore, dxpo, d
         print('# IGS combination of daily AC SINEX solutions for week {0}'.format(w), file=fyml)
         print('#----------------------------------------------------------', file=fyml)
         print('', file=fyml)
-        print('authors: Anne Duret, Paul Rebischung', file=fyml)
-        print('contact: igs-rf@ign.fr', file=fyml)
+        print('Authors: Hugo Bontempi, Moez Jilani, Maylis de La Serve, Paul Rebischung', file=fyml)
+        print('Contact: igs-rf@ign.fr', file=fyml)
         print('', file=fyml)
         print('# Daily AC solutions:', file=fyml)
         print('ac:', file=fyml)
@@ -794,7 +810,7 @@ def write_stacksum(w, opt, inputs, combsnx, nobs, wrms, fsum):
         print('IGS cumulative SINEX solution: week {0} release'.format(w), file=f)
         print('------------------------------------------------', file=f)
         print('', file=f)
-        print(' Authors: Anne Duret, Paul Rebischung', file=f)
+        print(' Authors: Hugo Bontempi, Moez Jilani, Maylis de La Serve, Paul Rebischung', file=f)
         print(' Contact: igs-rf@ign.fr', file=f)
         print('', file=f)
         print(' Inputs:', file=f)
@@ -804,6 +820,8 @@ def write_stacksum(w, opt, inputs, combsnx, nobs, wrms, fsum):
         print(' Output: IGS cumulative SINEX solution (week {0} release)'.format(w), file=f)
         print('  - {0} (SINEX file w/ covariance matrix)'.format(opt.stacksnx), file=f)
         print('  - {0} (SINEX file w/o covariance matrix)'.format(opt.stackssc), file=f)
+        print('  - {0} (associated discontinuity list)'.format(opt.stackdsc), file=f)
+        print('  - {0} (associated post-seismic deformation models)'.format(opt.stackpsd), file=f)
         print('  - {0} (this file)'.format(opt.stacksum), file=f)
         print('  ', file=f)
         print(' These output files are for now available at:', file=f)
@@ -827,7 +845,7 @@ def write_stacksum(w, opt, inputs, combsnx, nobs, wrms, fsum):
         print('', file=f)
         print(' The IGS cumulative SINEX solution is consistent with the IGS20/igs20.atx', file=f)
         print(' framework. It is in particular aligned in origin, scale and orientation to the', file=f)
-        print(' IGS20 reference frame.', file=f)
+        print(' IGc20 reference frame.', file=f)
         print('', file=f)
         print(' Time series of residuals from the long-term stacking are available at:', file=f)
         print(' ftp://igs-rf.ign.fr/pub/stacking-res', file=f)
@@ -857,17 +875,17 @@ def write_stacksum(w, opt, inputs, combsnx, nobs, wrms, fsum):
         print('    - North: {0:5.3f} mm'.format(wrms[1]), file=f)
         print('    - Up:    {0:5.3f} mm'.format(wrms[2]), file=f)
 
-        # Comparison with IGS20
+        # Comparison with IGc20
         print('', file=f)
         print('', file=f)
         print('', file=f)
-        print(' 2) Comparison with IGS20:', file=f)
+        print(' 2) Comparison with IGc20:', file=f)
         print(' -------------------------', file=f)
         print('', file=f)
-        print(' The IGS cumulative SINEX solution is aligned to the IGS20 reference frame via a', file=f)
+        print(' The IGS cumulative SINEX solution is aligned to the IGc20 reference frame via a', file=f)
         print(' selected subset of stations. The table below provides the differences between', file=f)
         print(' the coordinates of those stations in the IGS cumulative SINEX solution and', file=f)
-        print(' their coordinates in IGS20, as well as the RMS of these differences.', file=f)
+        print(' their coordinates in IGc20, as well as the RMS of these differences.', file=f)
         print('', file=f)
         print('              position_differences_@_2015.0 ____velocity_differences_____', file=f)
         print(' code pt soln     E[mm]     N[mm]     H[mm]   E[mm/y]   N[mm/y]   H[mm/y]', file=f)
@@ -914,9 +932,9 @@ def extract_soln(solns, datum, out):
     solns : list
         Full IGS discontinuity list (from io.read_solns)
     datum : sinex instance
-        IGS reference frame (e.g., IGS20.ssc)
+        IGS reference frame (e.g., IGc20.ssc)
     out : str
-        Output discontinuity list (e.g., soln_IGS20.snx)
+        Output discontinuity list (e.g., soln_IGc20.snx)
     """
     
     # List of RF stations

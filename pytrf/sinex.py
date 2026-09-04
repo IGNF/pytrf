@@ -1,15 +1,33 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main authors:
+#  - Paul Rebischung
+#  - Julien Barnéoud
+#  - Maylis de La Serve
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
-    Class for reading, writing and manipulating SINEX files
+    pytrf class for reading, writing and manipulating SINEX files
 """
+
+
 
 # External imports
 #-----------------
 import os
 import sys
+import warnings
 import re
 import gzip
-import unlzw3
-from pathlib import Path
+import subprocess
 from io import StringIO
 #import mkl
 #mkl.set_num_threads(1)
@@ -26,10 +44,11 @@ import networkx as nx
 # Internal imports
 #-----------------
 from pytrf import date
-from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr
+from pytrf.math import cart2geo, xyz2enh, invspd, cholesky, cholsolve, cov2corr, plate_rotations
 from pytrf.io import get_sitelog, read_sitelog, read_yaml
 from pytrf.utils import record, isfloat, earlier, station_map
 from pytrf.const import default_domes, ae, mas2rad, ms2rad, dera_dt
+from pytrf.config import get_agency
 
 
 
@@ -140,11 +159,11 @@ class sinex:
         helmert_partials() : Get partial derivative matrix of Helmert parameters
         del_ind()          : Delete (reduce) parameters with specified indices
         del_params()       : Delete (reduce) parameters of specified types
-        del_unknown_par()  : Delete parameters that are not supported by snxcomb
+        del_unknown_par()  : Delete parameters that are not supported by snxcmb.combine()
         del_helmerts()     : Reduce origin, scale and/or orientation information in a normal equation
         del_sta()          : Delete (reduce) specified stations
         del_rs()           : Delete (reduce) specified radiosources
-        del_duplicates()   : Delete (reduce) solution numbers (solns) if there are many of them in an "instantaneous" solution
+        del_loose_sta()    : Delete (reduce) stations with loosely determined positions in a normal equation
         keep_sta()         : Keep specified stations - Delete (reduce) other stations
         keep_rs()          : Keep specified radiosources - Delete (reduce) other radiosources
         trim_params()      : Delete (reduce) parameters that do not belong to period of interest
@@ -281,12 +300,14 @@ class sinex:
         # Initialization
         snx = sinex()
         snx.file = os.path.basename(file)
+        print(snx.file)
 
         # Open input SINEX file
-        if (file[-3:] == '.gz'):
+        if file.endswith('.gz'):
             f = gzip.open(file, 'rt', encoding='latin-1')
-        elif (file[-2:] == '.Z'):
-            f = StringIO(unlzw3.unlzw(Path(file)).decode())
+        elif file.endswith('.Z'):
+            proc = subprocess.run(['gzip', '-dc', file], stdout=subprocess.PIPE)
+            f = StringIO(proc.stdout.decode('latin-1'))
         else:
             f = open(file, encoding='latin-1')
 
@@ -1113,12 +1134,8 @@ class sinex:
                 keys.append('46'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type == 'NUT_Y '):
                 keys.append('47'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'XGC   '):
-                keys.append('50'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'YGC   '):
-                keys.append('51'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type == 'ZGC   '):
-                keys.append('52'+str(date.from_tsnx(p.tref).mjd))
+            elif (p.type[1:] == 'GC   '):
+                keys.append('5{0:11.5f}{1}'.format(date.from_tsnx(p.tref).mjd, p.type))
             elif (p.type == 'DSC   '):
                 keys.append('53'+str(date.from_tsnx(p.tref).mjd))
             elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']):
@@ -1170,10 +1187,10 @@ class sinex:
             snx.iv = np.nonzero(types == 'VELX  ')[0].tolist()
             
             # PSD parameters
-            snx.ipsd = np.nonzero(np.in1d(types1, ['EXP', 'LOG']))[0].tolist()
+            snx.ipsd = np.nonzero(np.isin(types1, ['EXP', 'LOG']))[0].tolist()
             
             # Seasonal terms
-            snx.iseas = np.nonzero(np.in1d(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            snx.iseas = np.nonzero(np.isin(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
             
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
@@ -1218,16 +1235,16 @@ class sinex:
             snx.isataz = np.nonzero(types == 'SATA_Z')[0].tolist()
             
             # Transformation parameters
-            snx.iR = np.nonzero(np.in1d(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
+            snx.iR = np.nonzero(np.isin(types, ['RX    ', 'RY    ', 'RZ    ']))[0].tolist()
             snx.iS = np.nonzero(types == 'SC    ')[0].tolist()
-            snx.iT = np.nonzero(np.in1d(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
-            snx.iA = np.nonzero(np.in1d(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
+            snx.iT = np.nonzero(np.isin(types, ['TX    ', 'TY    ', 'TZ    ']))[0].tolist()
+            snx.iA = np.nonzero(np.isin(types, ['AX    ', 'AY    ', 'AZ    ']))[0].tolist()
             snx.itrans = snx.iT+snx.iS+snx.iR+snx.iA
 
             # Transformation parameter rates
-            snx.idR = np.nonzero(np.in1d(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
+            snx.idR = np.nonzero(np.isin(types, ['dRX   ', 'dRY   ', 'dRZ   ']))[0].tolist()
             snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
-            snx.idT = np.nonzero(np.in1d(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
+            snx.idT = np.nonzero(np.isin(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
             snx.idtrans = snx.idT+snx.idS+snx.idR
 
         else:
@@ -1706,7 +1723,7 @@ class sinex:
     
     # Check station PT codes and DOMES numbers
     #-----------------------------------------
-    def check_staid(snx, codomes, check_pt=True, check_crd=True, quiet=False, out=sys.stdout):
+    def check_staid(snx, codomes, check_pt=True, check_crd=True, warn=False, quiet=False, out=sys.stdout):
       
         """
         Check station PT codes and DOMES numbers
@@ -1740,11 +1757,15 @@ class sinex:
             # Check PT code
             if (check_pt):
                 
-                # PT should be A except for stations IISC and KELY
+                # PT should be A except for stations IISC, KELY
                 if (code in ['IISC', 'KELY']):
                     pt2 = ' B'
                 else:
                     pt2 = ' A'
+
+                # Patch for station S91M
+                if (code == 'S91M'):
+                    pt2 = pt
                 
                 # If a correction is needed
                 if (pt2 != pt):
@@ -1783,6 +1804,8 @@ class sinex:
                     else:
                         domes2 = default_domes
                         desc2 = snx.sta[i].description
+                        if (warn):
+                            warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
                     
             # Check DOMES number - 2nd case: Do not check station coordinates
             else:
@@ -1799,7 +1822,9 @@ class sinex:
                 if (len(ind) == 0):
                     domes2 = default_domes
                     desc2 = snx.sta[i].description
-                    
+                    if (warn):
+                        warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
+
                 # Else (at least one occurence is found),
                 else:
 
@@ -1818,12 +1843,18 @@ class sinex:
                     if (dmin > 100000):
                         domes2 = default_domes
                         desc2 = snx.sta[i].description
-                        
+                        if (warn):
+                            warnings.warn('Station {0} not found in DOMES number catalogue.'.format(code))
+
                     # Else (point of the DOMES number catalogue with smallest distance to station is probably the right one),
                     else:
                         domes2 = codomes[ind[imin]].domes
                         desc2 = codomes[ind[imin]].description
-                                      
+
+            # Patch for station S91M
+            if (code == 'S91M'):
+                domes2 = snx.sta[i].domes
+
             # Correct DOMES number in snx.sta and print message if needed
             if (domes2 != snx.sta[i].domes):
                 snx.sta[i].domes = domes2
@@ -1864,19 +1895,30 @@ class sinex:
         codept_soln = [s.code+s.pt for s in solns]
         codept_sta = [s.code+s.pt for s in snx.sta]
 
+        # Set some useful indices
+        ista = []
+        isol = []
+        for (i, ix) in enumerate(snx.ix):
+            p = snx.param[ix]
+            ista.append(codept_sta.index(p.code+p.pt))
+            isol.append([s.soln for s in snx.sta[ista[-1]].soln].index(p.soln))
+
         # Loop over STAX parameters
-        for i in snx.ix:
-            p = snx.param[i]
+        for (i, ix) in enumerate(snx.ix):
+            p = snx.param[ix]
+
+            # Mean observation epoch of current station position
+            tref = snx.sta[ista[i]].soln[isol[i]].datamean
 
             # If current station is found in discontinuity list
             if (p.code+p.pt in codept_soln):
-                ista = codept_soln.index(p.code+p.pt)
+                j = codept_soln.index(p.code+p.pt)
 
                 # Look for appropriate soln
                 isoln = 0
-                while ((solns[ista].P[isoln].end != '00:000:00000') and (earlier(solns[ista].P[isoln].end, p.tref))):
-                    isoln = isoln+1
-                soln2 = solns[ista].P[isoln].soln
+                while ((solns[j].P[isoln].end != '00:000:00000') and (earlier(solns[j].P[isoln].end, tref))):
+                    isoln += 1
+                soln2 = solns[j].P[isoln].soln
 
             # Else, default soln is '   1'
             else:
@@ -1892,13 +1934,12 @@ class sinex:
                     print('    {0.code} {0.pt} {0.soln} > {0.code} {0.pt} {1}'.format(p, soln2), file=out)
 
                 # Modify soln in snx.param
-                snx.param[i+0].soln = soln2
-                snx.param[i+1].soln = soln2
-                snx.param[i+2].soln = soln2
+                snx.param[ix+0].soln = soln2
+                snx.param[ix+1].soln = soln2
+                snx.param[ix+2].soln = soln2
                 
                 # Modify soln in snx.sta
-                ista = codept_sta.index(p.code+p.pt)
-                snx.sta[ista].soln[0].soln = soln2
+                snx.sta[ista[i]].soln[isol[i]].soln = soln2
                     
         # Print blank line in log file
         if not(quiet):
@@ -3151,6 +3192,9 @@ class sinex:
                 snx.Q = snx.Q[np.ix_(indk, indk)]
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
+                if (snx.x0 is not None):
+                    snx.x0 = snx.x0[indk]
+                    snx.sig0 = snx.sig0[indk]
                 
             # 5th case: no matrix at all
             else:
@@ -3358,47 +3402,120 @@ class sinex:
         # And delete them
         snx.del_ind(ind)
 
-    # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
-    #------------------------------------------------------------------------------------------
-    def del_duplicates(snx, quiet=False, out=sys.stdout):
-        
+    # Delete (reduce) stations with loosely determined positions in a normal equation
+    #--------------------------------------------------------------------------------
+    def del_loose_sta(snx, thr=1000, quiet=False, out=sys.stdout):
+
         """
-        Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+        Delete (reduce) specified stations
 
         Parameters
         ----------
+        thr : float, optional
+            Threshold for the identification of stations with loosely determined positions.
+            The screening is based on the traces of the 3x3 diagonal blocks of the normal matrix
+            that correspond to station positions. Stations with traces lower than the median of
+            traces divided by thr**2 are iteratively reduced. Default is 1000.
         quiet : bool, optional
             Whether not to print output messages. Default is False.
         out : file-like, optional
             Log file. Default is sys.stdout.
         
         """
-
-        lst_del=[]
-
-        for sta in snx.sta:
-
-            #if there are many solns for the same station
-            if len(sta.soln) > 1:
+        
+        # Print header in log file
+        if not(quiet):
+            print('sinex.del_loose_sta', file=out)
+            print('-------------------', file=out)
+            print('', file=out)
+            print('    Stations reduced because of loosely determined positions', file=out)
+            print('    --------------------------------------------------------', file=out)
+            print('', file=out)
+            print('     code pt soln |   trace(N)  <  threshold  |', file=out)
+            print('    --------------|---------------------------|', file=out)
+        
+        # Initializations
+        isnx = np.array([[i, i+1, i+2] for i in snx.ix])
+        code = []
+        pt = []
+        soln = []
+        
+        # Iterative build list of stations to be reduced
+        end = False
+        while not(end):
+            tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
+            thrn = np.median(tr)/thr**2
+            ind = np.nonzero(tr < thrn)[0]
             
+            # If there are no more stations with loosely determined positions, stop iterations.
+            if (len(ind) == 0):
+                end = True
+                
+            # Else,
+            else:
+                
+                # Print stations to be reduced in log file
                 if not(quiet):
-                    print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
+                    for i in ind:
+                        p = snx.param[isnx[i][0]]
+                        print('     {0.code} {0.pt} {0.soln} | {1:11.5e} < {2:11.5e} |'.format(p, tr[i], thrn), file=out)
+                
+                # Update list of stations to be reduced and station position indices
+                code.extend([snx.param[isnx[i][0]].code for i in ind])
+                pt.extend([snx.param[isnx[i][0]].pt for i in ind])
+                soln.extend([snx.param[isnx[i][0]].soln for i in ind])
+                ind = np.setdiff1d(np.arange(len(isnx)), ind)
+                isnx = isnx[ind]
+                
+        # Print end of log file
+        if not(quiet):
+            print('    --------------|---------------------------|', file=out)
+            print('', file=out)
 
-                for soln in sta.soln :
-                    indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
-                    p = snx.param[indp]
-                    if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
-                        # if reference date is in the soln
-                        if not(quiet):
-                            print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
-                    
-                    else:
-                        if not(quiet):
-                            print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
+        # Reduce stations
+        snx.del_sta(code, pt, soln)
 
-                        lst_del+=[indp,indp+1,indp+2]
-            
-        snx.del_ind(lst_del)
+#     # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+#     #------------------------------------------------------------------------------------------
+#     def del_duplicates(snx, quiet=False, out=sys.stdout):
+#         
+#         """
+#         Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
+# 
+#         Parameters
+#         ----------
+#         quiet : bool, optional
+#             Whether not to print output messages. Default is False.
+#         out : file-like, optional
+#             Log file. Default is sys.stdout.
+#         
+#         """
+# 
+#         lst_del=[]
+# 
+#         for sta in snx.sta:
+# 
+#             #if there are many solns for the same station
+#             if len(sta.soln) > 1:
+#             
+#                 if not(quiet):
+#                     print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
+# 
+#                 for soln in sta.soln :
+#                     indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
+#                     p = snx.param[indp]
+#                     if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
+#                         # if reference date is in the soln
+#                         if not(quiet):
+#                             print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
+#                     
+#                     else:
+#                         if not(quiet):
+#                             print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
+# 
+#                         lst_del+=[indp,indp+1,indp+2]
+#             
+#         snx.del_ind(lst_del)
 
     # Keep specified stations - Delete (reduce) other stations
     #---------------------------------------------------------
@@ -4282,9 +4399,21 @@ class sinex:
         # Get indices of common parameters between both solutions
         (isnx, iref) = snx.get_common_par(ref)
         isnx2 = np.ix_(isnx, isnx)
+        
+        # If there isn't any common parameter between both solutions,
+        if (len(isnx) == 0):
+            
+            # Print message
+            if not(quiet):
+                print('sinex.compare', file=out)
+                print('-------------', file=out)
+                print('', file=out)
+                print('There isn\'t any common parameter between both solutions!', file=out)
 
-        # If both solutions are identical,
-        if np.array_equal(snx.x[isnx], ref.x[iref]):
+            return (None, None)
+
+        # Else, if both solutions are identical,
+        elif np.array_equal(snx.x[isnx], ref.x[iref]):
 
             # Print message
             if not(quiet):
@@ -4372,8 +4501,7 @@ class sinex:
             snx.vn[isnx] = snx.v[isnx] / snx.sv[isnx]
 
             # Rotate station position residuals to ENH frames and convert them into mm
-            indx = np.nonzero(snx.v[snx.ix])[0]
-            ix = np.array([snx.ix[i] for i in indx])
+            ix = np.intersect1d(snx.ix, isnx)
             for i in ix:
                 R = xyz2enh(snx.x[i:i+3])
                 snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
@@ -4390,8 +4518,7 @@ class sinex:
                 snx.wrmsx[i] = sqrt(np.sum(snx.v[ix+i]**2/s2[ix+i]) / np.sum(1/s2[ix+i]))
 
             # Rotate station velocity residuals to ENH frames and convert them into mm
-            indv = np.nonzero(snx.v[snx.iv])[0]
-            iv = np.array([snx.iv[i] for i in indv])
+            iv = np.intersect1d(snx.iv, isnx)
             for i in iv:
                 R = xyz2enh(snx.x[i-3:i])
                 snx.v[i:i+3] = 1000 * np.dot(R, snx.v[i:i+3])
@@ -4414,8 +4541,7 @@ class sinex:
             snx.sv[igc] *= 1000
 
             # Indices of radiosource coordinate residuals
-            indrs = np.nonzero(snx.v[snx.irs])[0]
-            irs = np.array([snx.irs[i] for i in indrs])
+            irs = np.intersect1d(snx.irs, isnx)
 
             # Indices of ERP / GC / SC residuals
             ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
@@ -4456,9 +4582,9 @@ class sinex:
                 print('    ---------------', file=out)
                 print('', file=out)
                 print('    # observations      : {0}'.format(len(isnx)), file=out)
-                print('    (station positions  : {0})'.format(3*len(indx)), file=out)
-                print('    (station velocities : {0})'.format(3*len(indv)), file=out)
-                print('    (radiosource coord. : {0})'.format(2*len(indrs)), file=out)
+                print('    (station positions  : {0})'.format(3*len(ix)), file=out)
+                print('    (station velocities : {0})'.format(3*len(iv)), file=out)
+                print('    (radiosource coord. : {0})'.format(2*len(irs)), file=out)
                 print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
                 print('    # parameters        : {0}'.format(A.shape[1]), file=out)
                 print('    Weighting           : {0}'.format(weighting), file=out)
@@ -4466,9 +4592,9 @@ class sinex:
                 print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
                 print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
                 if (len(iv) > 0):
-                    print('    WRMS vel East   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
-                    print('    WRMS vel North  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
-                    print('    WRMS vel Up     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                    print('    WRMS vel East       : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
+                    print('    WRMS vel North      : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
+                    print('    WRMS vel Up         : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
                 print('', file=out)
 
                 # Print estimated parameters and formal errors
@@ -4485,7 +4611,7 @@ class sinex:
                     print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
                     print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
                     print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
-                if (len(indv) > 0):
+                if (len(iv) > 0):
                     if ('T' in helmerts):
                         print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
                         print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
@@ -4766,22 +4892,29 @@ class sinex:
             # Helmert comparison
             (T, Q) = snx.compare(ref, helmerts, weighting, apply_vf, norm_res, quiet, out)
             
-            # Get outlier list
-            (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, thr_abs_E, thr_abs_N, thr_abs_H, reject1by1 , ac, quiet, out)
+            # If Helmert comparison went well,
+            if (T is not None):
             
-            # If any outliers,
-            if (len(code) > 0):
+                # Get outlier list
+                (code, pt, soln) = snx.get_outliers(thr_raw, thr_norm, thr_abs_E, thr_abs_N, thr_abs_H, reject1by1 , ac, quiet, out)
                 
-                # Remove them either from snx or ref
-                if (clean_ref):
-                    ref.del_sta(code, pt, soln)
+                # If any outliers,
+                if (len(code) > 0):
+                    
+                    # Remove them either from snx or ref
+                    if (clean_ref):
+                        ref.del_sta(code, pt, soln)
+                    else:
+                        snx.del_sta(code, pt, soln)
+                
+                # Else, we're done.
                 else:
-                    snx.del_sta(code, pt, soln)
-            
+                    end = True
+                        
             # Else, we're done.
             else:
                 end = True
-                        
+                
         return (T, Q)
 
     # Propagate station positions to specified date
@@ -5136,7 +5269,7 @@ class sinex:
         
     # Add seasonal signals to a solution
     #-----------------------------------
-    def add_seas(snx, seas):
+    def add_seas(snx, seas, update_cov=True):
         
         """
         Add seasonal signals to a solution
@@ -5145,6 +5278,9 @@ class sinex:
         ----------
         seas : sinex instance
             sinex instance containing seasonal signals
+        update_cov : bool, optional
+            Whether covariance matrix of PSD models should be added to covariance
+            matrix of sinex instance. Default is True.
         
         """
         
@@ -5161,11 +5297,14 @@ class sinex:
             
             # Add seasonal signals
             snx.x[i:i+3] += dx
-            if (snx.Q is not None):
-                snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
-                snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
-            else:
-                snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
+
+            # Update covariance matrix if required
+            if (update_cov):
+                if (snx.Q is not None):
+                    snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
+                    snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                else:
+                    snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
 
     # Calibrate LOD estimates wrt reference series
     #---------------------------------------------
@@ -5448,7 +5587,7 @@ class sinex:
             stasnx = sinex()
             stasnx.file = snx.file
             stasnx.version = '2.02'
-            stasnx.agency = 'IGN'
+            stasnx.agency = get_agency()
             stasnx.start = snx.start
             stasnx.end = snx.end
             stasnx.tech = 'P'
@@ -5579,3 +5718,90 @@ class sinex:
                             G.add_edge(sta[i], sta[i+1], weight=1/vc.sigma**2)
 
         return G
+
+    # Estimate tectonic plate rotation vectors from station velocities
+    #-----------------------------------------------------------------
+    def plate_rotations(snx, plate_geom, weighting='full', set_dT=True, quiet=False, out=sys.stdout):
+
+        """
+        Estimate tectonic plate rotation vectors from station velocities
+
+        Returns
+        -------
+        stats : record
+            stats.nplates : Number of plates with an estimated rotation vector
+            stats.nsta    : Overall number of stations used in the estimation
+            stats.vf      : Overall variance factor
+            stats.wrms    : WRMS of [East, North] velocity residuals (mm/yr)
+        plates : list of records
+            plate[i].name      : Plate name
+            plate[i].nsta      : Number of stations on the plate
+            plate[i].wrms      : WRMS of [East, North] velocity residuals (mm/yr)
+            plate[i].omega     : XYZ components of estimated plate rotation vector (mas/yr)
+            plate[i].var_omega : Their covariance matrix (mas²/yr²)
+            plate[i].pole      : Longitude, latitude and rotation speed (deg, deg, mas/yr)
+            plate[i].var_pole  : Corresponding covariance matrix
+        dT : (3,) array_like or None
+            XYZ components of estimated translation rate (mm/yr)
+        var_dT : (3,) array_like or None
+            Their covariance matrix (mm²/yr²)
+        x : (3*p,) or (3*p+3,) array_like
+            Vector of all estimated parameters (mas/yr and mm/yr)
+            (plate rotation vectors possibly followed by translation rate)
+        Qx : (3*p,3*p) or (3*p+3,3*p+3) array_like
+            Covariance matrix of estimated parameters (mas²/yr² and mm²/yr²)
+        code : list
+            4-char IDs of stations effectively used in the estimation
+        v : (n,2)
+            Station velocity residuals (along the East and North directions, in mm/yr)
+        vn : (n,2)
+            Station velocity normalized residuals
+
+        Parameters
+        ----------
+        plate_geom : str
+            Path to a GeoJSON file containing plate boundaries. Should be of type "FeatureCollection",
+            with each feature having a "PlateName" and a geometry of type "Polygon".
+            You can use for instance this file, which contains the plate boundaries from Bird (2003):
+            https://github.com/fraxen/tectonicplates/blob/master/GeoJSON/PB2002_plates.json
+        weighting : str, optional
+            Keyword indicating which covariance matrix should be used for station velocities in the estimation.
+            It can take the following values :
+            - 'identity' to use an identity covariance matrix
+            - 'diagonal' to use a diagonal covariance matrix (diag(snx.Q))
+            - 'full' to use a full covariance matrix (snx.Q)
+            Default is 'full'.
+        set_dT : bool
+            Whether or not to estimate a global translation rate together with the plate rotation vectors.
+            Default is True.
+        quiet : bool, optional
+            Whether not to print output messages. Default is False.
+        out : file-like, optional
+            Log file. Default is sys.stdout.
+        """
+
+        # Number, IDs and coordinates of stations with velocity estimates
+        n = len(snx.iv)
+        code = [snx.param[i].code for i in snx.iv]
+        X = snx.get_xyz(code)
+
+        # Compute East/North velocities and their covariance matrix or vector
+        R = xyz2enh(X)
+        V = np.zeros((n, 2))
+        for i in range(n):
+            V[i] = np.dot(R[i,:2], snx.x[snx.iv[i]:snx.iv[i]+3]) * 1000
+
+        if (weighting == 'identity'):
+            Q = None
+        elif (weighting == 'diagonal'):
+            Q = np.zeros(2*n)
+            for i in range(n):
+                Q[2*i:2*i+2] = np.diag(np.dot(R[i,:2], np.dot(snx.Q[snx.iv[i]:snx.iv[i]+3,snx.iv[i]:snx.iv[i]+3], R[i,:2].T))) * 1e6
+        else:
+            Q = np.zeros((2*n, 2*n))
+            for i in range(n):
+                for j in range(n):
+                    Q[2*i:2*i+2,2*j:2*j+2] = np.dot(R[i,:2], np.dot(snx.Q[snx.iv[i]:snx.iv[i]+3,snx.iv[j]:snx.iv[j]+3], R[j,:2].T)) * 1e6
+
+        # Call math.plate_rotations
+        return plate_rotations(code, X, V, plate_geom, Q=Q, set_dT=set_dT, quiet=quiet, out=out)

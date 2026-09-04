@@ -1,7 +1,21 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
 pytrf miscellaneous utilities
 
-This subpackage contains miscalleanous low-level routines.
+This module contains miscalleanous low-level routines.
 
 """
 
@@ -143,33 +157,6 @@ def temp_file():
     """
   
     return str(uuid.uuid4())
-
-# Convert .ps image to .png image
-#--------------------------------
-def ps2png(ps, png, rotate=0, margin=20):
-  
-    """
-    Convert .ps image to .png image
-
-    Parameters
-    ----------
-    ps : str
-        Input .ps file
-    png : str
-        Output .ps file
-    rotate : float
-        Rotation angle [deg]. Default is 0.
-    margin : int
-        Margin [pixels]. Default is 20.
-    """
-
-    # Temporary file
-    tmp = temp_file()+'.png'
-
-    # Let's go!
-    os.system('gs -dQUIET -dSAFER -dBATCH -dNOPAUSE -sDEVICE=png16m -r250 -dGraphicsAlphaBits=4 -sOutputFile={0} {1}'.format(tmp, ps))
-    os.system('convert {0} -rotate {1} -quality 100 -trim -mattecolor white -frame {2}x{2} {3}'.format(tmp, rotate, margin, png))
-    os.system('rm {0}'.format(tmp))
   
 # Substitute keywords by their values in a string
 #------------------------------------------------
@@ -364,16 +351,29 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
         Output file. Default is None (i.e. map shown on screen).
 
     """
+    figure = station_map_figure(lon, lat, code, write_codes, title)
+
+    if (output):
+        figure.savefig(output, bbox_inches='tight')
+    else:
+        figure.show()
+
+def station_map_figure(lon, lat, code, write_codes=True, title=None):
+    """
+        Same as `station_map` but return the figure instead of showing it
+    """
 
     # Draw basemap
-    pp.figure()
+    figure = pp.figure()
     ax = pp.axes(projection=ccrs.Robinson())
     ax.add_feature(cfeature.LAND)
     ax.add_feature(cfeature.OCEAN)
+    figure.add_axes(ax)
 
     # Add title if necessary
     if (title):
-        pp.title(title)
+        ax.set_title(title)
+        
 
     # Plot points
     ax.plot(lon, lat, '.k', markersize=6, transform=ccrs.Geodetic())
@@ -383,10 +383,5 @@ def station_map(lon, lat, code, write_codes=True, title=None, output=None):
         for i in range(len(code)):
             ax.text(lon[i], lat[i], code[i], fontsize=10, transform=ccrs.Geodetic())
 
-    # Save figure into output file...
-    if (output):
-        pp.savefig(output, bbox_inches='tight')
+    return figure
 
-    # ...or show it
-    else:
-        pp.show()

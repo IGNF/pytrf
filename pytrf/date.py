@@ -1,12 +1,30 @@
+#-------------------------------------------------------------------------------
+# Copyright (c) Institut national de l'information géographique et forestière
+#
+# Main author:
+#  - Paul Rebischung
+#
+# This file is part of pytrf: https://github.com/IGNF/pytrf
+#
+# pytrf is licensed under the MIT license found in the LICENSE.md file
+# in the root directory of this source tree.
+#-------------------------------------------------------------------------------
+
+
+
 """
-    Class for handling dates in various formats
+    pytrf class for handling dates in various formats
 """
+
+
 
 # External imports
 #-----------------
 import time
 import datetime
 import calendar
+
+
 
 # Data
 #-----
@@ -17,6 +35,8 @@ gps0  = calendar.timegm(datetime.datetime(1980, 1, 6, 0, 0, 0).timetuple())
 # Origin of J2000 time scale
 j2000 = calendar.timegm(datetime.datetime(2000, 1, 1, 12, 0, 0).timetuple())
 mjd2000 = 51544.5
+
+
 
 # date class
 #-----------
