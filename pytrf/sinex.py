@@ -119,6 +119,9 @@ class sinex:
         stats    : Content of SOLUTION/STATISTICS block
         sta      : List of stations with their metadata (content of SITE/ID, SITE/RECEIVER, SITE/ANTENNA, SITE/ECCENTRICITY and SOLUTION/EPOCHS blocks)
         rs       : List of radiosources
+        gpspco   : List of ground antenna GPS PCOs (content of SITE/GPS_PHASE_CENTER block)
+        galpco   : List of ground antenna Galileo PCOs (content of SITE/GAL_PHASE_CENTER block)
+        per      : List of periods (content of custom SOLUTION/PERIODS block)
         param    : List of parameters
         x        : Estimated parameter values
         sig      : Estimated parameter sigmas
@@ -150,6 +153,7 @@ class sinex:
         get_common_par()   : Get indices of common parameters between two solutions
         get_common_sta()   : Get indices of common station positions between two solutions
         get_common_vel()   : Get indices of common station velocities between two solutions
+        get_common_per()   : Get indices of common periodic station motion coefficients between two solutions
         get_common_rs()    : Get indices of common radiosource coordinates between two solutions
         get_xyz()          : Get cartesian coordinates of specified stations
         get_plh()          : Get geographical coordinates of specified stations
@@ -176,9 +180,12 @@ class sinex:
         setup_gc()         : Set up geocenter coordinates in a normal equation
         prior2ref()        : Set a priori parameter values to reference values
         add_mc()           : Add NNR, NNT and/or NNS constraints to normal matrix of constraints
-        add_ic()           : Add R, S, T internal constraints to normal matrix of constraints. Constraints possible on MEAN and/or TREND.
+        add_ic()           : Add "internal constraints" to the normal matrix of constraints of a stacked (or combined) solution,
+                             i.e., either zero-mean, zero-trend OR zero-periodic-variation constraints to the time series of
+                             specified transformation parameters
         add_xc()           : Add absolute and/or relative station position constraints to normal matrix of constraints
         add_vc()           : Add absolute and/or relative station velocity constraints to normal matrix of constraints
+        add_pc()           : Add absolute and/or relative periodic station motion constraints to normal matrix of constraints
         neqinv()           : Invert normal equation
         compare()          : Helmert comparison between two solutions
         get_outliers()     : Get list of outliers from Helmert comparison or combination
@@ -186,8 +193,7 @@ class sinex:
         propagate()        : Propagate station positions to specified date
         get_psd()          : Compute post-seismic deformation of given station at given date
         add_psd()          : Add or remove post-seismic deformation models to a solution
-        get_seas()         : Compute seasonal signal of given station at given date
-        add_seas()         : Add seasonal signals to a solution
+        add_per()          : Concatenate long-term linear solution + associated periodic station motions into a single sinex object
         calib_lod()        : Calibrate LOD estimates wrt reference series        
         map()              : Draw station map
         map_res()          : Draw station position residual map
@@ -196,7 +202,8 @@ class sinex:
         split()            : Split sinex instance into station-specific instances
         dxc_graph()        : Build graph of relative station position constraints
         dvc_graph()        : Build graph of relative station velocity constraints
-        plate_rotations    : Estimate tectonic plate rotation vectors from station velocities
+        dpc_graph()        : Build graph of relative periodic station motion constraints
+        plate_rotations()  : Estimate tectonic plate rotation vectors from station velocities
         
     """
 
@@ -232,6 +239,7 @@ class sinex:
         snx.rs = None
         snx.gpspco = None
         snx.galpco = None
+        snx.per = None
         snx.param = None
         snx.x = None
         snx.sig = None
@@ -245,7 +253,7 @@ class sinex:
         snx.ix = []
         snx.iv = []
         snx.ipsd = []
-        snx.iseas = []
+        snx.iper = []
         snx.irs = []
         snx.ixpo = []
         snx.ixpor = []
@@ -269,7 +277,10 @@ class sinex:
         snx.idS = []
         snx.idT = []
         snx.idtrans = []
-
+        snx.ipR = []
+        snx.ipS = []
+        snx.ipT = []
+        snx.iptrans = []
 
     # Create sinex instance from SINEX file
     #--------------------------------------
@@ -652,6 +663,16 @@ class sinex:
                         r.dataend = '00:000:00000'
                         r.datamean = '00:000:00000'
                         s.soln.append(r)
+            
+            # Read custom SOLUTION/PERIODS block -> snx.per
+            if ('SOLUTION/PERIODS' in blocks):
+                snx.per = []
+                f.seek(addresses[blocks.index('SOLUTION/PERIODS')])
+                line = f.readline()
+                while (line[0] != '-'):
+                    if (line[0] != '*'):
+                        snx.per.append(float(line[7:]))
+                    line = f.readline()
 
             # Read SOLUTION/ESTIMATE block -> snx.param, snx.x and snx.sig
             if ('SOLUTION/ESTIMATE' in blocks):
@@ -859,6 +880,32 @@ class sinex:
             # Clean prior information
             snx.clean_prior()
 
+            # If SINEX file contains "old-style" seasonal station motion parameters,
+            # change corresponding parameter types and set snx.per
+            types = [p.type[0:5] for p in snx.param]
+            if ('A1COS' in types) or ('A2COS' in types):
+                if (snx.per is None):
+                    snx.per = []
+                iper = len(snx.per)
+                
+            if ('A1COS' in types):
+                snx.per.append(365.25)
+                iper += 1
+                for p in snx.param:
+                    if (p.type[0:5] == 'A1COS'):
+                        p.type = 'P{0:03d}C'.format(iper) + p.type[5]
+                    elif (p.type[0:5] == 'A1SIN'):
+                        p.type = 'P{0:03d}S'.format(iper) + p.type[5]
+                        
+            if ('A2COS' in types):
+                snx.per.append(182.625)
+                iper += 1
+                for p in snx.param:
+                    if (p.type[0:5] == 'A2COS'):
+                        p.type = 'P{0:03d}C'.format(iper) + p.type[5]
+                    elif (p.type[0:5] == 'A2SIN'):
+                        p.type = 'P{0:03d}S'.format(iper) + p.type[5]
+
             # Sort parameters
             snx.sort_params()
 
@@ -1013,7 +1060,8 @@ class sinex:
 
             # PATCH: add possibly missing stations in snx.sta
             keys = [s.code+s.pt for s in snx.sta]
-            for i in snx.ix+snx.ipsd+snx.iseas:
+            ind = snx.ix + snx.iv + snx.ipsd + [i for ip in snx.iper for i in ip]
+            for i in ind:
                 p = snx.param[i]
                 if not(p.code+p.pt in keys):
                     r = record()
@@ -1049,7 +1097,8 @@ class sinex:
                                 s.soln[0].soln = snx.param[snx.ix[inds[0]]].soln
 
             # Update snx.sta
-            keys = [p.code+p.pt for p in [snx.param[i] for i in snx.ix+snx.ipsd+snx.iseas]]
+            ind = snx.ix + snx.iv + snx.ipsd + [i for ip in snx.iper for i in ip]
+            keys = [snx.param[i].code + snx.param[i].pt for i in ind]
             i = 0
             while (i < len(snx.sta)):
                 if not(snx.sta[i].code+snx.sta[i].pt in keys):
@@ -1115,8 +1164,8 @@ class sinex:
             p = snx.param[i]
             if (p.type[0:3] in ['STA', 'VEL']):
                 keys.append('0'+p.code+p.pt+p.soln+p.type)
-            elif (p.type[0:5] in ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']):
-                keys.append('1'+p.code+p.pt+p.soln+p.type[0:2]+p.type[5]+p.type[2:5])
+            elif re.match('P[0-9]{3}[C|S][X|Y|Z]', p.type):
+                keys.append('0'+p.code+p.pt+p.soln+'X'+p.type[1:4]+p.type[5]+p.type[4])
             elif (p.type[0:2] == 'RS'):
                 keys.append('2'+p.code+p.pt+p.soln+p.type[::-1])
             elif (p.type[0:4] == 'SATA'):
@@ -1141,9 +1190,13 @@ class sinex:
                 keys.append('5{0:11.5f}{1}'.format(date.from_tsnx(p.tref).mjd, p.type))
             elif (p.type == 'DSC   '):
                 keys.append('53'+str(date.from_tsnx(p.tref).mjd))
-            elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ']):
-                j = ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    '].index(p.type)
-                keys.append('6'+'{0:06d}{1}'.format(int(p.soln), j))
+            elif (p.type in ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ',
+                             'dTX   ', 'dTY   ', 'dTZ   ', 'dSC   ', 'dRX   ', 'dRY   ', 'dRZ   ',
+                             'pTX   ', 'pTY   ', 'pTZ   ', 'pSC   ', 'pRX   ', 'pRY   ', 'pRZ   ']):
+                j = ['TX    ', 'TY    ', 'TZ    ', 'SC    ', 'RX    ', 'RY    ', 'RZ    ',
+                     'dTX   ', 'dTY   ', 'dTZ   ', 'dSC   ', 'dRX   ', 'dRY   ', 'dRZ   ',
+                     'pTX   ', 'pTY   ', 'pTZ   ', 'pSC   ', 'pRX   ', 'pRY   ', 'pRZ   '].index(p.type)
+                keys.append('6'+'{0:06d}{1}{2}'.format(int(p.soln), p.pt, j))
             else:
                 keys.append('9{0:06d}'.format(i))
                 
@@ -1192,8 +1245,11 @@ class sinex:
             # PSD parameters
             snx.ipsd = np.nonzero(np.isin(types1, ['EXP', 'LOG']))[0].tolist()
             
-            # Seasonal terms
-            snx.iseas = np.nonzero(np.isin(types2, ['A1COS', 'A1SIN', 'A2COS', 'A2SIN']))[0].tolist()
+            # Periodic station motion coefficients
+            snx.iper = []
+            if (snx.per):
+                for i in range(len(snx.per)):
+                    snx.iper.append(np.nonzero(types == 'P{0:03d}CX'.format(i+1))[0].tolist())
             
             # Radiosource coordinates
             snx.irs = np.nonzero(types == 'RS_RA ')[0].tolist()
@@ -1249,13 +1305,19 @@ class sinex:
             snx.idS = np.nonzero(types == 'dSC   ')[0].tolist()
             snx.idT = np.nonzero(np.isin(types, ['dTX   ', 'dTY   ', 'dTZ   ']))[0].tolist()
             snx.idtrans = snx.idT+snx.idS+snx.idR
+            
+            # Transformation parameter periodic variations
+            snx.ipR = np.nonzero(np.isin(types, ['pRX   ', 'pRY   ', 'pRZ   ']))[0].tolist()
+            snx.ipS = np.nonzero(types == 'pSC   ')[0].tolist()
+            snx.ipT = np.nonzero(np.isin(types, ['pTX   ', 'pTY   ', 'pTZ   ']))[0].tolist()
+            snx.iptrans = snx.ipT+snx.ipS+snx.ipR
 
         else:
             
             snx.ix = []
             snx.iv = []
             snx.ipsd = []
-            snx.iseas = []
+            snx.iper = []
             snx.irs = []
             snx.ixpo = []
             snx.ixpor = []
@@ -1279,10 +1341,14 @@ class sinex:
             snx.idS = []
             snx.idT = []
             snx.idtrans = []
+            snx.ipR = []
+            snx.ipS = []
+            snx.ipT = []
+            snx.iptrans = []
 
     # Write sinex instance into SINEX file
     #-------------------------------------
-    def write(snx, file, dont_write=[], gps_pco_freqs=2):
+    def write(snx, file, dont_write=[], gps_pco_freqs=2, periodic_style='new'):
       
         """
         Write sinex instance into SINEX file
@@ -1300,12 +1366,49 @@ class sinex:
               - 'metadata' in order not to write receivers, antennas...
               - 'epochs'   in order not to write SOLUTION/EPOCHS block
               - 'stats'    in order not to write SOLUTION/STATISTICS block
-        gps_pco_freqs : int (2 or 3)
+        gps_pco_freqs : int (2 or 3), optional
             Number of frequencies to be written in 'SITE/GPS_PHASE_CENTER' block
               - 2: two frequencies (default)
               - 3: three frequencies
+        periodic_style : str ('old' or 'new'), optional
+            Whether to write periodic station motion coefficients in "old" or "new" style.
+            If "new", a custom SOLUTION/PERIODS block will be written, and periodic station
+            motion coefficients will be identified as "P001CX", "P001SX", "P001CY", ...
+            If "old", periodic station motion coefficients will be identified as:
+              - "A1COSX", "A1SINX", "A1COSY", ... for annual station motions
+              - "A2COSX", "A2SINX", "A2COSY", ... for semi-annual station motions
+              - etc.
+            The "old" style can only be used for periodic station motions at harmonics (<=9)
+            of the annual period.
         
         """
+        
+        # If "old" style is requested for periodic station motion coefficients,
+        # check that they're only at harmonics (<=9) of the annual period
+        if (snx.per) and (periodic_style == 'old'):
+            b = True
+            h = []
+            for p in snx.per:
+                k = 365.25 / p
+                if np.isclose(k, np.round(k)):
+                    h.append(int(np.round(k)))
+                else:
+                    b = False
+                
+            # If not, raise an error.
+            if not(b):
+                raise RuntimeError('Only periodic station motion coefficients at harmonics (<=9) of the annual period (365.25 d) can be written in "old" style.')
+            
+            # If "old" style is OK, temporarily change "types" of periodic station motion coefficients.
+            else:
+                for p in snx.param:
+                    if re.match('P[0-9]{3}[C|S][X|Y|Z]', p.type):
+                        p.newtype = p.type
+                        i = int(p.type[1:4]) - 1
+                        if (p.type[4] == 'C'):
+                            p.type = 'A{0}COS{1}'.format(h[i], p.type[5])
+                        else:
+                            p.type = 'A{0}SIN{1}'.format(h[i], p.type[5])
 
         # Open output SINEX file
         with open(file, 'w') as f:
@@ -1481,6 +1584,15 @@ class sinex:
                         f.write(' {0.code} {0.pt} {1.soln} {0.tech} {1.datastart} {1.dataend} {1.datamean}\n'.format(s, i))
                 f.write('-SOLUTION/EPOCHS\n')
 
+            # Write custom SOLUTION/PERIODS block
+            if (snx.per) and (periodic_style != 'old'):
+                f.write('*-------------------------------------------------------------------------------\n')
+                f.write('+SOLUTION/PERIODS\n')
+                f.write('*INDEX _____PERIOD_[d]_____\n')
+                for (i, p) in enumerate(snx.per):
+                    f.write(' {0:5} {1:20.14e}\n'.format(i+1, p))
+                f.write('-SOLUTION/PERIODS\n')
+
             # Write SOLUTION/APRIORI block
             if (snx.param) and (snx.x0 is not None) and not('apriori' in dont_write):
                 f.write('*-------------------------------------------------------------------------------\n')
@@ -1537,6 +1649,13 @@ class sinex:
 
             # Write last line and close output SINEX file
             f.write('%ENDSNX\n')
+            
+        # If needed, change "types" of periodic station motion coefficients back to "new" style.
+        if (snx.per) and (periodic_style == 'old'):
+            for p in snx.param:
+                if hasattr(p, 'newtype'):
+                    p.type = p.newtype
+                    del p.newtype
 
     # Dump sinex instance into pickle files
     #--------------------------------------
@@ -1576,6 +1695,7 @@ class sinex:
         pkl.gpspco = snx.gpspco
         pkl.galpco = snx.galpco
         pkl.stats = snx.stats
+        pkl.per = snx.per
         pkl.param = snx.param
         pkl.x = snx.x
         pkl.sig = snx.sig
@@ -1584,7 +1704,7 @@ class sinex:
         pkl.ix = snx.ix
         pkl.iv = snx.iv
         pkl.ipsd = snx.ipsd
-        pkl.iseas = snx.iseas
+        pkl.iper = snx.iper
         pkl.irs = snx.irs
         pkl.ixpo = snx.ixpo
         pkl.ixpor = snx.ixpor
@@ -1608,6 +1728,10 @@ class sinex:
         pkl.idS = snx.idS
         pkl.idT = snx.idT
         pkl.idtrans = snx.idtrans
+        pkl.ipR = snx.ipR
+        pkl.ipS = snx.ipS
+        pkl.ipT = snx.ipT
+        pkl.iptrans = snx.iptrans
 
         # Write 1st pickle file
         pickle.dump(pkl, open(file, 'wb'))
@@ -1669,11 +1793,12 @@ class sinex:
             snx2.input = copy.deepcopy(snx.input)
             snx2.acks = copy.deepcopy(snx.acks)
 
-        # Copy lists of stations, radiosources, ground antenna PCOs and parameters
+        # Copy lists of stations, radiosources, ground antenna PCOs, periods and parameters
         snx2.sta = copy.deepcopy(snx.sta)
         snx2.rs = copy.deepcopy(snx.rs)
         snx2.gpspco = copy.deepcopy(snx.gpspco)
         snx2.galpco = copy.deepcopy(snx.galpco)
+        snx2.per = copy.deepcopy(snx.per)
         snx2.param = copy.deepcopy(snx.param)
         snx2.x = copy.deepcopy(snx.x)
         snx2.sig = copy.deepcopy(snx.sig)
@@ -1697,7 +1822,7 @@ class sinex:
         snx2.ix = snx.ix.copy()
         snx2.iv = snx.iv.copy()
         snx2.ipsd = snx.ipsd.copy()
-        snx2.iseas = snx.iseas.copy()
+        snx2.iper = snx.iper.copy()
         snx2.irs = snx.irs.copy()
         snx2.ixpo = snx.ixpo.copy()
         snx2.ixpor = snx.ixpor.copy()
@@ -1721,6 +1846,10 @@ class sinex:
         snx2.idS = snx.idS.copy()
         snx2.idT = snx.idT.copy()
         snx2.idtrans = snx.idtrans.copy()
+        snx2.ipR = snx.ipR.copy()
+        snx2.ipS = snx.ipS.copy()
+        snx2.ipT = snx.ipT.copy()
+        snx2.iptrans = snx.iptrans.copy()
 
         return snx2
     
@@ -1734,7 +1863,7 @@ class sinex:
         Parameters
         ----------
         codomes : list
-            DOMES number catalogue (from ioutils.read_domes)
+            DOMES number catalogue (from io.read_domes)
         check_pt : bool, optional
             Whether PT codes should be checked. Default is True.
         check_crd : bool, optional
@@ -1881,7 +2010,7 @@ class sinex:
         Parameters
         ----------
         solns : list
-            Reference discontinuity list (from ioutils.read_solns)
+            Reference discontinuity list (from io.read_solns)
         quiet : bool, optional
             Whether not to print output messages. Default is False.
         out : file-like, optional
@@ -2299,7 +2428,7 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC ;
+            'STA'; 'VEL'; 'PER'; 'RS'; 'GC'; 'SC' ;
             'R', 'S', 'T', 'A' and 'TRANS' for all transformation parameters.
         
         """
@@ -2337,29 +2466,25 @@ class sinex:
                 ind.extend(snx.isataz)
 
         if ('STA' in types):
-            ind.extend(snx.ix)
-            ind.extend([i+1 for i in snx.ix])
-            ind.extend([i+2 for i in snx.ix])
+            ind.extend([i+k for i in snx.ix for k in range(3)])
                 
         if ('VEL' in types):
-            ind.extend(snx.iv)
-            ind.extend([i+1 for i in snx.iv])
-            ind.extend([i+2 for i in snx.iv])
+            ind.extend([i+k for i in snx.iv for k in range(3)])
+            
+        if ('PER' in types):
+            ind.extend([i+k for ip in snx.iper for i in ip for k in range(6)])
 
         if ('RS' in types):
-            ind.extend(snx.irs)
-            ind.extend([i+1 for i in snx.irs])
+            ind.extend([i+k for i in snx.irs for k in range(2)])
 
         if ('GC' in types):
-            ind.extend(snx.igc)
-            ind.extend([i+1 for i in snx.igc])
-            ind.extend([i+2 for i in snx.igc])
+            ind.extend([i+k for i in snx.igc for k in range(3)])
 
         if ('SC' in types):
             ind.extend(snx.isc)
 
         if ('TRANS' in types):
-            ind.extend(snx.iR+snx.iS+snx.iT+snx.iA)
+            ind.extend(snx.itrans)
         else:
             if ('R' in types):
                 ind.extend(snx.iR)
@@ -2547,7 +2672,12 @@ class sinex:
         (i, j) = snx.get_common_vel(ref)
         isnx.extend(np.array(i).flatten().tolist())
         iref.extend(np.array(j).flatten().tolist())
-                
+        
+        # Common periodic station motion coefficients
+        (i, j) = snx.get_common_per(ref)
+        isnx.extend(np.array(i).flatten().tolist())
+        iref.extend(np.array(j).flatten().tolist())
+        
         # Common radiosource coordinates
         (i, j) = snx.get_common_rs(ref)
         isnx.extend(np.array(i).flatten().tolist())
@@ -2741,6 +2871,54 @@ class sinex:
                 j = ref.iv[keys.index(p.code+p.pt+p.soln)]
                 isnx.append([i, i+1, i+2])
                 iref.append([j, j+1, j+2])
+                
+        return (isnx, iref)
+    
+    # Get indices of common periodic station motion coefficients between two solutions
+    #---------------------------------------------------------------------------------
+    def get_common_per(snx, ref, period=None):
+        
+        """
+        Get indices of common periodic station motion coefficients between two solutions
+            
+        Returns
+        -------
+        isnx : array_like
+            Indices of periodic station motion coefficients in snx.param that are also in ref.param
+        iref : array_like
+            Indices of matching periodic station motion coefficients in ref.param
+        period : float, optional
+            Particular period to consider. Default is None, meaning that the indices of common
+            periodic station motion coefficients at ALL common periods are returned.
+
+        Parameters
+        ----------
+        ref : sinex instance
+            The other solution
+            
+        """
+        
+        # Initializations
+        isnx = []
+        iref = []
+        
+        # Loop over relevant periods in snx.per
+        if (snx.per):
+            for (ip, p) in enumerate(snx.per):
+                if (period is None) or (p == period):
+                
+                    # If current period is also in ref.per
+                    if (p in ref.per):
+                        jp = ref.per.index(p)
+                
+                        # Get indices of common station motion coefficients at current period
+                        keys = [p.code+p.pt+p.soln for p in [ref.param[i] for i in ref.iper[jp]]]
+                        for i in snx.iper[ip]:
+                            p = snx.param[i]
+                            if (p.code+p.pt+p.soln in keys):
+                                j = ref.iper[jp][keys.index(p.code+p.pt+p.soln)]
+                                isnx.append([i, i+1, i+2, i+3, i+4, i+5])
+                                iref.append([j, j+1, j+2, j+3, j+4, j+5])
                 
         return (isnx, iref)
 
@@ -3005,7 +3183,7 @@ class sinex:
     
     # Get partial derivative matrix of Helmert parameters
     #----------------------------------------------------
-    def helmert_partials(snx, helmerts, par, units=None):
+    def helmert_partials(snx, helmerts, par, period=None, units=None):
 
         """
         Get partial derivative matrix of Helmert parameters
@@ -3023,8 +3201,11 @@ class sinex:
             and 'A' (CRF rotations).
         par : str
             Indicates which type of parameters should be considered.
-            It can be either 'STA' (station and radiosource positions) or 'VEL'
-            (station velocities - radiosource velocities not supported yet).
+            It can be either 'STA' (station and radiosource positions), 'VEL' (station
+            velocities - radiosource velocities not supported yet) or 'PER' (periodic
+            station motion coefficients at a given period)
+        period : float, optional
+            Period to be considered in the case par = 'PER'. Default is None.
         units : str, optional
             Specifies units of Helmert parameters. It can be either None (mm, ppb, mas)
             or 'm' (m).
@@ -3105,6 +3286,36 @@ class sinex:
             A[iv[:,2], 5] = -x[ix[:,0]]
             A[iv[:,0], 6] = -x[ix[:,1]]
             A[iv[:,1], 6] =  x[ix[:,0]]
+            
+        # 3rd case : periodic Helmert parameter variations
+        elif (par == 'PER'):
+            if (period in snx.per):
+            
+                # Indice of specified period in snx.per
+                ip = snx.per.index(period)
+                
+                # Indices of station motion cosine coefficients at current period
+                icos = np.array([[i, i+2, i+4] for i in snx.iper[ip]])
+                
+                # Indices of corresponding station positions
+                code = [snx.param[i].code for i in snx.iper[ip]]
+                pt = [snx.param[i].pt for i in snx.iper[ip]]
+                soln = [snx.param[i].soln for i in snx.iper[ip]]
+                ix = snx.get_sta_ind(code, pt, soln)
+                
+                # {Cosine station motion coefficients / cosine Helmert parameter variations} partial derivatives
+                A[icos[:,0], 0] =  ae
+                A[icos[:,1], 1] =  ae
+                A[icos[:,2], 2] =  ae
+                A[icos[:,0], 3] =  x[ix[:,0]]
+                A[icos[:,1], 3] =  x[ix[:,1]]
+                A[icos[:,2], 3] =  x[ix[:,2]]
+                A[icos[:,1], 4] = -x[ix[:,2]]
+                A[icos[:,2], 4] =  x[ix[:,1]]
+                A[icos[:,0], 5] =  x[ix[:,2]]
+                A[icos[:,2], 5] = -x[ix[:,0]]
+                A[icos[:,0], 6] = -x[ix[:,1]]
+                A[icos[:,1], 6] =  x[ix[:,0]]
 
         # Express Helmert parameters in adequate units
         if (units is None):
@@ -3112,7 +3323,7 @@ class sinex:
         else:
             A /= ae
         
-        # Indices of relevant columns of A
+        # Restrict A to relevant columns
         ind = []
         if ('T' in helmerts):
             ind.extend(range(0, 3))
@@ -3122,8 +3333,15 @@ class sinex:
             ind.extend(range(4, 7))
         if ('A' in helmerts):
             ind.extend(range(7, 10))
+        A = A[:,ind]
         
-        return A[:,ind]
+        # Add {sine / sine} partial derivatives in the case of periodic Helmert parameter variations
+        if (par == 'PER'):
+            p = A.shape[1]
+            A = np.hstack((A, np.zeros((snx.npar, p))))
+            A[1:,p:] = A[:-1,:p]
+        
+        return A
         
     # Delete (reduce) parameters with specified indices
     #--------------------------------------------------
@@ -3232,7 +3450,7 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', 'NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS'; 'GC'; 'SC';
+            'STA'; 'VEL'; 'PER'; 'RS'; 'GC'; 'SC';
             'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         keep_const : bool, optional
             Whether not to remove constraints before reducing parameters from a solution.
@@ -3256,10 +3474,11 @@ class sinex:
         """
         
         # Get indices of supported parameters
-        ix = snx.ix + [i+1 for i in snx.ix] + [i+2 for i in snx.ix]
-        iv = snx.iv + [i+1 for i in snx.iv] + [i+2 for i in snx.iv]
-        irs = snx.irs + [i+1 for i in snx.irs]
-        igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
+        ix = [i+k for i in snx.ix for k in range(3)]
+        iv = [i+k for i in snx.iv for k in range(3)]
+        iper = [i+k for ip in snx.iper for i in ip for k in range(6)]
+        irs = [i+k for i in snx.irs for k in range(2)]
+        igc = [i+k for i in snx.igc for k in range(3)]
         ind = ix + iv + irs + igc + snx.isc + snx.ixpo + snx.ixpor + snx.iypo + snx.iypor + snx.iut + snx.ilod + snx.inutx + snx.inuty + snx.isatax + snx.isatay + snx.isataz
 
         # And delete the others
@@ -3308,7 +3527,7 @@ class sinex:
 
     # Reduce origin, scale and/or orientation information in a normal equation
     #-------------------------------------------------------------------------
-    def del_helmerts(snx, helmerts, par):
+    def del_helmerts(snx, helmerts, par, period=None):
 
         """
         Reduce origin, scale and/or orientation information in a normal equation
@@ -3320,12 +3539,15 @@ class sinex:
             It can include 'T' (translations), 'S' (scale) and 'R' (rotations).
         par : str
             Indicates which type of parameters should be considered.
-            It can be either 'STA' (station positions) or 'VEL' (station velocities).
+            It can be either 'STA' (station and radiosource positions), 'VEL' (station
+            velocities) or 'PER' (periodic station motion coefficients at a given period)
+        period : float, optional
+            Period to be considered in the case par = 'PER'. Default is None.
             
         """
         
         # Get partial derivative matrix of Helmert parameters
-        A = snx.helmert_partials(helmerts, par)
+        A = snx.helmert_partials(helmerts, par, period=period)
         
         # Useful things
         NA = np.dot(snx.N, A)
@@ -3358,10 +3580,10 @@ class sinex:
         """
 
         if (len(code) > 0):
-
+            
             # Indices, keys and holes
-            ixv = snx.ix+snx.iv
-            par = [snx.param[i] for i in ixv]
+            ind = [i+k for i in snx.ix for k in range(3)] + [i+k for i in snx.iv for k in range(3)] + [i+k for ip in snx.iper for i in ip for k in range(6)] + snx.ipsd
+            par = [snx.param[i] for i in ind]
             if (pt is not None) and (soln is not None):
                 keys = [p.code+p.pt+p.soln for p in par]
                 holes = [code[i]+pt[i]+soln[i] for i in range(len(code))]
@@ -3376,10 +3598,7 @@ class sinex:
                 holes = code
 
             # Get indices of parameters to delete
-            ind = []
-            for i in range(len(ixv)):
-                if (keys[i] in holes):
-                    ind.extend(range(ixv[i], ixv[i]+3))
+            ind = np.array(ind)[np.isin(keys, holes)]
             
             # And delete them
             snx.del_ind(ind, keep_const=keep_const)
@@ -3478,48 +3697,6 @@ class sinex:
         # Reduce stations
         snx.del_sta(code, pt, soln)
 
-#     # Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
-#     #------------------------------------------------------------------------------------------
-#     def del_duplicates(snx, quiet=False, out=sys.stdout):
-#         
-#         """
-#         Delete solution numbers (solns) if there are many of them in an "instantaneous" solution
-# 
-#         Parameters
-#         ----------
-#         quiet : bool, optional
-#             Whether not to print output messages. Default is False.
-#         out : file-like, optional
-#             Log file. Default is sys.stdout.
-#         
-#         """
-# 
-#         lst_del=[]
-# 
-#         for sta in snx.sta:
-# 
-#             #if there are many solns for the same station
-#             if len(sta.soln) > 1:
-#             
-#                 if not(quiet):
-#                     print('{0.code} {0.pt} has {1} soln'.format(sta,len(sta.soln)), file=out)
-# 
-#                 for soln in sta.soln :
-#                     indp = [p.code+p.pt+p.soln for p in snx.param].index(sta.code+sta.pt+soln.soln)
-#                     p = snx.param[indp]
-#                     if earlier(soln.datastart, p.tref) and earlier(p.tref,soln.dataend):
-#                         # if reference date is in the soln
-#                         if not(quiet):
-#                             print('{0.tref} in soln {1.soln} : {1.datastart} , {1.dataend}  '.format(p,soln), file=out)
-#                     
-#                     else:
-#                         if not(quiet):
-#                             print('Remove {0.code} {0.pt}, soln {1.soln} :{1.datastart},{1.dataend}  '.format(p,soln), file=out)
-# 
-#                         lst_del+=[indp,indp+1,indp+2]
-#             
-#         snx.del_ind(lst_del)
-
     # Keep specified stations - Delete (reduce) other stations
     #---------------------------------------------------------
     def keep_sta(snx, code, pt=None, soln=None, keep_const=False):
@@ -3543,8 +3720,8 @@ class sinex:
 
 
         # Indices, keys and holes
-        ixv = snx.ix+snx.iv
-        par = [snx.param[i] for i in ixv]
+        ind = [i+k for i in snx.ix for k in range(3)] + [i+k for i in snx.iv for k in range(3)] + [i+k for ip in snx.iper for i in ip for k in range(6)] + snx.ipsd
+        par = [snx.param[i] for i in ind]
         if (pt is not None) and (soln is not None):
             keys = [p.code+p.pt+p.soln for p in par]
             holes = [code[i]+pt[i]+soln[i] for i in range(len(code))]
@@ -3559,10 +3736,7 @@ class sinex:
             holes = code
 
         # Get indices of parameters to delete
-        ind = []
-        for i in range(len(ixv)):
-            if not(keys[i] in holes):
-                ind.extend(range(ixv[i], ixv[i]+3))
+        ind = np.setdiff1d(range(snx.npar), np.array(ind)[np.isin(keys, holes)])
 
         # And delete them
         snx.del_ind(ind, keep_const=keep_const)
@@ -3626,7 +3800,7 @@ class sinex:
         t : str
             Date (in SINEX date format)
         solns : list
-            Reference discontinuity list (from ioutils.read_solns)
+            Reference discontinuity list (from io.read_solns)
             
         """
 
@@ -3823,7 +3997,7 @@ class sinex:
             'XPO', 'XPOR', 'YPO', 'YPOR', 'UT', 'LOD', 'NUT_X', NUT_Y';
             'ERP' for all kinds of ERPs;
             'SATA_X', 'SATA_Y', 'SATA_Z'; 'SATA' for all satellite PCOs;
-            'STA'; 'VEL'; 'RS', 'GC'; 'SC';
+            'STA'; 'VEL'; 'PER'; 'RS', 'GC'; 'SC';
             'R', 'S', 'T' and 'TRANS' for all transformation parameters.
         
         """
@@ -3985,7 +4159,7 @@ class sinex:
         
     # Add NNR, NNT and/or NNS constraints to normal matrix of constraints
     #--------------------------------------------------------------------
-    def add_mc(snx, helmerts, par, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True, quiet=True, out=sys.stdout):
+    def add_mc(snx, helmerts, par, period=None, sigma=1e-5, datum=None, crf_datum=None, thr=None, proj=True, quiet=True, out=sys.stdout):
         
         """
         Add NNR, NNT and/or NNS constraints to normal matrix of constraints
@@ -4003,14 +4177,16 @@ class sinex:
             and 'A' (CRF rotations).
         par : str
             Indicates to which type of parameters constraints should be applied.
-            It can be either 'STA' (station and radiosource positions) or 'VEL'
-            (station velocities - radiosource velocities not supported yet).
+            It can be either 'STA' (station and radiosource positions), 'VEL' (station
+            velocities) or 'PER' (periodic station motion coefficients at a given period)
+        period : float, optional
+            Period to be considered in the case par = 'PER'. Default is None.
         sigma : float or str, optional
             Sigma of minimal constraints in m[/y]. Default is 1e-5.
             If set to 'auto', an adequate sigma is automatically computed based on the
             median of the diagonal elements of the normal matrix that correspond to
-            positions/velocities of stations to which constraints are applied:
-            sigma = 0.01 / sqrt(median(N_{i,i})).
+            positions / velocities / periodic motion coefficients of stations to which
+            constraints are applied: sigma = 0.01 / sqrt(median(N_{i,i})).
         datum : sinex instance, optional
             Reference TRF solution with respect to which constraints should be applied.
             Default is None (constraints applied with respect to snx.x0).
@@ -4031,6 +4207,11 @@ class sinex:
             Log file. Default is sys.stdout.            
         """
         
+        # Raise error if minimal constraints on periodic station motion coefficients are requested,
+        # but no period is provided.
+        if (par == 'PER') and (period is None):
+            raise RuntimeError('Please specify the period to consider when calling sinex.add_mc(..., par=\'PER\', ...).')
+        
         # If a datum is specified,
         if (datum):
             
@@ -4039,6 +4220,8 @@ class sinex:
                 (isnx, iref) = snx.get_common_sta(datum)
             elif (par == 'VEL'):
                 (isnx, iref) = snx.get_common_vel(datum)
+            elif (par == 'PER'):
+                (isnx, iref) = snx.get_common_per(datum, period=period)
             isnx = np.array(isnx)
             iref = np.array(iref)
             ix = isnx.flatten()
@@ -4059,6 +4242,9 @@ class sinex:
                 isnx = [[i, i+1, i+2] for i in snx.ix]
             elif (par == 'VEL'):
                 isnx = [[i, i+1, i+2] for i in snx.iv]
+            elif (par == 'PER'):
+                ip = snx.per.index(period)
+                isnx = [[i, i+1, i+2, i+3, i+4, i+5] for i in snx.iper[ip]]
             isnx = np.array(isnx)
             ix = isnx.flatten()
         
@@ -4083,10 +4269,10 @@ class sinex:
             irs = np.array(irs, dtype='int').flatten()
             
         # Else, 
-        elif (par == 'VEL'):
+        else:
             irs = np.array([], dtype='int')
         
-        # If a threshold is specified, reject candidate stations with large position uncertainties
+        # If a threshold is specified, reject candidate stations with large uncertainties
         if (thr):
             
             # Print header in log file
@@ -4100,14 +4286,14 @@ class sinex:
                 print('     code pt soln |   trace(N)  <  threshold  |', file=out)
                 print('    --------------|---------------------------|', file=out)
             
-            # Iterative rejection of candidate stations with large position uncertainties
+            # Iterative rejection of candidate stations with large uncertainties
             end = False
             while not(end):
                 tr = np.array([np.sum(snx.N[i,i]) for i in isnx])
                 thrn = np.median(tr)/thr**2
                 ind = np.nonzero(tr < thrn)[0]
                 
-                # If there are no more stations with large position uncertainties, stop iterations.
+                # If there are no more stations with large uncertainties, stop iterations.
                 if (len(ind) == 0):
                     end = True
                     
@@ -4120,7 +4306,7 @@ class sinex:
                             p = snx.param[isnx[i][0]]
                             print('     {0.code} {0.pt} {0.soln} | {1:11.5e} < {2:11.5e} |'.format(p, tr[i], thrn), file=out)
                     
-                    # Reject stations with large position uncertainties
+                    # Reject stations with large uncertainties
                     ind = np.setdiff1d(np.arange(len(isnx)), ind)
                     isnx = isnx[ind]
                     
@@ -4138,9 +4324,9 @@ class sinex:
         # Design matrix of minimal constraints
         if (len(irs) > 0):
             ix = np.hstack((ix, irs))
-            A = snx.helmert_partials('RSTA', par, units='m')[ix]
+            A = snx.helmert_partials('RSTA', par, period=period, units='m')[ix]
         else:
-            A = snx.helmert_partials('RST', par, units='m')[ix]
+            A = snx.helmert_partials('RST', par, period=period, units='m')[ix]
 
         # Indices of relevant columns of A
         ind = []
@@ -4152,6 +4338,8 @@ class sinex:
             ind.extend(range(4, 7))
         if ('A' in helmerts) and (len(irs) > 0):
             ind.extend(range(7, 10))
+        if (par == 'PER'):
+            ind.extend([i+7 for i in ind])
 
         # Either reduce columns of A and compute B
         if not(proj):
@@ -4175,15 +4363,19 @@ class sinex:
         return A.shape[1]
 
     # Add "internal constraints" to the normal matrix of constraints of a stacked (or combined) solution,
-    # i.e., either zero-mean OR zero-trend constraints to the time series of specified transformation parameters
-    #------------------------------------------------------------------------------------------------------------
-    def add_ic(snx, ic_type, ic_contributions, sigma=1e-5, t0=None):
+    # i.e., either zero-mean, zero-trend OR zero-periodic-variation constraints to the time series of
+    # specified transformation parameters
+    #----------------------------------------------------------------------------------------------------
+    def add_ic(snx, ic_type, ic_contributions, period=None, sigma=1e-5, t0=None):
     
         """
         Add "internal constraints" to the normal matrix of constraints of a stacked (or combined) solution,
-        i.e., either zero-mean OR zero-trend constraints to the time series of specified transformation parameters
+        i.e., either zero-mean, zero-trend OR zero-periodic-variation constraints to the time series of
+        specified transformation parameters
         
-        To apply both zero-mean AND zero-trend constraints, this method should be called twice.
+        To apply, e.g., both zero-mean AND zero-trend constraints, this method should be called twice.
+        Likewise, to apply zero-periodic-variation constraints at different periods, this method should
+        be called for EVERY period.
         
         Returns
         -------
@@ -4194,7 +4386,8 @@ class sinex:
         ----------
         ic_type : str
             Indicates to which type of constraints should be applied.
-            It can be either 'mean' (for zero-mean constraints) or 'trend' (for zero-trend constraints).
+            It can be either 'mean' (for zero-mean constraints), 'trend' (for zero-trend constraints), or 'periodic'
+            (for zero-periodic-variation constraints).
         ic_contributions: list
             List of strings indicating which transformation parameters should be considered for the application
             of the "internal constraints". The list should contain as many entries as there are input solutions
@@ -4206,6 +4399,8 @@ class sinex:
                 - a zero-[mean/trend] constraint would be applied to the scale factors of all three input solutions,
                 - a zero-[mean/trend] constraint would be applied to the translations of only the first two input solutions,
                 - no constraint would be applied to the rotation (nor CRF rotation) parameters.
+        period : float, optional
+            Period to be considered in the case of zero-periodic-variation constraints. Default is None.
         sigma : float, optional
             Sigma of internal constraints in m[/y]. Default is 1e-5.
         t0 : str, optional
@@ -4219,6 +4414,10 @@ class sinex:
         translations for EVERY input solution.
             
         """
+        
+        # Raise error if zero-periodic-variation constraints are requested, but no period is provided.
+        if (ic_type == 'periodic') and (period is None):
+            raise RuntimeError('Please specify the period to consider when calling sinex.add_ic(..., ic_type=\'periodic\', ...).')
         
         # Initialize number of applied constraints
         nc = 0
@@ -4249,19 +4448,29 @@ class sinex:
                 sigmac = sigma / (1e-9*ae)        # m -> ppb
             elif (h == 'T'):
                 sigmac = sigma * 1000             # m -> mm
+            if (ic_type == 'trend'):
+                sigmac *= 365.25                  # /y -> /d
+                
+            # Compute array of epoch differences, if needed
+            if (ic_type in ['trend', 'periodic']):
+                if (t0 is not None):
+                    mjd0 = date.from_tsnx(t0).mjd
+                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd - mjd0 for i in ind])
+                else:
+                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd for i in ind])
+                    dt -= np.mean(dt)
                 
             # Normal matrix of the constraint
             if (ic_type == 'mean'):
                 Nc = 1 / sigmac**2
                 
             elif (ic_type == 'trend'):
-                if (t0 is not None):
-                    mjd0 = date.from_tsnx(t0).mjd
-                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd - mjd0 for i in ind]) / 365.25
-                else:
-                    dt = np.array([date.from_tsnx(snx.param[i].tref).mjd for i in ind])
-                    dt = (dt - np.mean(dt)) / 365.25
                 Nc = np.outer(dt, dt) / sigmac**2
+                
+            elif (ic_type == 'periodic'):
+                c = np.cos(2*pi*dt/period)
+                s = np.sin(2*pi*dt/period)
+                Nc = (np.outer(c, c) + np.outer(s, s)) / sigmac**2
                 
             # Add constraint(s) to the normal matrix of constraints
             if (h in 'RTA'):
@@ -4271,6 +4480,8 @@ class sinex:
             elif (h == 'S'):
                 snx.Nc[np.ix_(ind, ind)] += Nc
                 nc += 1
+            if (ic_type == 'periodic'):
+                nc *= 2
                 
         return nc
 
@@ -4401,11 +4612,16 @@ class sinex:
                     tab = vc.point.split()
                     sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
                     if (sta in keys):
+                        
+                        # If a single sigma is provided for all 3 XYZ components,
+                        # turn it into a list of 3 identical sigmas.
+                        if np.isscalar(vc.sigma):
+                            vc.sigma = 3*[vc.sigma]
 
                         # Apply constraint
                         i = keys.index(sta)
                         for k in range(3):
-                            snx.Nc[snx.iv[i]+k,snx.iv[i]+k] += 1 / vc.sigma**2
+                            snx.Nc[snx.iv[i]+k,snx.iv[i]+k] += 1 / vc.sigma[k]**2
                             snx.param[snx.iv[i]+k].const = '0'
                         nc += 3
 
@@ -4436,6 +4652,96 @@ class sinex:
 
         return nc
         
+    # Add absolute and/or relative periodic station motion constraints to normal matrix of constraints
+    #-------------------------------------------------------------------------------------------------
+    def add_pc(snx, period, sigma=1e-5, pconst=None, G=None):
+
+        """
+        Add absolute and/or relative periodic station motion constraints to normal matrix of constraints
+
+        Returns
+        -------
+        nc : Number of constraints added
+
+        Parameters
+        ----------
+        period : float
+            Period to consider
+        sigma : float, optional
+            Sigma of periodic station motion equality constraints between successive solns
+            of individual stations [m/y]. Default is 1e-6.
+        pconst : str or list, optional
+            [YAML file containing] periodic station motion constraints to be applied. Default is None.
+        G : networkx Graph instance, optional
+            Graph of relative periodic station motion constraints constructed by sinex.dpc_graph().
+            May be provided here to save time if the graph was computed beforehand.
+
+        """
+        
+        # Index of specified period in snx.per
+        ip = snx.per.index(period)
+
+        # Initializations
+        nc = 0
+        keys = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper[ip]]]
+
+        # Read custom periodic station motion constraints if necessary
+        if (pconst):
+            if not(isinstance(pconst, list)):
+                pconst = read_yaml(pconst)
+
+        # 1 - Absolute periodic station motion constraints
+        #-------------------------------------------------
+
+        # Loop over periodic station motion constraints, if any
+        if (pconst):
+            for pc in pconst:
+                if hasattr(pc, 'point'):
+
+                    # If specified point actually has estimated periodic motion coefficients,
+                    tab = pc.point.split()
+                    sta = tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2]))
+                    if (sta in keys):
+                        
+                        # If a single sigma is provided for all 3 XYZ components,
+                        # turn it into a list of 3 identical sigmas.
+                        if np.isscalar(pc.sigma):
+                            pc.sigma = 6*[pc.sigma]
+
+                        # Apply constraint
+                        i = keys.index(sta)
+                        for k in range(6):
+                            snx.Nc[snx.iper[ip][i]+k,snx.iper[ip][i]+k] += 1 / pc.sigma[k]**2
+                            snx.param[snx.iper[ip][i]+k].const = '0'
+                        nc += 6
+
+        # 2 - Relative periodic station motion constraints
+        #-------------------------------------------------
+
+        # Compute graph of relative periodic station motion constraints if needed
+        if not(G):
+            G = snx.dpc_graph(ip, sigma, pconst)
+
+        # Loop over edges of the graph
+        for e in G.edges:
+
+            # Get indices of both points
+            i1 = keys.index(e[0])
+            i2 = keys.index(e[1])
+
+            # Get weight of the constraint
+            w = G.get_edge_data(*e)['weight']
+
+            # Apply constraint
+            for k in range(6):
+                snx.Nc[snx.iper[ip][i1]+k,snx.iper[ip][i1]+k] += w
+                snx.Nc[snx.iper[ip][i1]+k,snx.iper[ip][i2]+k] -= w
+                snx.Nc[snx.iper[ip][i2]+k,snx.iper[ip][i1]+k] -= w
+                snx.Nc[snx.iper[ip][i2]+k,snx.iper[ip][i2]+k] += w
+            nc += 6
+
+        return nc
+
     # Invert normal equation
     #-----------------------
     def neqinv(snx, clear_neq=True, return_xNx=False):
@@ -4494,6 +4800,9 @@ class sinex:
             E/N/H WRMS of station position residuals
         snx.wrmsv : array_like
             E/N/H WRMS of station velocity residuals
+        snx.wrmsp : array_like
+            List of E/N/H WRMS of periodic station motion coefficient residuals
+            for each period included in the comparison
         
         Parameters
         ----------        
@@ -4561,6 +4870,10 @@ class sinex:
             A = snx.helmert_partials(helmerts, 'STA')[isnx]
             if (len(np.intersect1d(isnx, snx.iv)) > 0):
                 A = np.hstack((A, snx.helmert_partials(helmerts, 'VEL')[isnx]))
+            if (snx.per):
+                for (i, p) in enumerate(snx.per):
+                    if (len(np.intersect1d(isnx, snx.iper[i])) > 0):
+                        A = np.hstack((A, snx.helmert_partials(helmerts, 'PER', period=p)[isnx]))
 
             # Right-hand side
             y = snx.x[isnx] - ref.x[iref]
@@ -4616,6 +4929,7 @@ class sinex:
                 Qt *= sig02
                 if (norm_res == 'correct'):
                     Qv *= sig02
+            st = np.sqrt(np.diag(Qt))
 
             # Variances of observations
             s2 = np.diag(Q).copy()
@@ -4663,7 +4977,35 @@ class sinex:
             if (len(iv) > 0):
                 snx.wrmsv = np.zeros(3)
                 for i in range(3):
-                    snx.wrmsv[i] = sqrt(np.sum((snx.v[iv+i]**2/s2[iv+i])) / np.sum(1/s2[iv+i]))
+                    snx.wrmsv[i] = sqrt(np.sum(snx.v[iv+i]**2/s2[iv+i]) / np.sum(1/s2[iv+i]))
+                    
+            # Loop over periods
+            iper = [[]]
+            if (snx.per):
+                iper = [[] for i in range(len(snx.per))]
+                snx.wrmsp = [[] for i in range(len(snx.per))]
+                for (ip, p) in enumerate(snx.per):
+                    
+                    # Rotate periodic station motion coefficient residuals to ENH frames and convert them into mm
+                    iper[ip] = np.intersect1d(snx.iper[ip], isnx)
+                    for i in iper[ip]:
+                        R = xyz2enh(snx.get_xyz([snx.param[i].code], [snx.param[i].pt], [snx.param[i].soln])[0])
+                        snx.v[[i+0,i+2,i+4]] = 1000 * np.dot(R, snx.v[[i+0,i+2,i+4]])
+                        snx.v[[i+1,i+3,i+5]] = 1000 * np.dot(R, snx.v[[i+1,i+3,i+5]])
+                        s2[[i+0,i+2,i+4]] = np.diag(np.dot(R, np.dot(Q[np.ix_([i+0,i+2,i+4], [i+0,i+2,i+4])], R.T)))
+                        s2[[i+1,i+3,i+5]] = np.diag(np.dot(R, np.dot(Q[np.ix_([i+1,i+3,i+5], [i+1,i+3,i+5])], R.T)))
+                        if (norm_res == 'correct'):
+                            snx.sv[[i+0,i+2,i+4]] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[np.ix_([i+0,i+2,i+4], [i+0,i+2,i+4])], R.T))))
+                            snx.sv[[i+1,i+3,i+5]] = 1000 * np.sqrt(np.diag(np.dot(R, np.dot(Qv[np.ix_([i+1,i+3,i+5], [i+1,i+3,i+5])], R.T))))
+                        else:
+                            snx.sv[i:i+6] = 1000 * np.sqrt(s2[i:i+6])
+                        snx.vn[i:i+6] = snx.v[i:i+6] / snx.sv[i:i+6]
+
+                    # Compute WRMS of ENH periodic station motion coefficient residuals
+                    if (len(iper[ip]) > 0):
+                        snx.wrmsp[ip] = np.zeros(3)
+                        for i in range(3):
+                            snx.wrmsp[ip][i] = sqrt((np.sum(snx.v[iper[ip]+2*i]**2/s2[iper[ip]+2*i]) + np.sum(snx.v[iper[ip]+2*i+1]**2/s2[iper[ip]+2*i+1])) / (np.sum(1/s2[iper[ip]+2*i]) + np.sum(1/s2[iper[ip]+2*i+1])))
 
             # Convert geocenter residuals into mm
             igc = snx.igc + [i+1 for i in snx.igc] + [i+2 for i in snx.igc]
@@ -4674,32 +5016,8 @@ class sinex:
             irs = np.intersect1d(snx.irs, isnx)
 
             # Indices of ERP / GC / SC residuals
-            ic = ix.tolist() + [i+1 for i in ix] + [i+2 for i in ix] + iv.tolist() + [i+1 for i in iv] + [i+2 for i in iv] + irs.tolist() + [i+1 for i in irs]
+            ic = [i+k for i in ix for k in range(3)] + [i+k for i in iv for k in range(3)] + [i+k for ip in iper for i in ip for k in range(6)] + [i+k for i in irs for k in range(2)]
             ig = np.setdiff1d(isnx, ic)
-
-            # Reshape array of transformation parameters and their covariance matrix
-            ind = []
-            if ('T' in helmerts):
-                ind.extend(range(0, 3))
-            if ('S' in helmerts):
-                ind.append(3)
-            if ('R' in helmerts):
-                ind.extend(range(4, 7))
-            if (len(iv) > 0):
-                if ('T' in helmerts):
-                    ind.extend(range(7, 10))
-                if ('S' in helmerts):
-                    ind.append(10)
-                if ('R' in helmerts):
-                    ind.extend(range(11, 14))
-            if ('A' in helmerts):
-                ind.extend(range(14, 17))
-
-            T = np.zeros(17)
-            T[ind] = t
-            QT = np.zeros((17, 17))
-            QT[np.ix_(ind, ind)] = Qt
-            sT = np.sqrt(np.diag(QT))
 
             # Print output
             if not(quiet):
@@ -4711,52 +5029,103 @@ class sinex:
                 print('    Main statistics', file=out)
                 print('    ---------------', file=out)
                 print('', file=out)
-                print('    # observations      : {0}'.format(len(isnx)), file=out)
-                print('    (station positions  : {0})'.format(3*len(ix)), file=out)
-                print('    (station velocities : {0})'.format(3*len(iv)), file=out)
-                print('    (radiosource coord. : {0})'.format(2*len(irs)), file=out)
-                print('    (ERP / GC / SC      : {0})'.format(len(ig)), file=out)
-                print('    # parameters        : {0}'.format(A.shape[1]), file=out)
-                print('    Weighting           : {0}'.format(weighting), file=out)
-                print('    WRMS East           : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
-                print('    WRMS North          : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
-                print('    WRMS Up             : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
+                print('    # observations                  : {0}'.format(len(isnx)), file=out)
+                print('    (station positions              : {0})'.format(3*len(ix)), file=out)
+                print('    (station velocities             : {0})'.format(3*len(iv)), file=out)
+                print('    (periodic station motion coeffs : {0})'.format(6*np.sum([len(ip) for ip in iper])), file=out)
+                print('    (radiosource coord.             : {0})'.format(2*len(irs)), file=out)
+                print('    (ERP / GC / SC                  : {0})'.format(len(ig)), file=out)
+                print('    # parameters                    : {0}'.format(A.shape[1]), file=out)
+                print('    Weighting                       : {0}'.format(weighting), file=out)
+                print('    WRMS pos East                   : {0:8.3f} mm'.format(snx.wrmsx[0]), file=out)
+                print('    WRMS pos North                  : {0:8.3f} mm'.format(snx.wrmsx[1]), file=out)
+                print('    WRMS pos Up                     : {0:8.3f} mm'.format(snx.wrmsx[2]), file=out)
                 if (len(iv) > 0):
-                    print('    WRMS vel East       : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
-                    print('    WRMS vel North      : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
-                    print('    WRMS vel Up         : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                    print('    WRMS vel East                   : {0:8.3f} mm/y'.format(snx.wrmsv[0]), file=out)
+                    print('    WRMS vel North                  : {0:8.3f} mm/y'.format(snx.wrmsv[1]), file=out)
+                    print('    WRMS vel Up                     : {0:8.3f} mm/y'.format(snx.wrmsv[2]), file=out)
+                if (snx.per):
+                    for (ip, p) in enumerate(snx.per):
+                        if (len(iper[ip]) > 0):
+                            print('    WRMS per East  at {1:7.3f} d     : {0:8.3f} mm'.format(snx.wrmsp[ip][0], p), file=out)
+                            print('    WRMS per North at {1:7.3f} d     : {0:8.3f} mm'.format(snx.wrmsp[ip][1], p), file=out)
+                            print('    WRMS per Up    at {1:7.3f} d     : {0:8.3f} mm'.format(snx.wrmsp[ip][2], p), file=out)
                 print('', file=out)
 
                 # Print estimated parameters and formal errors
                 print('    Estimated Helmert parameters', file=out)
                 print('    ----------------------------', file=out)
                 print('', file=out)
+                
+                print('    Helmert parameters at t0:', file=out)
+                it = 0
                 if ('T' in helmerts):
-                    print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(T[0], sT[0]), file=out)
-                    print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(T[1], sT[1]), file=out)
-                    print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(T[2], sT[2]), file=out)
+                    print('    TX  : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+0], st[it+0]), file=out)
+                    print('    TY  : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+1], st[it+1]), file=out)
+                    print('    TZ  : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+2], st[it+2]), file=out)
+                    it += 3
                 if ('S' in helmerts):
-                    print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(T[3], sT[3]), file=out)
+                    print('    SC  : {0:8.3f} +/- {1:7.3f} ppb'.format(t[it], st[it]), file=out)
+                    it += 1
                 if ('R' in helmerts):
-                    print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[4], sT[4]), file=out)
-                    print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[5], sT[5]), file=out)
-                    print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[6], sT[6]), file=out)
-                if (len(iv) > 0):
-                    if ('T' in helmerts):
-                        print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[7], sT[7]), file=out)
-                        print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[8], sT[8]), file=out)
-                        print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(T[9], sT[9]), file=out)
-                    if ('S' in helmerts):
-                        print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(T[10], sT[10]), file=out)
-                    if ('R' in helmerts):
-                        print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[11], sT[11]), file=out)
-                        print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[12], sT[12]), file=out)
-                        print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(T[13], sT[13]), file=out)
+                    print('    RX  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+0], st[it+0]), file=out)
+                    print('    RY  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+1], st[it+1]), file=out)
+                    print('    RZ  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+2], st[it+2]), file=out)
+                    it += 3
                 if ('A' in helmerts):
-                    print('    AX  : {0:8.3f} +/- {1:7.3f} mas'.format(T[14], sT[14]), file=out)
-                    print('    AY  : {0:8.3f} +/- {1:7.3f} mas'.format(T[15], sT[15]), file=out)
-                    print('    AZ  : {0:8.3f} +/- {1:7.3f} mas'.format(T[16], sT[16]), file=out)
+                    print('    AX  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+0], st[it+0]), file=out)
+                    print('    AY  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+1], st[it+1]), file=out)
+                    print('    AZ  : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+2], st[it+2]), file=out)
                 print('', file=out)
+                
+                if (len(iv) > 0):
+                    print('    Helmert parameter rates:', file=out)
+                    if ('T' in helmerts):
+                        print('    dTX : {0:8.3f} +/- {1:7.3f} mm/y'.format(t[it+0], st[it+0]), file=out)
+                        print('    dTY : {0:8.3f} +/- {1:7.3f} mm/y'.format(t[it+1], st[it+1]), file=out)
+                        print('    dTZ : {0:8.3f} +/- {1:7.3f} mm/y'.format(t[it+2], st[it+2]), file=out)
+                        it += 3
+                    if ('S' in helmerts):
+                        print('    dSC : {0:8.3f} +/- {1:7.3f} ppb/y'.format(t[it], st[it]), file=out)
+                        it += 1
+                    if ('R' in helmerts):
+                        print('    dRX : {0:8.3f} +/- {1:7.3f} mas/y'.format(t[it+0], st[it+0]), file=out)
+                        print('    dRY : {0:8.3f} +/- {1:7.3f} mas/y'.format(t[it+1], st[it+1]), file=out)
+                        print('    dRZ : {0:8.3f} +/- {1:7.3f} mas/y'.format(t[it+2], st[it+2]), file=out)
+                        it += 3
+                    print('', file=out)
+                    
+                if (snx.per):
+                    for (ip, p) in enumerate(snx.per):
+                        if (len(iper[ip]) > 0):
+                            print('    Periodic Helmert parameter variations at {0:7.3f} d:'.format(p), file=out)
+                            if ('T' in helmerts):
+                                print('    TXc : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+0], st[it+0]), file=out)
+                                print('    TYc : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+1], st[it+1]), file=out)
+                                print('    TZc : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+2], st[it+2]), file=out)
+                                it += 3
+                            if ('S' in helmerts):
+                                print('    SCc : {0:8.3f} +/- {1:7.3f} ppb'.format(t[it], st[it]), file=out)
+                                it += 1
+                            if ('R' in helmerts):
+                                print('    RXc : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+0], st[it+0]), file=out)
+                                print('    RYc : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+1], st[it+1]), file=out)
+                                print('    RZc : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+2], st[it+2]), file=out)
+                                it += 3
+                            if ('T' in helmerts):
+                                print('    TXs : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+0], st[it+0]), file=out)
+                                print('    TYs : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+1], st[it+1]), file=out)
+                                print('    TZs : {0:8.3f} +/- {1:7.3f} mm'.format(t[it+2], st[it+2]), file=out)
+                                it += 3
+                            if ('S' in helmerts):
+                                print('    SCs : {0:8.3f} +/- {1:7.3f} ppb'.format(t[it], st[it]), file=out)
+                                it += 1
+                            if ('R' in helmerts):
+                                print('    RXs : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+0], st[it+0]), file=out)
+                                print('    RYs : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+1], st[it+1]), file=out)
+                                print('    RZs : {0:8.3f} +/- {1:7.3f} mas'.format(t[it+2], st[it+2]), file=out)
+                                it += 3
+                            print('', file=out)
 
                 # Print station position residuals
                 print('    Station position residuals', file=out)
@@ -4784,6 +5153,22 @@ class sinex:
                         print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[i], snx.v[i:i+3], snx.vn[i:i+3]), file=out)
                     print('    --------------|----------------------------|----------------------------|', file=out)
                     print('', file=out)
+                    
+                # Print periodic station motion coefficient residuals
+                if (snx.per):
+                    for (ip, p) in enumerate(snx.per):
+                        if (len(iper[ip]) > 0):
+                            print('    Periodic station motion residuals at {0:7.3f} d'.format(p), file=out)
+                            print('    ----------------------------------------------', file=out)
+                            print('', file=out)
+                            print('                  |                  Raw residuals [mm]                   |                  Normalized residuals                 |', file=out)
+                            print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                            print('     code pt soln |    Ec       Es       Nc       Ns       Hc       Hs    |    Ec       Es       Nc       Ns       Hc       Hs    |', file=out)
+                            print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                            for i in iper[ip]:
+                                print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} {1[3]:8.3f} {1[4]:8.3f} {1[5]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} {2[3]:8.3f} {2[4]:8.3f} {2[5]:8.3f} |'.format(snx.param[i], snx.v[i:i+6], snx.vn[i:i+6]), file=out)
+                            print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                            print('', file=out)
 
                 # Print radiosource coordinate residuals
                 if (len(irs) > 0):
@@ -4801,8 +5186,8 @@ class sinex:
 
                 # ERP/GC residuals
                 if (len(ig) > 0):
-                    print('    ERP / geocenter / scale residuals', file=out)
-                    print('    ---------------------------------', file=out)
+                    print('    Other parameter residuals', file=out)
+                    print('    -------------------------', file=out)
                     print('', file=out)
                     print('                         |      Raw      |   Norm   |', file=out)
                     print('    ---------------------|---------------|----------|', file=out)
@@ -4814,7 +5199,7 @@ class sinex:
                     print('    ---------------------|---------------|----------|', file=out)
                     print('', file=out)
 
-            return (T, QT)
+            return (t, Qt)
     
     # Get list of outliers from Helmert comparison or combination
     #------------------------------------------------------------
@@ -4835,15 +5220,18 @@ class sinex:
         Parameters
         ----------
         thr_raw : float, optional
-            Multiplicative factor defining thresholds for raw residuals:
-            along each component, threshold = thr_raw * WRMS
+            Multiplicative factor defining thresholds for raw residuals. Along each East, North and Up component,
+            and for each temporal component (station positions, station velocities, periodic station motions), 
+            threshold = thr_raw * WRMS
             Default is None.
         thr_norm : float, optional
             Threshold for normalized residuals
         thr_abs_E, thr_abs_N, thr_abs_H : float, optional
-            Absolute threshold for respectively east, north and up positional residuals  
+            Absolute thresholds for East, North and Up station position residuals
         reject1b1 : bool, optional
-            If True, then outliers will be removed one by one.
+            If True, then only one outlier (the one with the largest 3D normalized residual) will be reported
+            even if several outliers are identified. Note that this option applied only to station position
+            outliers, but not station velocity outliers nor periodic station motion outliers.
         ac : str, optional
             AC name to be reported in outliers summary file. Default is None.
         quiet : bool, optional
@@ -4859,9 +5247,11 @@ class sinex:
             print('------------------', file=out)
             print('', file=out)
             
-        # Indices of station positions / velocities
+        # Indices of station positions / velocities / periodic motion coefficients
         ix = np.array([[i, i+1, i+2] for i in snx.ix])
         iv = np.array([[i, i+1, i+2] for i in snx.iv])
+        icos = [np.array([[i+0, i+2, i+4] for i in ip]) for ip in snx.iper]
+        isin = [np.array([[i+1, i+3, i+5] for i in ip]) for ip in snx.iper]
 
         # Indices of station position outliers
         indx = []
@@ -4880,8 +5270,8 @@ class sinex:
                 indx.extend(np.nonzero(np.abs(snx.v[ix[:,2]]) > thr_abs_H)[0].tolist())
             indx = list(set(indx))
 
-        if len(indx)>0:
-            if reject1by1 == True:
+        if len(indx) > 0:
+            if (reject1by1):
                 r3D = np.sqrt(snx.vn[ix[indx,0]]**2 + snx.vn[ix[indx,1]]**2 + snx.vn[ix[indx,2]]**2)
                 indx = [indx[np.nonzero(r3D == np.max(r3D))[0][0]]]
         
@@ -4931,11 +5321,46 @@ class sinex:
                 print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(snx.param[iv[i,0]], snx.v[iv[i]], snx.vn[iv[i]]), file=out)
             print('    --------------|----------------------------|----------------------------|', file=out)
             print('', file=out)
+            
+        # Loop over periods
+        if (snx.per):
+            indp = [[] for i in range(len(snx.per))]
+            for (ip, p) in enumerate(snx.per):
+                
+                # Indices of periodic station motion outliers
+                if (len(icos[ip]) > 0):
+                    if (thr_raw):
+                        for i in range(3):
+                            indp[ip].extend(np.nonzero(np.abs(snx.v[icos[ip][:,i]]) > thr_raw*snx.wrmsp[ip][i])[0].tolist())
+                            indp[ip].extend(np.nonzero(np.abs(snx.v[isin[ip][:,i]]) > thr_raw*snx.wrmsp[ip][i])[0].tolist())
+                    if (thr_norm):
+                        for i in range(3):
+                            indp[ip].extend(np.nonzero(np.abs(snx.vn[icos[ip][:,i]]) > thr_norm)[0].tolist())
+                            indp[ip].extend(np.nonzero(np.abs(snx.vn[isin[ip][:,i]]) > thr_norm)[0].tolist())
+                    indp[ip] = list(set(indp[ip]))
+                    
+                # Print periodic station motion outliers
+                if (len(indp[ip]) > 0) and not(quiet):
+                    print('    Periodic station motion outliers at {0:7.3f} d'.format(p), file=out)
+                    print('    ---------------------------------------------', file=out)
+                    print('', file=out)
+                    print('                  |                  Raw residuals [mm]                   |                  Normalized residuals                 |', file=out)
+                    print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                    print('     code pt soln |    Ec       Es       Nc       Ns       Hc       Hs    |    Ec       Es       Nc       Ns       Hc       Hs    |', file=out)
+                    print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                    for i in indp[ip]:
+                        print('     {0.code} {0.pt} {0.soln} | {1[0]:8.3f} {2[0]:8.3f} {1[1]:8.3f} {2[1]:8.3f} {1[2]:8.3f} {2[2]:8.3f} | {3[0]:8.3f} {4[0]:8.3f} {3[1]:8.3f} {4[1]:8.3f} {3[2]:8.3f} {4[2]:8.3f} |'.format(snx.param[icos[ip][i,0]], snx.v[icos[ip][i]], snx.v[isin[ip][i]], snx.vn[icos[ip][i]], snx.vn[isin[ip][i]]), file=out)
+                    print('    --------------|-------------------------------------------------------|-------------------------------------------------------|', file=out)
+                    print('', file=out)
 
         # Outlier IDs
         code = [snx.param[snx.ix[i]].code for i in indx] + [snx.param[snx.iv[i]].code for i in indv]
         pt = [snx.param[snx.ix[i]].pt for i in indx] + [snx.param[snx.iv[i]].pt for i in indv]
         soln = [snx.param[snx.ix[i]].soln for i in indx] + [snx.param[snx.iv[i]].soln for i in indv]
+        if (snx.per):
+            code.extend([snx.param[snx.iper[ip][i]].code for ip in range(len(snx.per)) for i in indp[ip]])
+            pt.extend([snx.param[snx.iper[ip][i]].pt for ip in range(len(snx.per)) for i in indp[ip]])
+            soln.extend([snx.param[snx.iper[ip][i]].soln for ip in range(len(snx.per)) for i in indp[ip]])
 
         return (code, pt, soln)
     
@@ -4965,7 +5390,10 @@ class sinex:
             E/N/H WRMS of station position residuals
         snx.wrmsv : array_like
             E/N/H WRMS of station velocity residuals
-
+        snx.wrmsp : array_like
+            List of E/N/H WRMS of periodic station motion coefficient residuals
+            for each period included in the comparison
+        
         Besides, sinex.compare_iter rejects outlying stations from either snx or ref
         (depending on parameter clean_ref).
 
@@ -4994,15 +5422,18 @@ class sinex:
               standard deviations of the observations (i.e., snx.sig).
             Default is 'approx'.
         thr_raw : float, optional
-            Multiplicative factor defining thresholds for raw residuals:
-            along each component, threshold = thr_raw * WRMS
+            Multiplicative factor defining thresholds for raw residuals. Along each East, North and Up component,
+            and for each temporal component (station positions, station velocities, periodic station motions), 
+            threshold = thr_raw * WRMS
             Default is None.
         thr_norm : float, optional
             Threshold for normalized residuals
         thr_abs_E, thr_abs_N, thr_abs_H : float, optional
-            Absolute threshold for respectively east, north and up positional residuals 
+            Absolute thresholds for East, North and Up station position residuals
         reject1b1 : bool, optional
-            If True, then outliers will be removed one by one.
+            If True, then only one outlier (the one with the largest 3D normalized residual) will be removed
+            at each iteration, even if several outliers are identified. Note that this option applied only
+            to station position outliers, but not station velocity outliers nor periodic station motion outliers.
         clean_ref : bool, optional
             If True, then outliers will be removed from ref instead of snx.
             Default is False.
@@ -5049,7 +5480,7 @@ class sinex:
 
     # Propagate station positions to specified date
     #----------------------------------------------
-    def propagate(snx, tsnx, keep_vel=False):
+    def propagate(snx, tsnx, keep_vel=False, keep_per=False):
     
         """
         Propagate station positions to specified date
@@ -5059,17 +5490,26 @@ class sinex:
         tsnx : str
             Date (SINEX date format)
         keep_vel : bool, optional
-            Whether to keep station velocities. Default is False.
+            Whether to keep station velocities in sinex object. Default is False.
+        keep_per : bool, optional
+            If False, then periodic station motions are evaluated at date tsnx,
+            added to station positions, and removed from the sinex object.
+            If True, then periodic station motion coefficients are propagated at date tsnx
+            and kept in the sinex object, but periodic station motions are NOT added to
+            station positions.
+            Default is False.
         
         """
     
         # Propagation date
         t = date.from_tsnx(tsnx)
 
-        # Initialize design matrix A to identity
-        A_rows = list(range(snx.npar))
-        A_cols = list(range(snx.npar))
-        A_vals = snx.npar * [1]
+        # Initialize design matrix A to identity - except for periodic station motion coefficients!
+        iper = [i+k for ip in snx.iper for i in ip for k in range(6)]
+        ind = np.setdiff1d(range(snx.npar), iper).tolist()
+        A_rows = ind.copy()
+        A_cols = ind.copy()
+        A_vals = len(ind) * [1]
         
         # Complete design matrix : loop over station velocities
         for i in snx.iv:
@@ -5082,21 +5522,67 @@ class sinex:
             A_rows.extend([i-3, i-2, i-1])
             A_cols.extend([i, i+1, i+2])
             A_vals.extend([dti, dti, dti])
-
+        
             # Update parameter epochs
-            snx.param[i-3].tref = tsnx
-            snx.param[i-2].tref = tsnx
-            snx.param[i-1].tref = tsnx
+            for k in range(-3, 3):
+                snx.param[i+k].tref = tsnx
+                
+        # Complete design matrix : loop over periodic station motion coefficients
+        if (snx.per):
+            for (ip, p) in enumerate(snx.per):
+                for i in snx.iper[ip]:
+                    
+                    # 1st case: Periodic station motion coefficients should be propagated to tsnx,
+                    # but not added to station positions
+                    if (keep_per):
+
+                        # Propagation interval
+                        ti = date.from_tsnx(snx.param[i].tref)
+                        dti = t.mjd - ti.mjd
+                        
+                        # Update design matrix
+                        c = cos(2*pi*dti/p)
+                        s = sin(2*pi*dti/p)
+                        A_rows.extend([i, i, i+1, i+1, i+2, i+2, i+3, i+3, i+4, i+4, i+5, i+5])
+                        A_cols.extend([i, i+1, i, i+1, i+2, i+3, i+2, i+3, i+4, i+5, i+4, i+5])
+                        A_vals.extend([c, s, -s, c, c, s, -s, c, c, s, -s, c])
+
+                        # Update parameter epochs
+                        for k in range(6):
+                            snx.param[i+k].tref = tsnx
+                            
+                    # 2nd case: Periodic station motions should be added to station positions
+                    else:
+                        
+                        # Index of station position parameter corresponding to current periodic station motion coefficients
+                        ix = snx.ix[[p.code+p.pt+p.soln for p in [snx.param[j] for j in snx.ix]].index(snx.param[i].code+snx.param[i].pt+snx.param[i].soln)]
+                        
+                        # Propagation interval
+                        ti = date.from_tsnx(snx.param[i].tref)
+                        dti = t.mjd - ti.mjd
+                        
+                        # Update design matrix
+                        c = cos(2*pi*dti/p)
+                        s = sin(2*pi*dti/p)
+                        A_rows.extend([ix, ix, ix+1, ix+1, ix+2, ix+2])
+                        A_cols.extend([i, i+1, i+2, i+3, i+4, i+5])
+                        A_vals.extend([c, s, c, s, c, s])
 
         # Build sparse design matrix
         A = sparse.csr_matrix((A_vals, (A_rows, A_cols)))
         
-        # If velocity parameters should not be kept,
+        # Indices of parameters to drop
+        ind = []
         if not(keep_vel):
+            ind.extend([i+k for i in snx.iv for k in range(3)])
+        if not(keep_per):
+            ind.extend([i+k for ip in snx.iper for i in ip for k in range(6)])
+        
+        # If some parameters should be dropped,
+        if (len(ind) > 0):
             
             # Get indices of other parameters
-            iv = [i for i in snx.iv] + [i+1 for i in snx.iv] + [i+2 for i in snx.iv]
-            ind = np.setdiff1d(range(snx.npar), iv)
+            ind = np.setdiff1d(range(snx.npar), ind)
                 
             # And make some cleaning
             A = A[ind]
@@ -5121,6 +5607,10 @@ class sinex:
         snx.x0 = None
         snx.sig0 = None
         snx.Nc = None
+        
+        # Delete list of periods if periodic station motions were added into station positions
+        if not(keep_per):
+            snx.per = None
         
     # Compute post-seismic deformation of given station at given date
     #----------------------------------------------------------------
@@ -5335,106 +5825,138 @@ class sinex:
                     else:
                         snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + np.diag(Qxyz))
 
-    # Compute seasonal signal of given station at given date
-    #-------------------------------------------------------
-    def get_seas(snx, code, pt, soln, t):
+    ## Compute sum of periodic motions of given station at given date
+    ##---------------------------------------------------------------
+    #def get_per(snx, code, pt, soln, t):
 
-        """
-        Compute seasonal signal of given station at given date
-
-        Returns
-        -------
-        dx : array_like
-            XYZ seasonal signal
-        sx : array_like
-            Sigma XYZ seasonal signal
-
-        Parameters
-        ----------
-        code : str
-            4-char station code
-        pt : str
-            PT code
-        soln : str
-            Solution number
-        t : str
-            Date (SINEX date format)
+        #"""
+        #Compute sum of periodic motions of given station at given date
         
-        """
+        #Note: This method is intended to be used for sinex objects that only
+        #contain periodic station motion coefficients, and no covariance matrix,
+        #e.g., constructed from an ITRF2020 seasonal station motion SINEX file.
+        #For a sinex object that contains both station positions and periodic
+        #station motion coefficients, rather use sinex.propagate().
+
+        #Returns
+        #-------
+        #dx : array_like
+            #Sum of periodic station motions at date t (in XYZ and meters)
+        #sx : array_like
+            #Sigma of that sum (in XYZ and meters)
+
+        #Parameters
+        #----------
+        #code : str
+            #4-char station code
+        #pt : str
+            #PT code
+        #soln : str
+            #Solution number
+        #t : str
+            #Date (SINEX date format)
+        
+        #"""
     
-        # Initializations
-        dx = np.zeros(3)
-        s2x = np.zeros(3)
-        mjd = date.from_tsnx(t).mjd
+        ## Initializations
+        #dx = np.zeros(3)
+        #s2x = np.zeros(3)
+        #mjd = date.from_tsnx(t).mjd
         
-        # Set snx.codeptsoln if needed
-        if not(hasattr(snx, 'codeptsoln')):
-            snx.codeptsoln = np.array([snx.param[i].code + snx.param[i].pt + snx.param[i].soln for i in snx.iseas])
-        
-        # Indices of seasonal parameters of specified station
-        ind = np.nonzero(snx.codeptsoln == code+pt+soln)[0]
-        
-        # Loop over relevant parameters
-        for i in ind:
-            p = snx.param[snx.iseas[i]]
-            
-            # Component
-            j = 'XYZ'.index(p.type[5])
-            
-            # Annual harmonic
-            k = int(p.type[1])
-            
-            # Given date - reference date
-            dt = mjd - date.from_tsnx(p.tref).mjd
-            
-            # Add seasonal term
-            if (p.type[2:5] == 'COS'):
-                c = cos(2*pi*k*dt/365.25)
-            elif (p.type[2:5] == 'SIN'):
-                c = sin(2*pi*k*dt/365.25)
-            dx[j] += c*snx.x[i]
-            s2x[j] += (c*snx.sig[i])**2
+        ## Loop over periods
+        #if (snx.per):
+            #for (ip, p) in enumerate(snx.per):
+                
+                ## If coefficients are available for specified station at current period,
+                #codeptsoln_p = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper[ip]]]
+                #if (code+pt+soln in codeptsoln_p):
+                    
+                    ## Get index of the coefficients in snx.param
+                    #i = snx.iper[ip][codeptsoln_p.index(code+pt+soln)]
+                    
+                    ## Specified date - reference date
+                    #dt = mjd - date.from_tsnx(snx.param[i].tref).mjd
+                    
+                    ## Add motion at current period to the sum
+                    #c = cos(2*pi*dt/p)
+                    #s = sin(2*pi*dt/p)
+                    #dx += c*snx.x[[i, i+2, i+4]] + s*snx.x[[i+1, i+3, i+5]]
+                    #s2x += (c*snx.sig[[i, i+2, i+4]])**2 + (s*snx.sig[[i+1, i+3, i+5]])**2
 
-        return (dx, np.sqrt(s2x))
+        #return (dx, np.sqrt(s2x))
         
-    # Add seasonal signals to a solution
-    #-----------------------------------
-    def add_seas(snx, seas, update_cov=True):
+    ## Add periodic station motions from another sinex object to a solution
+    ##---------------------------------------------------------------------
+    #def add_per(snx, per, update_cov=True):
+        
+        #"""
+        #Add seasonal signals to a solution
+
+        #Parameters
+        #----------
+        #per : sinex instance
+            #"External" sinex instance containing periodic station motions, e.g.,
+            #constructed from an ITRF2020 seasonal station motion SINEX file.
+        #update_cov : bool, optional
+            #Whether covariance matrices of periodic station motions should be added
+            #to covariance matrix of sinex instance. Default is True.
+        
+        #"""
+        
+        ## Loop over STAX parameters
+        #for i in snx.ix:
+            #p = snx.param[i]
+            
+            ## Compute seasonal signals
+            #(dx, sx) = per.get_per(p.code, p.pt, p.soln, p.tref)
+            
+            ## Add seasonal signals
+            #snx.x[i:i+3] += dx
+
+            ## Update covariance matrix if required
+            #if (update_cov):
+                #if (snx.Q is not None):
+                    #snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
+                    #snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
+                #else:
+                    #snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
+                    
+    # Concatenate long-term linear solution + associated periodic station motions into a single sinex object
+    #-------------------------------------------------------------------------------------------------------
+    def add_per(snx, per):
         
         """
-        Add seasonal signals to a solution
+        Concatenate long-term linear solution + associated periodic station motions into a single sinex object
 
         Parameters
         ----------
-        seas : sinex instance
-            sinex instance containing seasonal signals
-        update_cov : bool, optional
-            Whether covariance matrix of PSD models should be added to covariance
-            matrix of sinex instance. Default is True.
+        per : sinex instance
+            sinex instance containing periodic station motions to be added into snx.
+            per would typically be constructed from an ITRF seasonal station motion SINEX file,
+            while snx would be the associated ITRF long-term linear solution.
         
         """
         
-        # Set useful attribute if needed
-        if not(hasattr(seas, 'codeptsoln')):
-            seas.codeptsoln = np.array([seas.param[i].code + seas.param[i].pt + seas.param[i].soln for i in seas.iseas])
+        # List of solns in snx
+        codeptsoln = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.ix]]
         
-        # Loop over STAX parameters
-        for i in snx.ix:
-            p = snx.param[i]
-            
-            # Compute seasonal signals
-            (dx, sx) = seas.get_seas(p.code, p.pt, p.soln, p.tref)
-            
-            # Add seasonal signals
-            snx.x[i:i+3] += dx
-
-            # Update covariance matrix if required
-            if (update_cov):
-                if (snx.Q is not None):
-                    snx.Q[i:i+3,i:i+3] += np.diag(sx**2)
-                    snx.sig[i:i+3] = np.sqrt(np.diag(snx.Q[i:i+3,i:i+3]))
-                else:
-                    snx.sig[i:i+3] = np.sqrt(snx.sig[i:i+3]**2 + sx**2)
+        # Indices of relevant parameters in per
+        ind = []
+        for ip in range(len(per.per)):
+            for i in per.iper[ip]:
+                if (per.param[i].code+per.param[i].pt+per.param[i].soln) in codeptsoln:
+                    ind.extend(range(i, i+6))
+                
+        # Add relevant parameters from per into snx
+        snx.per = per.per
+        snx.param.extend([per.param[i] for i in ind])
+        snx.x = np.hstack((snx.x, per.x[ind]))
+        snx.sig = np.hstack((snx.sig, per.sig[ind]))
+        snx.npar += len(ind)
+        
+        # Sort parameters and reset parameter indices of snx
+        snx.sort_params()
+        snx.set_par_ind()                
 
     # Calibrate LOD estimates wrt reference series
     #---------------------------------------------
@@ -5611,6 +6133,27 @@ class sinex:
         
         """
         
+        # Temporarily change "types" of periodic station motion coefficients
+        # at harmonics of the annual period to "old" style
+        if (snx.per):
+            h = []
+            for p in snx.per:
+                k = 365.25 / p
+                if np.isclose(k, np.round(k)):
+                    h.append(int(np.round(k)))
+                else:
+                    h.append(None)
+            
+            for p in snx.param:
+                if re.match('P[0-9]{3}[C|S][X|Y|Z]', p.type):
+                    i = int(p.type[1:4]) - 1
+                    if (h[i]):
+                        p.newtype = p.type
+                        if (p.type[4] == 'C'):
+                            p.type = 'A{0}COS{1}'.format(h[i], p.type[5])
+                        else:
+                            p.type = 'A{0}SIN{1}'.format(h[i], p.type[5])
+        
         # Print table header
         print('#code pt   _________parameter_type__________   _____t0_____   _valid_from_ _valid_till_   ________value________   ___sigma___   unit')
         print('#-----------------------------------------------------------------------------------------------------------------------------------')
@@ -5626,13 +6169,13 @@ class sinex:
                 elif (p.type[:3] == 'VEL'):
                     t = p.type[3]+' velocity'
                 elif (p.type[:5] == 'A1COS'):
-                    t = p.type[3]+' annual cosine amplitude'
+                    t = p.type[5]+' annual cosine amplitude'
                 elif (p.type[:5] == 'A1SIN'):
-                    t = p.type[3]+' annual sine amplitude'
+                    t = p.type[5]+' annual sine amplitude'
                 elif (p.type[:5] == 'A2COS'):
-                    t = p.type[3]+' semi-annual cosine amplitude'
+                    t = p.type[5]+' semi-annual cosine amplitude'
                 elif (p.type[:5] == 'A2SIN'):
-                    t = p.type[3]+' semi-annual sine amplitude'
+                    t = p.type[5]+' semi-annual sine amplitude'
                 ista = [s.code+s.pt for s in snx.sta].index(p.code+p.pt)
                 isoln = [s.soln for s in snx.sta[ista].solns].index(p.soln)
                 start = snx.sta[ista].solns[isoln].start
@@ -5675,6 +6218,13 @@ class sinex:
                 
             # Print parameter
             print(' {0.code} {0.pt}   {1:<33s}   {0.tref}   {2} {3}   {4:21.14e}   {5:11.5e}   {0.unit}'.format(p, t, start, end, snx.x[i], snx.sig[i]))
+            
+        # If needed, change "types" of periodic station motion coefficients back to "new" style.
+        if (snx.per):
+            for p in snx.param:
+                if hasattr(p, 'newtype'):
+                    p.type = p.newtype
+                    del p.newtype
             
     # Print table of (instantaneous) station positions
     #-------------------------------------------------
@@ -5723,6 +6273,7 @@ class sinex:
             stasnx.tech = 'P'
             stasnx.const = '2'
             stasnx.content = 'X V'
+            stasnx.per = snx.per
             stasnx.sta = [s]
             
             ind = np.nonzero(np.array([p.code for p in snx.param]) == s.code)[0]      
@@ -5911,6 +6462,84 @@ class sinex:
                         # Else, add an edge to the graph
                         else:
                             G.add_edge(sta[i], sta[i+1], weight=1/vc.sigma**2)
+
+        return G
+
+    # Build graph of relative periodic station motion constraints
+    #------------------------------------------------------------
+    def dpc_graph(snx, ip, sigma=1e-5, pconst=None):
+
+        """
+        Build graph of relative periodic station motion constraints
+
+        Returns
+        -------
+        G : networkx Graph instance
+
+        Parameters
+        ----------
+        ip : int
+            Index of the period to consider in snx.per
+        sigma : float, optional
+            Sigma of equality constraints to be applied between the periodic motions
+            of the successive solns of individual stations [m]. Default is 1e-5.
+        pconst : str or list, optional
+            [YAML file containing] periodic motion constraints to be applied.
+            Default is None.
+
+        """
+
+        # Initializations
+        nodes = [p.code+p.pt+p.soln for p in [snx.param[i] for i in snx.iper[ip]]]
+        G = nx.Graph()
+        G.add_nodes_from(nodes)
+
+        # If 'automatic' equality constraints should be applied between the periodic motions
+        # of the successive solns of individual stations,
+        if (sigma):
+
+            # Loop over stations and over the solns of each station
+            for sta in snx.sta:
+                for i in range(len(sta.soln)-1):
+                    G.add_edge(sta.code+sta.pt+sta.soln[i].soln, sta.code+sta.pt+sta.soln[i+1].soln, weight=1/sigma**2)
+
+        # If additional periodic motion constraints are provided,
+        if (pconst):
+
+            # Read them if necessary
+            if not(isinstance(pconst, list)):
+                pconst = read_yaml(pconst)
+
+            # Loop over clusters of relative periodic motion constraints
+            for pc in pconst:
+                if hasattr(pc, 'points'):
+
+                    # Get points IDs
+                    sta = []
+                    for i in range(len(pc.points)):
+                        tab = pc.points[i].split()
+                        sta.append(tab[0] + '{0:>2s}'.format(tab[1]) + '{0:4d}'.format(int(tab[2])))
+
+                    # Remove points that are not part of the solution
+                    i = 0
+                    while (i < len(sta)):
+                        if (sta[i] in nodes):
+                            i += 1
+                        else:
+                            sta.pop(i)
+
+                    # Loop over points of the cluster
+                    for i in range(len(sta)-1):
+
+                        # If an edge from current point to next point is already present in the graph,
+                        if G.has_edge(sta[i], sta[i+1]):
+
+                            # Overwrite edge weight
+                            G[sta[i]][sta[i+1]]['weight'] = 1/pc.sigma**2
+
+                        # Else, add an edge to the graph
+                        else:
+                            G.add_edge(sta[i], sta[i+1], weight=1/pc.sigma**2)
 
         return G
 
