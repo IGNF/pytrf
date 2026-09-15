@@ -1968,7 +1968,7 @@ class sinex:
                 
         # Bound start and end dates in SOLUTION/EPOCHS block
         for s in snx.sta:
-            b = False
+            b = (s.soln[0].datamean == '00:000:00000')
             if earlier(s.soln[0].datastart, tstart) or (s.soln[0].datastart == '00:000:00000'):
                 s.soln[0].datastart = tstart
                 b = True
