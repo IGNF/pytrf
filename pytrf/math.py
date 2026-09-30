@@ -3,6 +3,7 @@
 #
 # Main author:
 #  - Paul Rebischung
+#  - Juan A. García-Armenteros
 #
 # This file is part of pytrf: https://github.com/IGNF/pytrf
 #
@@ -481,16 +482,15 @@ def lombscargle(t, x, sf=4, f=None, dtrd=0, normalize=False):
 
 # Fast Lomb-Scargle periodogram
 #------------------------------
-# REVISAR SI MUCHAS COSAS SE PUEDEN PONER EN UNA LINEA
 def fastlomb(x, t, ofac=4, hifac=1):
     """
     Fast Lomb-Scargle periodogram.
     
     Python implementation of the fast Lomb-Scargle algorithm used by
-    GGMatlab/tsview, following the ``fastlomb.m`` routine by Thomas Herring
-    and Simon McClusky (MIT). The implementation follows the fast spectral
-    analysis approach of Press and Rybicki (1989), based on the
-    ``fasper`` algorithm described in Numerical Recipes.
+    GGMatlab/tsview (Herring, 2003) following the ``fastlomb.m`` routine.
+    The implementation follows the fast spectral analysis approach of Press
+    and Rybicki (1989), based on the ``fasper`` algorithm described in
+    Numerical Recipes.
     
     Parameters
     ----------
@@ -537,10 +537,11 @@ def fastlomb(x, t, ofac=4, hifac=1):
     
     Press, W. H., & Rybicki, G. B. (1989). Fast algorithm for spectral
         analysis of unevenly sampled data. The Astrophysical Journal,
-        338, 277-280.
-        https://doi.org/10.1086/167197
+        338, 277-280. https://doi.org/10.1086/167197
     
-    Herring, T. A., & McClusky, S. (2009). GGMatlab/tsview.
+    Herring, T. (2003). MATLAB Tools for viewing GPS velocities and time
+        series. GPS Solutions 7, 194–199.
+        https://doi.org/10.1007/s10291-003-0068-0
     
     Press, W. H., Teukolsky, S. A., Vetterling, W. T., & Flannery, B. P.
         (1992). Numerical Recipes in Fortran: The Art of Scientific
