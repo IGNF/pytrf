@@ -5,6 +5,7 @@
 #  - Paul Rebischung
 #  - Kevin Gobron
 #  - Maylis de La Serve
+#  - Juan A. García-Armenteros
 #
 # This file is part of pytrf: https://github.com/IGNF/pytrf
 #
@@ -4224,6 +4225,8 @@ class model:
         set_oeq()        : Compute predicted observations and design matrix
         set_cov()        : Compute covariance matrix
         set_psd()        : Compute power spectral density of noise model and of residuals
+        get_spectrum()   : Get period and amplitude from the Lomb-Scargle spectrum computed by set_psd()
+        plot_spectrum()  : Plot spectrum of the residuals
         set_xi()         : Estimate individual noise components
         simulate()       : Simulate time series values
         fitx()           : Fit deterministic model with fixed covariance matrix
@@ -5948,7 +5951,182 @@ class model:
         # Compute PSD of residuals if available
         if (m.v is not None):
             m.pv = lombscargle(m.r.t, m.v, f=m.fr, dtrd=None)[1]
+
+    # Get period and amplitude from the Lomb-Scargle spectrum computed by set_psd()
+    #----------------------------------------------------------------------------
+    def get_spectrum(m):
+        period = []
+        amplitude = []
+        for d in range(m.nd):
+            period.append(1.0 / m[d].fr)
+            amplitude.append(2.0 * np.sqrt(m[d].pv / len(m[d].r.t)) * 1000)
+        return period, amplitude
+
+    # Plot spectrum of the residuals
+    #-------------------------------
+    def plot_spectrum(m, method='lomb', figsize=None, output=None, show=True, show_values=True, report=True):
+        """
+        Plot the spectrum of the residuals.
+
+        Parameters
+        ----------
+        method : str, optional
+            Method used to compute the spectrum. Default is 'lomb', which
+            uses the Lomb-Scargle spectrum computed by set_psd().
+            'fast' uses fastlomb(), a Numerical Recipes fast Lomb-Scargle
+            implementation based on the fast algorithm used by GGMatlab
+            tsview. Both methods produce very similar spectral periods
+            and amplitudes.
+        show_values : bool, optional
+            Show annual and semiannual amplitudes in the plot.
+            Default is True.
+        report : bool, optional
+            Print the annual and semiannual spectral amplitudes.
+            Default is True.
+        """
+        from pytrf.math import fastlomb
+
+        if figsize is None:
+            figsize = (10, 10)
     
+        fig = pp.figure(figsize=figsize, tight_layout=True)
+        results = []
+
+        if method == 'lomb':
+            period, amplitude = m.get_spectrum()
+
+        for d in range(3):
+            ax = fig.add_subplot(3, 1, d+1)
+            t = m[d].r.t
+            x = m[d].v
+
+            if method == 'fast':
+                p, f, alpha, sig95 = fastlomb(x, t)
+                period_d = 1.0 / f
+                amplitude_d = 2.0 * np.sqrt(p / len(t)) * 1000
+
+            elif method == 'lomb':
+                period_d = period[d]
+                amplitude_d = amplitude[d]
+
+            else:
+                raise ValueError("method must be 'lomb' or 'fast'")
+
+            i = np.argmin(np.abs(period_d - 365.25))
+            j = np.argmin(np.abs(period_d - 182.625))
+            annual_amplitude = amplitude_d[i]
+            semiannual_amplitude = amplitude_d[j]
+
+            results.append((
+                ['East', 'North', 'Up'][d],
+                period_d[i], annual_amplitude,
+                period_d[j], semiannual_amplitude
+            ))
+
+            # Spectrum
+            ax.plot(period_d, amplitude_d, 'k-')
+            
+            if show_values:
+                ax.text(
+                    0.98, 0.78,
+                    'Annual amp. = {:.2f} mm\nSemiann amp. = {:.2f} mm'.format(
+                        annual_amplitude, semiannual_amplitude
+                    ),
+                    transform=ax.transAxes,
+                    horizontalalignment='right',
+                    verticalalignment='top',
+                    clip_on=True
+                )
+
+            # X axis
+            ax.set_xscale('log')
+    
+            dur = m[0].r.t[-1] - m[0].r.t[0]
+    
+            if dur > 10 * 365:
+                maxx = 10.5 * 365.25
+                xtick = [10, 30, 91, 182, 365, 730, 1460, 2920]
+            elif dur > 4 * 365:
+                maxx = 4.2 * 365.25
+                xtick = [10, 30, 91, 182, 365, 730, 1460]
+            else:
+                maxx = 500
+                xtick = [10, 30, 91, 182, 365]
+    
+            ax.set_xlim(5, maxx)
+            ax.invert_xaxis()
+            ax.set_xticks(xtick)
+            ax.set_xticklabels([str(x) for x in xtick])
+    
+            # Vertical reference periods
+            annual = np.array([
+                8*365.25, 4*365.25, 2*365.25, 365.25,
+                365.25/2, 365.25/3, 365.25/4,
+                365.25/5, 365.25/6, 365.25/7, 365.25/8
+            ])
+    
+            draconitic = np.array([
+                351.4, 351.4/2, 351.4/3, 351.4/4,
+                351.4/5, 351.4/6, 351.4/7, 351.4/8
+            ])
+    
+            ymin, ymax = ax.get_ylim()
+            ax.set_ylim(ymin, ymax * 1.10)
+            ylim = ax.get_ylim()
+    
+            for xline in annual:
+                ax.plot(
+                    [xline, xline], ylim,
+                    'g-', linewidth=0.8
+                )
+    
+            for xline in draconitic:
+                ax.plot(
+                    [xline, xline], ylim,
+                    'r--', linewidth=0.8
+                )
+
+            # Legend for vertical reference lines
+            ax.plot([], [], 'g-', linewidth=0.8, label='Annual harmonics')
+            ax.plot([], [], 'r--', linewidth=0.8, label='Draconitic harmonics')
+            ax.legend(loc='upper right', frameon=False)
+            
+            # Horizontal reference lines
+            y_ticks = ax.get_yticks()
+            
+            for yline in y_ticks:
+                if yline > ax.get_ylim()[0] and yline < ax.get_ylim()[1]:
+                    ax.plot(
+                        ax.get_xlim(), [yline, yline],
+                        color='0.75', linestyle=':', linewidth=0.6,
+                        zorder=0
+                    )
+    
+            ax.set_ylabel(['East Amplitude (mm)', 'North Amplitude (mm)', 'Up Amplitude (mm)'][d])
+
+        if report:
+            print('\nSpectrum — {}'.format('Lomb–Scargle' if method == 'lomb' else 'Fast Lomb–Scargle'))
+            print('=' * 80)
+            print('{:<10} {:>16} {:>15} {:>20} {:>18}'.format(
+                'Component', 'Annual period', 'Annual amp.', 'Semiannual period', 'Semiannual amp.'
+            ))
+            print('-' * 80)
+            for component, annual_period, annual_amp, semiannual_period, semiannual_amp in results:
+                print('{:<10} {:>12.2f} d {:>11.3f} mm {:>16.2f} d {:>14.3f} mm'.format(
+                    component, annual_period, annual_amp, semiannual_period, semiannual_amp
+                ))
+
+        ax.set_xlabel('Period (days)')
+        
+        # Save or show figure
+        if output is not None:
+            fig.savefig(output, bbox_inches='tight')
+            pp.close(fig)
+        elif show:
+            pp.show()
+    
+        return
+
     # Estimate individual noise components
     #-------------------------------------
     def set_xi(m):
@@ -7651,12 +7829,12 @@ class model:
         elif (show):
             pp.show()
 
-    # plot_fit(), plot_res(), plot_normres() & plot_psd()
-    #----------------------------------------------------
+    # plot_fit(), plot_res(), plot_normres(), plot_psd() & plot_spectrum()
+    #--------------------------------------------------------------------
     def plot_all(m, tunit=None):
 
         """
-        plot_fit(), plot_res(), plot_normres() & plot_psd()
+        plot_fit(), plot_res(), plot_normres(), plot_psd() & plot_spectrum()
 
         Parameters
         ----------
@@ -7667,7 +7845,8 @@ class model:
         m.plot_fit(tunit=tunit, show=False)
         m.plot_res(tunit=tunit, show=False)
         m.plot_normres(tunit=tunit, show=False)
-        m.plot_psd(tunit=tunit)
+        m.plot_psd(tunit=tunit, show=False)
+        m.plot_spectrum()
 
     # Print fit statistics and parameters
     #------------------------------------

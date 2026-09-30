@@ -3,6 +3,7 @@
 #
 # Main author:
 #  - Paul Rebischung
+#  - Juan A. García-Armenteros
 #
 # This file is part of pytrf: https://github.com/IGNF/pytrf
 #
@@ -477,6 +478,221 @@ def lombscargle(t, x, sf=4, f=None, dtrd=0, normalize=False):
     p = LombScargle(t, x, normalization='psd', fit_mean=False, center_data=False).power(f)
     
     return (f, p)
+
+
+# Fast Lomb-Scargle periodogram
+#------------------------------
+def fastlomb(x, t, ofac=4, hifac=1):
+    """
+    Fast Lomb-Scargle periodogram.
+    
+    Python implementation of the fast Lomb-Scargle algorithm used by
+    GGMatlab/tsview (Herring, 2003) following the ``fastlomb.m`` routine.
+    The implementation follows the fast spectral analysis approach of Press
+    and Rybicki (1989), based on the ``fasper`` algorithm described in
+    Numerical Recipes.
+    
+    Parameters
+    ----------
+    x : (n,) array_like
+        Time series values.
+    t : (n,) array_like
+        Dates, in units of time.
+    ofac : float, optional
+        Oversampling factor. Default is 4.
+    hifac : float, optional
+        Highest frequency factor. Default is 1.
+    
+    Returns
+    -------
+    p : array_like
+        Lomb-Scargle power.
+    f : array_like
+        Frequencies in units of 1/t.
+    alpha : array_like
+        False-alarm probability for each frequency.
+    sig95 : float
+        Power level corresponding to 95% significance.
+        
+    Notes
+    -----
+    The power returned by this implementation is not normalized by the
+    variance of the input series. For the normalization used here, the
+    amplitude corresponding to a spectral peak is obtained as
+    
+        A = 2 * sqrt(p / N)
+    
+    where N is the number of observations.
+    
+    References
+    ----------
+    Lomb, N. R. (1976). Least-squares frequency analysis of unequally
+        spaced data. Astrophysics and Space Science, 39, 447-462.
+        https://doi.org/10.1007/BF00648343
+    
+    Scargle, J. D. (1982). Studies in astronomical time series analysis.
+        II. Statistical aspects of spectral analysis of unevenly spaced
+        data. The Astrophysical Journal, 263, 835-853.
+        https://doi.org/10.1086/160554
+    
+    Press, W. H., & Rybicki, G. B. (1989). Fast algorithm for spectral
+        analysis of unevenly sampled data. The Astrophysical Journal,
+        338, 277-280. https://doi.org/10.1086/167197
+    
+    Herring, T. (2003). MATLAB Tools for viewing GPS velocities and time
+        series. GPS Solutions 7, 194–199.
+        https://doi.org/10.1007/s10291-003-0068-0
+    
+    Press, W. H., Teukolsky, S. A., Vetterling, W. T., & Flannery, B. P.
+        (1992). Numerical Recipes in Fortran: The Art of Scientific
+        Computing (2nd ed.). Cambridge University Press.
+    """
+    # Convert inputs to 1-D numpy arrays
+    x = np.asarray(x, dtype=float).reshape(-1)
+    t = np.asarray(t, dtype=float).reshape(-1)
+
+    # Basic checks
+    if len(x) != len(t):
+        raise ValueError("x and t must have the same length")
+    if len(x) < 2:
+        raise ValueError("At least two observations are required")
+
+    # Remove duplicate epochs, preserving the corresponding x values.
+    # MATLAB unique() also sorts the output.
+    t, ind = np.unique(t, return_index=True)
+    x = x[ind]
+
+    nt = len(t)
+
+    # Mean removal, as done internally by fastlomb.m
+    mx = np.mean(x)
+    x = x - mx
+
+    # Variance check
+    vx = np.var(x)
+    if vx == 0:
+        raise ValueError("x has zero variance")
+
+    # Number of output frequencies
+    nf = int(np.floor(0.5 * ofac * hifac * nt + 0.5))
+
+    # Frequency vector
+    T = t[-1] - t[0]
+    f = np.arange(1, nf + 1, dtype=float) / (T * ofac)
+
+    # Numerical Recipes acceleration factor
+    macc = 10
+
+    # Number of points used for the extirpolation grid
+    nfreq = 2 ** int(np.ceil(np.log2(ofac * hifac * nt * macc)))
+
+    fac = 2.0 * nfreq / (T * ofac)
+
+    # Extirpolate data and sampling function
+    wk1 = np.zeros(2 * nfreq, dtype=float)
+    wk2 = np.zeros(2 * nfreq, dtype=float)
+
+    nfac = np.array([1, 1, 2, 6, 24, 120, 720, 5040, 40320, 362880], dtype=float)
+
+    def spread(y, yy, xx, m):
+        """
+        Python translation of the SPREAD routine in fastlomb.m.
+        MATLAB indices are retained internally as 1-based indices.
+        """
+        n = len(yy)
+
+        if xx == np.round(xx):
+            i = int(xx)
+
+            # MATLAB: yy(x) = yy(x) + y
+            if 1 <= i <= n:
+                yy[i - 1] += y
+
+        else:
+            i1 = min(max(int(np.floor(xx - 0.5 * m + 1)), 1), n - m + 1)
+
+            i2 = i1 + m - 1
+
+            nden = nfac[m - 1]
+
+            fac_spread = xx - i1
+
+            # MATLAB:
+            # prod(x-(i1+1:i2))
+            prod_term = np.prod(xx - np.arange(i1 + 1, i2 + 1, dtype=float))
+
+            fac_spread *= prod_term
+
+            # MATLAB:
+            yy[i2 - 1] += y * fac_spread / (nden * (xx - i2))
+
+            for j in range(i2 - 1, i1 - 1, -1):
+
+                nden = nden / (j + 1 - i1) * (j - i2)
+
+                yy[j - 1] += y * fac_spread / (nden * (xx - j))
+
+        return yy
+
+    # Extirpolation
+    for j in range(nt):
+
+        # MATLAB:
+        # ck=1+mod(fix(t(j)*fac),2*nfreq)
+        ck = 1 + int(np.fix((t[j] - t[0]) * fac)) % (2 * nfreq)
+
+        # MATLAB:
+        # ckk=1+mod(2*(ck-1),2*nfreq)
+        ckk = 1 + (2 * (ck - 1)) % (2 * nfreq)
+
+        wk1 = spread(x[j], wk1, ck, macc)
+        wk2 = spread(1.0, wk2, ckk, macc)
+
+    # FFT of extirpolated data
+    W = np.fft.fft(wk1)
+
+    reft1 = np.real(W[1:nf + 1])
+    imft1 = np.imag(W[1:nf + 1])
+
+    # FFT of extirpolated sampling function
+    W = np.fft.fft(wk2)
+
+    reft2 = np.real(W[1:nf + 1])
+    imft2 = np.imag(W[1:nf + 1])
+
+    # Trigonometric terms
+    hypo = np.sqrt(reft2 ** 2 + imft2 ** 2)
+
+    hc2wt = 0.5 * reft2 / hypo
+    hs2wt = 0.5 * imft2 / hypo
+
+    cwt = np.sqrt(0.5 + hc2wt)
+
+    swt = (np.sign(hs2wt) + (hs2wt == 0)) * np.sqrt(0.5 - hc2wt)
+
+    # Lomb-Scargle periodogram
+    den = 0.5 * nt + hc2wt * reft2 + hs2wt * imft2
+
+    cterm = (cwt * reft1 + swt * imft1) ** 2 / den
+
+    sterm = (cwt * imft1 - swt * reft1) ** 2 / (nt - den)
+
+    p = (cterm + sterm) / 2.0
+    p = p.reshape(-1)
+
+    # False-alarm probability
+    M = 2.0 * nf / ofac
+
+    alpha = 1.0 - (1.0 - np.exp(-p)) ** M
+
+    mask = alpha < 0.1
+    alpha[mask] = M * np.exp(-p[mask])
+
+    # 95% significance level
+    a95 = 0.05
+    sig95 = -np.log(1.0 - (1.0 - a95) ** (1.0 / M))
+
+    return p, f, alpha, sig95
 
 # Morlet wavelet scalogram
 #-------------------------

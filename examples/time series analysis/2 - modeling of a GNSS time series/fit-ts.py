@@ -7,6 +7,14 @@
 #  - In the second step, some more periodic terms are added into the trajectory model, and flicker noise is added into the noise
 #    model.
 #
+# In addition to the plots used to assess the trajectory and noise models, the analysis also includes the amplitude spectrum of
+# the time-series residuals. The spectral peaks identify the periodicities present in the residuals and their associated amplitudes.
+# For example, a peak close to 365.25 days indicates annual periodic content, while a peak close to 182.625 days indicates
+# semi-annual periodic content. This provides an additional way to assess whether the periodic signals are adequately represented
+# by the model and whether their contribution has been reduced in the residuals. To assess the effect of the periodic terms included
+# in the trajectory model, the amplitude spectrum can be compared before (without per=[365.25, 182.625]) and after their inclusion,
+# showing how much of the periodic signal has been accounted for by the model.
+#
 # Note: In this example, it is assumed that the dates of offsets (position discontinuities) and velocity changes are known
 #       a priori. For an example of automatic offset detection, see:
 #       pytrf/examples/time series/automatic offset detection in a GNSS time series.
