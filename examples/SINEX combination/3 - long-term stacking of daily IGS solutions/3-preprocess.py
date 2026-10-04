@@ -7,6 +7,7 @@
 #  - Station position outliers previously identified by "2-fit-ts.py" are reduced.
 #  - Post-seismic deformation models are subtracted from station positions, so that purely piecewise linear
 #    trajectory models can be adjusted during the stacking.
+#  - Periodic signals are subtracted from station positions.
 #  - The inverse of the covariance matrix is computed and stored in order to save time during the stacking.
 #
 # The preprocessed sinex objects, which will serve as inputs to snxcmb.combine() in "4-stack.py", are then dumped
@@ -63,6 +64,9 @@ def preprocess(f):
     # Remove PSD models
     snx.add_psd(psd, remove=True, update_cov=False)
 
+    # Remove periodic signals using coefficients saved by model.fit() in the per_coeffs/ directory
+    snx.remove_periodic('per_coeffs')
+
     # Invert covariance matrix to save time during stacking
     snx.N = invspd(snx.Q)
 
@@ -94,3 +98,67 @@ nproc = mp.cpu_count()
 files = np.sort(glob.glob('pkl/*.pkl'))
 with mp.Pool(nproc) as pool:
     pool.map(preprocess, files)
+
+
+
+# Final spectral analysis after corrections
+#------------------------------------------
+
+# (This part can be omitted and run only once as a test to check that periodic signal removal from the SINEX objects works).
+# At this point, the SINEX objects have been corrected for outliers, PSD and periodic signals. Their time series can
+# therefore be considered as the final ones, representing the observations to be stacked. Therefore, if the model is
+# fitted without periodic terms for each station to obtain the amplitude spectrum of the time-series residuals, there
+# should be no spectral peaks close to 365.25 days and 182.625 days, i.e. no annual and semi-annual periodic content.
+# These final spectrum plots should be similar to those obtained in the previous step 2-fit-ts.py ('+sta+'-clean-spectrum.png),
+# where the model was fitted with annual and semi-annual periodic terms.
+
+from pytrf.ts import ts, model
+
+if not(os.path.isdir('crd-clean')):
+    os.mkdir('crd-clean')
+os.system('rm crd-clean/*')
+
+# Extract station time series from preprocessed SINEX pickle files
+files = np.sort(glob.glob('pkl-clean/*.pkl'))
+
+for f in files:
+    snx = sinex.load(f)
+    t = date.from_tsnx(snx.param[0].tref)
+    
+    # Loop over station positions
+    for i in snx.ix:
+        sta = snx.param[i].code
+        X = snx.x[i:i+3]
+        Q = snx.Q[i:i+3, i:i+3]
+        
+        # Update position time series
+        with open('crd-clean/'+sta+'.crd', 'a') as fp:
+            print(
+                '{0:7.1f} {1[0]:21.14e} {1[1]:21.14e} {1[2]:21.14e} '
+                '{2[0][0]:21.14e} {2[0][1]:21.14e} {2[0][2]:21.14e} '
+                '{2[1][1]:21.14e} {2[1][2]:21.14e} {2[2][2]:21.14e}'
+                .format(t.mjd, X, Q),
+                file=fp
+            )
+
+# Sort station time series
+files = np.sort(glob.glob('crd-clean/*'))
+
+for f in files:
+    os.system('sort -k1,1 {0} > tmp'.format(f))
+    os.system('mv tmp {0}'.format(f))
+
+# Fit 'without periodic' terms and plot final spectrum
+for f in files:
+    sta = os.path.basename(f)[:4]
+    print('Read time series '+f)
+    r = ts.read(
+        f,
+        format=('t', 'x', 'y', 'z', 'qx', 'qxy', 'qxz', 'qy', 'qyz', 'qz'),
+        dtrd=1,
+        rotate=True
+    )
+
+    m = model.from_solns(r, solns, code=sta, noise=['vw'])
+    m.fit(quiet=True)
+    m.plot_spectrum(output='fig/'+sta+'-final-spectrum.png', report=False)

@@ -4,7 +4,9 @@
 # report them in the daily outlier lists contained in the "del" directory. These outliers will then be
 # removed from the daily input solutions to the long-term stacking by the script "3-preprocess.py", so
 # that the long-term stacking itself can be run only once (i.e., without having to iteratively identify
-# and remove outliers from the daily input solutions).
+# and remove outliers from the daily input solutions). The fitted periodic coefficients are also saved
+# for each station and will subsequently be used to remove the corresponding periodic signals from the
+# daily input solutions.
 #
 # The trajectory model adjusted to each station position time series is composed of:
 #  - a linear trend,
@@ -70,11 +72,20 @@ def fit(f):
     
     # Flag points with abnormally large formal errors as outliers
     r.clean_sigmas()
+
+    # Fit the model without periodic terms for each station to obtain a reference spectrum.
+    # This spectrum will be compared with the final spectrum to assess the removal of the annual and semi-annual periodic signals.
+    m0 = model.from_solns(r, solns, code=sta, noise=['vw'], psd=psd, fix_amp=True, fix_tau=True)
+    m0.fit(quiet=True)
+    m0.plot_spectrum(output='fig/'+sta+'-initial-spectrum.png', report=False)
     
-    # Intialize model from master discontinuity list and PSD SINEX file
+    # Initialize model from master discontinuity list and PSD SINEX file
     # Note the "fix_amp=True" and "fix_tau=True" arguments which mean that the
     # PSD models will be fixed to those in the PSD SINEX file, not re-adjusted.
-    m = model.from_solns(r, solns, code=sta, per=[365.25,182.625], noise=['vw'], psd=psd, fix_amp=True, fix_tau=True)
+    # The fitted periodic coefficients should be saved using the "save_per" argument
+    # so that they can subsequently be used to remove the corresponding periodic
+    # signals from the daily input solutions in 3-preprocess.py.
+    m = model.from_solns(r, solns, code=sta, per=[365.25,182.625], save_per='per_coeffs', noise=['vw'], psd=psd, fix_amp=True, fix_tau=True)
     
     # Fit model without rejecting any outliers at first and draw "raw" figures
     # (In a real-world stacking, these "raw" figures would be the ones to look at in order to identify
@@ -96,7 +107,8 @@ def fit(f):
     # Draw "clean" figures
     m.plot_fit(tunit='y', output='fig/'+sta+'-clean-fit.png')
     m.plot_res(tunit='y', output='fig/'+sta+'-clean-res.png')
-
+    m.plot_spectrum(output='fig/'+sta+'-clean-spectrum.png', report=False)
+    
     # Update daily outlier lists
     for i in range(len(r.tdel)):
         t = date.from_mjd(r.tdel[i])
@@ -117,6 +129,7 @@ if not(os.path.isdir('fig')):
 # Clean "del" and "fig" directories
 os.system('rm del/*')
 os.system('rm fig/*')
+os.system('rm per_coeffs/*')
 
 # Read master discontinuity list & PSD models
 solns = read_solns('gen/soln_IGSR3.snx')
