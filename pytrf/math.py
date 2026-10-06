@@ -116,6 +116,13 @@ def invspd(A, return_det=False):
         
     """
 
+    # Handle empty matrices (e.g. SINEX solutions with zero remaining stations)
+    if A.size == 0:
+        print('Solution with an empty covariance matrix (0 stations): covariance inversion skipped.')
+        if return_det:
+            return A.copy(), 0.0
+        return A.copy()
+        
     (f, L) = cholesky(A)
     
     if (return_det):
