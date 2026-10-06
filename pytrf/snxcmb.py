@@ -249,6 +249,26 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     if not(isinstance(inputs, list)):
         inputs = read_yaml(inputs)
 
+    # Skip input solutions with fewer than 2 stations
+    valid_inputs = []
+    skipped = 0
+    for sol in inputs:
+        if hasattr(sol, 'snx'):
+            nsta = len(sol.snx.sta)
+        else:
+            snx = sinex.load(sol.file, load_mat=False)
+            nsta = len(snx.sta)
+
+        if nsta >= 2:
+            valid_inputs.append(sol)
+        elif not(quiet):
+            print('    Skipping {0}: {1} station(s)'.format(
+                sol.name, nsta), file=out)
+            skipped += 1
+    inputs[:] = valid_inputs
+    if not(quiet) and skipped:
+        print('    {0} solution(s) skipped (< 2 stations)'.format(skipped), file=out)
+
     # Read discontinuity file if necessary
     if (solns):
         if not(isinstance(solns, list)):
