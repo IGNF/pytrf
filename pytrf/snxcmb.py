@@ -349,16 +349,16 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         inputs = read_yaml(inputs)
         
     # Set possibly missing "params", "params_rate" and "params_per" attributes of input solutions
-    # and change "ic_per" attributes to lists whenever needed
     for sol in inputs:
         if not(hasattr(sol, 'params')):
             sol.params = ''
         if not(hasattr(sol, 'params_rate')):
             sol.params_rate = ''
-        if not(hasattr(sol, 'params_per')):
-            sol.params_per = ''
-        if isinstance(sol.params_per, str):
-            sol.params_per = [sol.params_per for p in set_per]
+        if (set_per):
+            if not(hasattr(sol, 'params_per')):
+                sol.params_per = ''
+            if isinstance(sol.params_per, str):
+                sol.params_per = [sol.params_per for p in set_per]
     
     # Set possibly missing "ic_mean" attributes of input solutions
     if (ic_mean):
