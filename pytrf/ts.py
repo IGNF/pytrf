@@ -6095,7 +6095,7 @@ class model:
                         zorder=0
                     )
     
-            ax.set_ylabel(['East Amplitude (mm)', 'North Amplitude (mm)', 'Up Amplitude (mm)'][d])
+            ax.set_ylabel(['East Amplitude [mm]', 'North Amplitude [mm]', 'Up Amplitude [mm]'][d])
 
         if report:
             print('\nSpectrum — {}'.format('Lomb–Scargle' if method == 'lomb' else 'Fast Lomb–Scargle'))
@@ -6109,7 +6109,7 @@ class model:
                     component, annual_period, annual_amp, semiannual_period, semiannual_amp
                 ))
 
-        ax.set_xlabel('Period (days)')
+        ax.set_xlabel('Period [days]')
         
         # Save or show figure
         if output is not None:
