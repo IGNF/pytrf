@@ -77,7 +77,7 @@ def fit(f):
     # This spectrum will be compared with the final spectrum to assess the removal of the annual and semi-annual periodic signals.
     m0 = model.from_solns(r, solns, code=sta, noise=['vw'], psd=psd, fix_amp=True, fix_tau=True)
     m0.fit(quiet=True)
-    m0.plot_spectrum(output='fig/'+sta+'-initial-spectrum.png', report=False)
+    m0.plot_spectrum(output='fig/'+sta+'-initial-spectrum.png', show_legend=True)
     
     # Initialize model from master discontinuity list and PSD SINEX file
     # Note the "fix_amp=True" and "fix_tau=True" arguments which mean that the
@@ -107,7 +107,7 @@ def fit(f):
     # Draw "clean" figures
     m.plot_fit(tunit='y', output='fig/'+sta+'-clean-fit.png')
     m.plot_res(tunit='y', output='fig/'+sta+'-clean-res.png')
-    m.plot_spectrum(output='fig/'+sta+'-clean-spectrum.png', report=False)
+    m.plot_spectrum(output='fig/'+sta+'-clean-spectrum.png', show_legend=True)
     
     # Update daily outlier lists
     for i in range(len(r.tdel)):
