@@ -5968,7 +5968,7 @@ class model:
 
     # Plot spectrum of the residuals
     #-------------------------------
-    def plot_spectrum(m, method='lomb', figsize=None, output=None, show=True, show_values=True, report=True):
+    def plot_spectrum(m, method='lomb', figsize=None, output=None, show=True, show_legend=False, report=False):
         """
         Plot the spectrum of the residuals.
 
@@ -5981,9 +5981,9 @@ class model:
             implementation based on the fast algorithm used by GGMatlab
             tsview. Both methods produce very similar spectral periods
             and amplitudes.
-        show_values : bool, optional
-            Show annual and semiannual amplitudes in the plot.
-            Default is True.
+        show_legend : bool, optional
+            Show legend with annual and draconitic harmonics and annual and semiannual amplitudes.
+            Default is False.
         report : bool, optional
             Print the annual and semiannual spectral amplitudes.
             Default is True.
@@ -6030,17 +6030,15 @@ class model:
             # Spectrum
             ax.plot(period_d, amplitude_d, 'k-')
             
-            if show_values:
-                ax.text(
-                    0.98, 0.78,
-                    'Annual amp. = {:.2f} mm\nSemiann amp. = {:.2f} mm'.format(
-                        annual_amplitude, semiannual_amplitude
-                    ),
-                    transform=ax.transAxes,
-                    horizontalalignment='right',
-                    verticalalignment='top',
-                    clip_on=True
-                )
+            if show_legend:
+                from matplotlib.lines import Line2D
+                handles = [
+                    Line2D([], [], color='g', linewidth=0.8, label='Annual harmonics'),
+                    Line2D([], [], color='r', linestyle='--', linewidth=0.8, label='Draconitic harmonics'),
+                    Line2D([], [], color='none', label='Annual amp. = {:.2f} mm'.format(annual_amplitude)),
+                    Line2D([], [], color='none', label='Semiannual amp. = {:.2f} mm'.format(semiannual_amplitude))
+                ]
+                ax.legend(handles=handles, loc='upper right', frameon=False, labelspacing=0.2, fontsize=9)
 
             # X axis
             ax.set_xscale('log')
@@ -6089,11 +6087,6 @@ class model:
                     [xline, xline], ylim,
                     'r--', linewidth=0.8
                 )
-
-            # Legend for vertical reference lines
-            ax.plot([], [], 'g-', linewidth=0.8, label='Annual harmonics')
-            ax.plot([], [], 'r--', linewidth=0.8, label='Draconitic harmonics')
-            ax.legend(loc='upper right', frameon=False)
             
             # Horizontal reference lines
             y_ticks = ax.get_yticks()
@@ -6106,7 +6099,7 @@ class model:
                         zorder=0
                     )
     
-            ax.set_ylabel(['East Amplitude (mm)', 'North Amplitude (mm)', 'Up Amplitude (mm)'][d])
+            ax.set_ylabel(['East Amplitude [mm]', 'North Amplitude [mm]', 'Up Amplitude [mm]'][d])
 
         if report:
             print('\nSpectrum — {}'.format('Lomb–Scargle' if method == 'lomb' else 'Fast Lomb–Scargle'))
@@ -6120,7 +6113,7 @@ class model:
                     component, annual_period, annual_amp, semiannual_period, semiannual_amp
                 ))
 
-        ax.set_xlabel('Period (days)')
+        ax.set_xlabel('Period [days]')
         
         # Save or show figure
         if output is not None:
