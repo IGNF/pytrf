@@ -161,4 +161,4 @@ for f in files:
 
     m = model.from_solns(r, solns, code=sta, noise=['vw'])
     m.fit(quiet=True)
-    m.plot_spectrum(output='fig/'+sta+'-final-spectrum.png', report=False)
+    m.plot_spectrum(output='fig/'+sta+'-final-spectrum.png', show_legend=True)
