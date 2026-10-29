@@ -234,9 +234,11 @@ def read_solns(file):
                     ista = ista+1
                     code = line[1:5]
                     pt = line[6:8]
+                    tech = line[14]
                     r = record()
                     r.code = code
                     r.pt = pt
+                    r.tech = tech
                     r.P = []
                     r.V = []
                     r.X = []
