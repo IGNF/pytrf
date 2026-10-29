@@ -3407,6 +3407,9 @@ class sinex:
                 snx.Q = snx.Q[np.ix_(indk, indk)]
                 snx.x = snx.x[indk]
                 snx.sig = snx.sig[indk]
+                if (snx.x0 is not None):
+                    snx.x0 = snx.x0[indk]
+                    snx.sig0 = snx.sig0[indk]
                     
             # 4th case: solution only
             elif (snx.Q is not None):
