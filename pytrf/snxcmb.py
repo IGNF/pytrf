@@ -309,16 +309,29 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
 
-        ## Print message
-        #if not(quiet):
-            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
-
         # Read input
         read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc, load_mat=store_inputs)
         
         # Shortcut for sol.snx
         snx = sol.snx
         
+        # Count number of transformation parameters to be estimated for current input solution
+        nt = 0
+        if ('R' in sol.params):
+            nt += 3
+        if ('S' in sol.params):
+            nt += 1
+        if ('T' in sol.params):
+            nt += 3
+                        
+        # If the number of parameters in current input solution is less than the number of
+        # transformation parameters to be estimated, skip current input solution.
+        if (snx.npar <= nt):
+            sol.skip = True
+            continue
+        else:
+            sol.skip = False
+
         # Search keys
         snx.codept = [s.code+s.pt for s in snx.sta]
 
@@ -679,102 +692,103 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         # Loop over input solutions
         for isol in range(len(inputs)):
             sol = inputs[isol]
+            if not(sol.skip):
 
-            # Translations?
-            if ('T' in sol.params):
+                # Translations?
+                if ('T' in sol.params):
 
-                # Add new TX parameter into combined solution
-                r = record()
-                r.type = 'TX    '
-                r.code = '{0:<4}'.format(sol.name)[:4]
-                r.pt = '--'
-                r.soln = '{0:>4}'.format(isol+1)[-4:]
-                r.tref = sol.tref
-                r.unit = 'mm  '
-                r.const = 2
-                r.isol = isol
-                combsnx.param.append(r)
+                    # Add new TX parameter into combined solution
+                    r = record()
+                    r.type = 'TX    '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'mm  '
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
 
-                # Add new TY parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'TY    '
-                
-                # Add new TZ parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'TZ    '
+                    # Add new TY parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'TY    '
+                    
+                    # Add new TZ parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'TZ    '
 
-                # Update combsnx.x0
-                combsnx.x0.extend([0, 0, 0])
+                    # Update combsnx.x0
+                    combsnx.x0.extend([0, 0, 0])
 
-            # Scale factor?
-            if ('S' in sol.params):
+                # Scale factor?
+                if ('S' in sol.params):
 
-                # Add new SC parameter into combined solution
-                r = record()
-                r.type = 'SC    '
-                r.code = '{0:<4}'.format(sol.name)[:4]
-                r.pt = '--'
-                r.soln = '{0:>4}'.format(isol+1)[-4:]
-                r.tref = sol.tref
-                r.unit = 'ppb '
-                r.const = 2
-                r.isol = isol
-                combsnx.param.append(r)
+                    # Add new SC parameter into combined solution
+                    r = record()
+                    r.type = 'SC    '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'ppb '
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
 
-                # Update combsnx.x0
-                combsnx.x0.append(0)
+                    # Update combsnx.x0
+                    combsnx.x0.append(0)
 
-            # Rotations?
-            if ('R' in sol.params):
+                # Rotations?
+                if ('R' in sol.params):
 
-                # Add new RX parameter into combined solution
-                r = record()
-                r.type = 'RX    '
-                r.code = '{0:<4}'.format(sol.name)[:4]
-                r.pt = '--'
-                r.soln = '{0:>4}'.format(isol+1)[-4:]
-                r.tref = sol.tref
-                r.unit = 'mas '
-                r.const = 2
-                r.isol = isol
-                combsnx.param.append(r)
+                    # Add new RX parameter into combined solution
+                    r = record()
+                    r.type = 'RX    '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'mas '
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
 
-                # Add new RY parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'RY    '
-                
-                # Add new RZ parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'RZ    '
+                    # Add new RY parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'RY    '
+                    
+                    # Add new RZ parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'RZ    '
 
-                # Update combsnx.x0
-                combsnx.x0.extend([0, 0, 0])
+                    # Update combsnx.x0
+                    combsnx.x0.extend([0, 0, 0])
 
-            # CRF Rotations?
-            if ('A' in sol.params):
+                # CRF Rotations?
+                if ('A' in sol.params):
 
-                # Add new AX parameter into combined solution
-                r = record()
-                r.type = 'AX    '
-                r.code = '{0:<4}'.format(sol.name)[:4]
-                r.pt = '--'
-                r.soln = '{0:>4}'.format(isol+1)[-4:]
-                r.tref = sol.tref
-                r.unit = 'mas '
-                r.const = 2
-                r.isol = isol
-                combsnx.param.append(r)
+                    # Add new AX parameter into combined solution
+                    r = record()
+                    r.type = 'AX    '
+                    r.code = '{0:<4}'.format(sol.name)[:4]
+                    r.pt = '--'
+                    r.soln = '{0:>4}'.format(isol+1)[-4:]
+                    r.tref = sol.tref
+                    r.unit = 'mas '
+                    r.const = 2
+                    r.isol = isol
+                    combsnx.param.append(r)
 
-                # Add new AY parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'AY    '
+                    # Add new AY parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'AY    '
 
-                # Add new AZ parameter into combined solution
-                combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
-                combsnx.param[-1].type = 'AZ    '
+                    # Add new AZ parameter into combined solution
+                    combsnx.param.append(copy.deepcopy(combsnx.param[-1]))
+                    combsnx.param[-1].type = 'AZ    '
 
-                # Update combsnx.x0
-                combsnx.x0.extend([0, 0, 0])
+                    # Update combsnx.x0
+                    combsnx.x0.extend([0, 0, 0])
 
 
 
@@ -942,77 +956,79 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
         
-        ## Print message
-        #if not(quiet):
-            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
-            
-        # Re-read input solution if needed
-        if not(store_inputs):
-            read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
-
-        # Shortcut for sol.snx
-        snx = sol.snx
-
-        # Indices of common parameters with combined solution
-        (isnx, icmb) = snx.get_common_par(combsnx)
-
-        # Right-hand side (O-C vector)
-        dyi = np.zeros(snx.npar)
-        dyi[isnx] = snx.x[isnx] - combsnx.x0[icmb] 
-        dy.append(dyi)
+        if (sol.skip):
+            A.append(None)
+            dy.append(None)
         
-        # Initialize design matrix with ones for all parameters in snx
-        A_rows = isnx
-        A_cols = icmb
-        A_vals = [1]*len(isnx)
-    
-        # Add position / velocity partial derivatives and update right-hand side if needed
-        if (set_vel):
-            keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iv]]
-            for i in snx.ix:
-                p = snx.param[i]
-                dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25
-                j = combsnx.iv[keys.index(p.code+p.pt+p.soln)]
-                A_rows.extend([i, i+1, i+2])
-                A_cols.extend([j, j+1, j+2])
-                A_vals.extend([dt, dt, dt])
-                dy[-1][i:i+3] -= dt * combsnx.x0[j:j+3]
-
-        # Add partial derivatives of transformation parameters
-        H = snx.helmert_partials(sol.params, 'STA')
-        if not(reduce_trans):
-            ind = np.nonzero(H)
-            A_rows.extend(ind[0].tolist())
-            A_cols.extend([sol.itrans[i] for i in ind[1]])
-            A_vals.extend(H[ind].tolist())
-        
-        # Build sparse design matrix of current solution
-        A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
-        ind = np.nonzero(A[isol].indptr[:-1] != A[isol].indptr[1:])[0]
-
-        # Get weight matrix of solution isol
-        if (snx.N is not None) and (snx.Nc is not None):
-            P = (snx.N + snx.Nc) / sol.sf**2
-        elif (snx.N is not None):
-            P = snx.N / sol.sf**2
         else:
-            P = invspd(snx.Q) / sol.sf**2
+            
+            # Re-read input solution if needed
+            if not(store_inputs):
+                read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
 
-        # Project weight matrix if transformation parameters are reduced
-        if (reduce_trans):
-            HtP = np.dot(H.T, P)
-            HtPHi = invspd(np.dot(HtP, H))
-            P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
+            # Shortcut for sol.snx
+            snx = sol.snx
 
-        # Update normal equation
-        AtP = A[isol][:,ind].T.dot(P)
-        combsnx.N[np.ix_(ind,ind)] += A[isol][:,ind].T.dot(AtP.T)
-        combsnx.b[ind] += np.dot(AtP, dy[isol])
-        lPl += np.dot(dy[isol].T, np.dot(P, dy[isol]))
+            # Indices of common parameters with combined solution
+            (isnx, icmb) = snx.get_common_par(combsnx)
 
-        # Make room if needed
-        if not(store_inputs):
-            del sol.snx
+            # Right-hand side (O-C vector)
+            dyi = np.zeros(snx.npar)
+            dyi[isnx] = snx.x[isnx] - combsnx.x0[icmb] 
+            dy.append(dyi)
+            
+            # Initialize design matrix with ones for all parameters in snx
+            A_rows = isnx
+            A_cols = icmb
+            A_vals = [1]*len(isnx)
+        
+            # Add position / velocity partial derivatives and update right-hand side if needed
+            if (set_vel):
+                keys = [p.code+p.pt+p.soln for p in [combsnx.param[i] for i in combsnx.iv]]
+                for i in snx.ix:
+                    p = snx.param[i]
+                    dt = (date.from_tsnx(p.tref).mjd - mjd0) / 365.25
+                    j = combsnx.iv[keys.index(p.code+p.pt+p.soln)]
+                    A_rows.extend([i, i+1, i+2])
+                    A_cols.extend([j, j+1, j+2])
+                    A_vals.extend([dt, dt, dt])
+                    dy[-1][i:i+3] -= dt * combsnx.x0[j:j+3]
+
+            # Add partial derivatives of transformation parameters
+            H = snx.helmert_partials(sol.params, 'STA')
+            if not(reduce_trans):
+                ind = np.nonzero(H)
+                A_rows.extend(ind[0].tolist())
+                A_cols.extend([sol.itrans[i] for i in ind[1]])
+                A_vals.extend(H[ind].tolist())
+            
+            # Build sparse design matrix of current solution
+            A.append(sparse.csc_matrix((A_vals, (A_rows, A_cols)), shape=(snx.npar, combsnx.npar)))
+            ind = np.nonzero(A[isol].indptr[:-1] != A[isol].indptr[1:])[0]
+
+            # Get weight matrix of solution isol
+            if (snx.N is not None) and (snx.Nc is not None):
+                P = (snx.N + snx.Nc) / sol.sf**2
+            elif (snx.N is not None):
+                P = snx.N / sol.sf**2
+            else:
+                P = invspd(snx.Q) / sol.sf**2
+
+            # Project weight matrix if transformation parameters are reduced
+            if (reduce_trans):
+                HtP = np.dot(H.T, P)
+                HtPHi = invspd(np.dot(HtP, H))
+                P -= np.dot(HtP.T, np.dot(HtPHi, HtP))
+
+            # Update normal equation
+            AtP = A[isol][:,ind].T.dot(P)
+            combsnx.N[np.ix_(ind,ind)] += A[isol][:,ind].T.dot(AtP.T)
+            combsnx.b[ind] += np.dot(AtP, dy[isol])
+            lPl += np.dot(dy[isol].T, np.dot(P, dy[isol]))
+
+            # Make room if needed
+            if not(store_inputs):
+                del sol.snx
 
     # Return unconstrained normal equation if required
     if (return_neq):
@@ -1112,108 +1128,105 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     
     for isol in tqdm(range(len(inputs)), file=tqdm_out, leave=False):
         sol = inputs[isol]
-        
-        ## Print message
-        #if not(quiet):
-            #print('        Processing input solution {0:5d}/{1} ({2})'.format(isol+1, len(inputs), sol.name), file=out)
+        if not(sol.skip):
 
-        # Re-read input solution if needed
-        if not(store_inputs):
-            read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
+            # Re-read input solution if needed
+            if not(store_inputs):
+                read_input(sol, tref, solns, check_solns, psd, stack_gc, stack_sc)
 
-        # Shortcut for sol.snx
-        snx = sol.snx
+            # Shortcut for sol.snx
+            snx = sol.snx
 
-        # Store number of observations
-        sol.nobs = snx.npar
+            # Store number of observations
+            sol.nobs = snx.npar
 
-        # Compute residuals
-        sol.v = dy[isol] - A[isol].dot(dx)
-        
-        # Get covariance matrix of input solution
-        Q = snx.Q * sol.sf**2
-        
-        # Get weight matrix of input solution
-        if (snx.N is not None) and (snx.Nc is not None):
-            P = (snx.N + snx.Nc) / sol.sf**2
-        elif (snx.N is not None):
-            P = snx.N / sol.sf**2
-        else:
-            P = invspd(Q)
+            # Compute residuals
+            sol.v = dy[isol] - A[isol].dot(dx)
             
-        # If transformation parameters were reduced, project residuals and update number of reduced transformation parameters.
-        # Store, by the way, transformation parameters, their covariance matrix and formal errors.
-        if (reduce_trans):
-            H = snx.helmert_partials(sol.params, 'STA')
-            HtP = np.dot(H.T, P)
-            sol.QT = invspd(np.dot(HtP, H))
-            sol.sT = np.sqrt(np.diag(sol.QT))
-            sol.T = np.dot(sol.QT, np.dot(HtP, sol.v))
-            sol.v -= np.dot(H, sol.T)
-            ntrans += H.shape[1]
+            # Get covariance matrix of input solution
+            Q = snx.Q * sol.sf**2
             
-        # Covariance matrices of predicted observations if needed
-        if not(reduce_trans) and ((norm_res == 'correct') or (vce == 'correct')):
-            Ql = A[isol].dot((A[isol].dot(combsnx.Q)).T)
-        
-        # Compute covariance matrix of residuals if needed
-        if not(reduce_trans) and (norm_res == 'correct'):
-            Qv = Q - Ql
-        
-        # Standard deviations of residuals
-        if not(reduce_trans) and (norm_res == 'correct'):
-            sol.sv = np.sqrt(np.diag(Qv))
-        else:
-            sol.sv = np.sqrt(np.diag(Q))
-        
-        # Normalized residuals
-        sol.vn = sol.v / sol.sv
-
-        # Weighted squared sum of residuals
-        sol.vPv = np.sum(sol.v * np.dot(P, sol.v))
-
-        # Compute solution variance factor
-        if not(reduce_trans) and (vce == 'correct'):
-            sol.tr = trdot(Ql, P)
-        else:
-            sol.tr = 0
-        sol.vf = sol.vPv / (snx.npar - sol.tr)
-        
-        # Rotate residuals into ENH frames and compute variances of ENH observations
-        s2 = np.diag(Q).copy()
-        for i in snx.ix:
-            R = xyz2enh(snx.x[i:i+3])
-            sol.v[i:i+3] = np.dot(R, sol.v[i:i+3])
-            s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3,i:i+3], R.T)))
-            if not(reduce_trans) and (norm_res == 'correct'):
-                sol.sv[i:i+3] = np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3,i:i+3], R.T))))
+            # Get weight matrix of input solution
+            if (snx.N is not None) and (snx.Nc is not None):
+                P = (snx.N + snx.Nc) / sol.sf**2
+            elif (snx.N is not None):
+                P = snx.N / sol.sf**2
             else:
-                sol.sv[i:i+3] = np.sqrt(s2[i:i+3])
-            sol.vn[i:i+3] = sol.v[i:i+3] / sol.sv[i:i+3]
-            
-        # Indices of station coordinates and geocenter coordinates
-        ix = np.array([[i, i+1, i+2] for i in snx.ix])
-        igc = np.array([[i, i+1, i+2] for i in snx.igc])
+                P = invspd(Q)
                 
-        # Compute WRMS of ENH residuals and median ENH formal errors
-        sol.wrms = np.zeros(3)
-        sol.sigm = np.zeros(3)
-        for i in range(3):
-            sol.wrms[i] = sqrt(np.sum(sol.v[ix[:,i]]**2/s2[ix[:,i]]) / np.sum(1/s2[ix[:,i]]))
-            sol.sigm[i] = np.median(np.sqrt(s2[ix[:,i]]))
+            # If transformation parameters were reduced, project residuals and update number of reduced transformation parameters.
+            # Store, by the way, transformation parameters, their covariance matrix and formal errors.
+            if (reduce_trans):
+                H = snx.helmert_partials(sol.params, 'STA')
+                HtP = np.dot(H.T, P)
+                sol.QT = invspd(np.dot(HtP, H))
+                sol.sT = np.sqrt(np.diag(sol.QT))
+                sol.T = np.dot(sol.QT, np.dot(HtP, sol.v))
+                sol.v -= np.dot(H, sol.T)
+                ntrans += H.shape[1]
+                
+            # Covariance matrices of predicted observations if needed
+            if not(reduce_trans) and ((norm_res == 'correct') or (vce == 'correct')):
+                Ql = A[isol].dot((A[isol].dot(combsnx.Q)).T)
+            
+            # Compute covariance matrix of residuals if needed
+            if not(reduce_trans) and (norm_res == 'correct'):
+                Qv = Q - Ql
+            
+            # Standard deviations of residuals
+            if not(reduce_trans) and (norm_res == 'correct'):
+                sol.sv = np.sqrt(np.diag(Qv))
+            else:
+                sol.sv = np.sqrt(np.diag(Q))
+            
+            # Normalized residuals
+            sol.vn = sol.v / sol.sv
 
-        # Convert residuals, WRMS and median formal errors into mm
-        sol.v[ix] *= 1000
-        sol.sv[ix] *= 1000
-        if (len(igc) > 0):
-            sol.v[igc] *= 1000
-            sol.sv[igc] *= 1000
-        sol.wrms *= 1000
-        sol.sigm *= 1000
+            # Weighted squared sum of residuals
+            sol.vPv = np.sum(sol.v * np.dot(P, sol.v))
 
-        # Make room if needed
-        if not(store_inputs):
-            del sol.snx
+            # Compute solution variance factor
+            if not(reduce_trans) and (vce == 'correct'):
+                sol.tr = trdot(Ql, P)
+            else:
+                sol.tr = 0
+            sol.vf = sol.vPv / (snx.npar - sol.tr)
+            
+            # Rotate residuals into ENH frames and compute variances of ENH observations
+            s2 = np.diag(Q).copy()
+            for i in snx.ix:
+                R = xyz2enh(snx.x[i:i+3])
+                sol.v[i:i+3] = np.dot(R, sol.v[i:i+3])
+                s2[i:i+3] = np.diag(np.dot(R, np.dot(Q[i:i+3,i:i+3], R.T)))
+                if not(reduce_trans) and (norm_res == 'correct'):
+                    sol.sv[i:i+3] = np.sqrt(np.diag(np.dot(R, np.dot(Qv[i:i+3,i:i+3], R.T))))
+                else:
+                    sol.sv[i:i+3] = np.sqrt(s2[i:i+3])
+                sol.vn[i:i+3] = sol.v[i:i+3] / sol.sv[i:i+3]
+                
+            # Indices of station coordinates and geocenter coordinates
+            ix = np.array([[i, i+1, i+2] for i in snx.ix])
+            igc = np.array([[i, i+1, i+2] for i in snx.igc])
+                    
+            # Compute WRMS of ENH residuals and median ENH formal errors
+            sol.wrms = np.zeros(3)
+            sol.sigm = np.zeros(3)
+            for i in range(3):
+                sol.wrms[i] = sqrt(np.sum(sol.v[ix[:,i]]**2/s2[ix[:,i]]) / np.sum(1/s2[ix[:,i]]))
+                sol.sigm[i] = np.median(np.sqrt(s2[ix[:,i]]))
+
+            # Convert residuals, WRMS and median formal errors into mm
+            sol.v[ix] *= 1000
+            sol.sv[ix] *= 1000
+            if (len(igc) > 0):
+                sol.v[igc] *= 1000
+                sol.sv[igc] *= 1000
+            sol.wrms *= 1000
+            sol.sigm *= 1000
+
+            # Make room if needed
+            if not(store_inputs):
+                del sol.snx
         
         
         
@@ -1226,16 +1239,18 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     # Update standard devations of residuals, normalized residuals and median ENH formal errors
     # with global variance factor
     for sol in inputs:
-        sol.sv *= sqrt(vf)
-        sol.vn /= sqrt(vf)
-        sol.sigm *= sqrt(vf)
+        if not(sol.skip):
+            sol.sv *= sqrt(vf)
+            sol.vn /= sqrt(vf)
+            sol.sigm *= sqrt(vf)
 
     # Update covariance matrix and standard deviations of transformation parameters
     # with global variance factor if they were reduced
     if (reduce_trans):
         for sol in inputs:
-            sol.QT *= vf
-            sol.sT *= sqrt(vf)
+            if not(sol.skip):
+                sol.QT *= vf
+                sol.sT *= sqrt(vf)
         
     # Update combined solution with global variance factor
     combsnx.Nc /= vf 
@@ -1265,7 +1280,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         for isol in range(len(inputs)):
             sol = inputs[isol]
             name = '{0:4}'.format(sol.name)[:4]
-            print('         {0} | {1.nobs:6d} {1.tr:10.3f} {1.vPv:10.3f} {2:8.3f} {3:8.3f} {4:8.3f} |'.format(name, sol, sol.sf, sqrt(sol.vf), sol.sf*sqrt(sol.vf)), file=out)
+            if (sol.skip):
+                print('#        {0} |     Solution skipped because of too few parameters.     |'.format(name), file=out)
+            else:
+                print('         {0} | {1.nobs:6d} {1.tr:10.3f} {1.vPv:10.3f} {2:8.3f} {3:8.3f} {4:8.3f} |'.format(name, sol, sol.sf, sqrt(sol.vf), sol.sf*sqrt(sol.vf)), file=out)
         print('        ------|---------------------------------------------------------|', file=out)
         print('         comb | {0:6d} {1:10.3f} {2:10.3f}          sigma0 = {3:8.3f} |'.format(nobs, combsnx.npar+ntrans, vPv, sqrt(vf)), file=out)
         print('', file=out)
@@ -1275,7 +1293,10 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
         for isol in range(len(inputs)):
             sol = inputs[isol]
             name = '{0:4}'.format(sol.name)[:4]
-            print('         {0} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(name, sol.wrms, sol.sigm), file=out)
+            if (sol.skip):
+                print('#        {0} |     Solution skipped because of too few parameters.     |'.format(name), file=out)
+            else:
+                print('         {0} | {1[0]:8.3f} {1[1]:8.3f} {1[2]:8.3f} | {2[0]:8.3f} {2[1]:8.3f} {2[2]:8.3f} |'.format(name, sol.wrms, sol.sigm), file=out)
         print('        ------|----------------------------|----------------------------|', file=out)
         print('', file=out)
 
@@ -1285,7 +1306,8 @@ def combine(inputs, tref, solns=None, check_solns=True, psd=None, set_vel=False,
     #-----------------------------------------------------
     if (update_sf):
         for sol in inputs:
-            sol.sf = sol.sf * sqrt(sol.vf)
+            if not(sol.skip):
+                sol.sf = sol.sf * sqrt(sol.vf)
 
 
 
