@@ -59,6 +59,9 @@ def cholesky(A):
         Symmetric positive definite matrix
     """
     
+    if (A.size == 0):
+        return (np.empty(0), np.empty((0, 0)))
+    
     f = 1. / np.sqrt(np.diag(A))
     (L, info) = linalg.lapack.dpotrf(f*(A*f).T)
     if (info != 0):
@@ -85,6 +88,10 @@ def cholsolve(fL, b):
     b : (n, p) array_like
         Right-hand side
     """
+
+    if (b.size == 0):
+        return np.empty(0)
+    
     f = fL[0]
     L = fL[1]
     (x, info) = linalg.lapack.dpotrs(L, (f*b.T).T)
@@ -115,6 +122,12 @@ def invspd(A, return_det=False):
         Whether the log-determinant of A should be returned
         
     """
+
+    if (A.size == 0):
+        if (return_det):
+            return (np.empty((0, 0)), 0)
+        else:
+            return np.empty((0, 0))
 
     (f, L) = cholesky(A)
     
