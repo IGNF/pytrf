@@ -100,13 +100,14 @@ print('')
 print('Write stacking residuals...')
 
 for inp in inputs:
-    snx = sinex.load(inp.file, load_mat=False)
-    
-    for i in snx.ix:
-        sta = snx.param[i].code
-        t = date.from_tsnx(snx.param[i].tref).mjd
-        v = inp.v[i:i+3]
-        sv = inp.sv[i:i+3]
+    if not(inp.skip):
+        snx = sinex.load(inp.file, load_mat=False)
         
-        with open('res/'+sta+'.res', 'a') as f:
-            print('{0:7.1f}   {1[0]:9.3f} {1[1]:9.3f} {1[2]:9.3f}   {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f}'.format(t, v, sv), file=f)
+        for i in snx.ix:
+            sta = snx.param[i].code
+            t = date.from_tsnx(snx.param[i].tref).mjd
+            v = inp.v[i:i+3]
+            sv = inp.sv[i:i+3]
+            
+            with open('res/'+sta+'.res', 'a') as f:
+                print('{0:7.1f}   {1[0]:9.3f} {1[1]:9.3f} {1[2]:9.3f}   {2[0]:9.3f} {2[1]:9.3f} {2[2]:9.3f}'.format(t, v, sv), file=f)
